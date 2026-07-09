@@ -23,6 +23,11 @@ def test_register_plugins_adds_subcommand(monkeypatch):
     assert args.func("model", args) == 0
 
 
+def test_plugin_subcommand_dispatches_through_main(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_iter_cli_entry_points", lambda: [FakeEntryPoint()])
+    assert cli.main([str(tmp_path), "fancycheck"]) == 0
+
+
 def test_no_plugins_is_fine(monkeypatch):
     monkeypatch.setattr(cli, "_iter_cli_entry_points", lambda: [])
     parser = argparse.ArgumentParser()
