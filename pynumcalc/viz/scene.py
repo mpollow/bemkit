@@ -151,7 +151,7 @@ class BEMScene:
                           **kwargs):
         """Add a Delaunay-triangulated surface from field points.
 
-        Works best with structured grids (planeXZ, g30_1m).
+        Works best with structured grids (e.g. planeXZ).
 
         Parameters
         ----------

@@ -45,9 +45,15 @@ pynumcalc/
 └── examples/              # Per-model dirs (see below)
 ```
 
-**Layer rule**: `meshing`/`sim` (core) never import `analysis`/`viz`. `import pynumcalc`
-stays matplotlib/pyvista-free; those are only imported lazily inside `analysis`/`viz`/`cli`
-commands that need them (`plot`, `geometry`, `results`).
+**Layer rule**: `meshing`/`sim` (core) never import `analysis`/`viz`, and never use
+pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumbore +
+Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
+commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
+
+**Scope**: public meshing is gmsh STEP/PLY generation; public examples are models whose
+surface is rigid or vibrating (the implemented STEP color contract). Fieldpoint generators
+are the minimal set: `onaxis`, `polar`, `plane`. The mmgs metric workflow and gaussian
+spherical grids live in the private layer.
 
 **Geometry authoring** lives in the external `bemgeo` package (separate repo),
 not in pynumcalc. pynumcalc is a pure consumer of the STEP files bemgeo writes: the color
@@ -134,7 +140,7 @@ from pynumcalc import SimulationData
 sim = SimulationData.from_model("examples/sphcap")          # auto-discover variant
 sim = SimulationData.from_model("examples/sphcap", variant="sphcap-50-20.lc5-25")  # explicit variant
 
-sim.set_names             # ['g30_1m', 'onaxis', 'planeXZ', ...]
+sim.set_names             # ['onaxis', 'polar', 'planeXZ', ...]
 sim.frequencies           # (nf,) Hz array
 sim.available_bins        # [1, 2, ..., 64]
 

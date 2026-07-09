@@ -24,7 +24,6 @@ dist_max = 100.0   # mm - distance field max
 ## min_surface_distance_factor = 0.1  # × avg edge length (default: 0.1)
 #onaxis = "fieldpoints/onaxis.npy"
 #polar = "fieldpoints/polar.npy"
-#g30_1m = "fieldpoints/g30_1m.npy"
 #planeXZ = "fieldpoints/planeXZ.npy"
 
 

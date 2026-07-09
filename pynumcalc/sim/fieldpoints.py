@@ -5,22 +5,23 @@ import numpy as np
 from pathlib import Path
 
 
-# ─── PyVista helper ───────────────────────────────────────────────────────────
+# ─── Geometry kernels (pure numpy) ───────────────────────────────────────────
 
-def _build_pv_surf(vertices, triangles):
-    """Build a PyVista PolyData surface from vertices and triangles."""
-    import pyvista as pv
-    n = len(triangles)
-    faces = np.column_stack([np.full(n, 3, dtype=np.int64), triangles]).ravel()
-    return pv.PolyData(vertices.astype(np.float64), faces)
+def points_inside_mesh(points, vertices, triangles):
+    """Ray-cast each point in multiple directions. Majority vote = inside.
 
+    Uses 3 orthogonal ray directions (+x, +y, +z) to handle open surfaces
+    and edge cases: a point is inside if at least 2/3 rays report an odd
+    intersection count. Chunked Möller-Trumbore, vectorized over triangle
+    batches instead of looping per-triangle.
 
-# ─── Numpy fallbacks ──────────────────────────────────────────────────────────
+    Args:
+        points: (N, 3) query points
+        vertices: (M, 3) mesh vertices
+        triangles: (T, 3) triangle vertex indices (0-indexed)
 
-def _points_inside_mesh_numpy(points, vertices, triangles):
-    """Chunked numpy Möller-Trumbore ray-cast (fallback when PyVista unavailable).
-
-    Vectorizes over triangles in batches instead of looping per-triangle.
+    Returns:
+        Boolean array (N,) — True where point is inside the mesh
     """
     eps = 1e-12
     N = len(points)
@@ -81,10 +82,19 @@ def _points_inside_mesh_numpy(points, vertices, triangles):
     return inside_votes >= 2
 
 
-def _min_distance_to_mesh_numpy(points, vertices, triangles):
-    """Chunked numpy Eberly closest-point algorithm (fallback when PyVista unavailable).
+def min_distance_to_mesh(points, vertices, triangles):
+    """Compute minimum distance from each point to the mesh surface.
 
-    Vectorizes over triangles in batches using BLAS matmul for d/e computation.
+    Chunked Eberly closest-point algorithm, vectorized over triangle
+    batches using BLAS matmul for the d/e terms.
+
+    Args:
+        points: (N, 3) query points
+        vertices: (M, 3) mesh vertices
+        triangles: (T, 3) triangle vertex indices (0-indexed)
+
+    Returns:
+        (N,) minimum distances
     """
     N = len(points)
     T = len(triangles)
@@ -187,63 +197,6 @@ def _min_distance_to_mesh_numpy(points, vertices, triangles):
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def points_inside_mesh(points, vertices, triangles, _pv_surf=None):
-    """Ray-cast each point in multiple directions. Majority vote = inside.
-
-    Uses 3 orthogonal ray directions (+x, +y, +z) to handle open surfaces
-    and edge cases. A point is inside if at least 2/3 rays report odd
-    intersection count.
-
-    Tries PyVista's BVH-accelerated select_enclosed_points first; falls back
-    to a chunked numpy Möller-Trumbore implementation.
-
-    Args:
-        points: (N, 3) query points
-        vertices: (M, 3) mesh vertices
-        triangles: (T, 3) triangle vertex indices (0-indexed)
-        _pv_surf: Optional pre-built pv.PolyData (internal, avoids rebuilding)
-
-    Returns:
-        Boolean array (N,) — True where point is inside the mesh
-    """
-    try:
-        import pyvista as pv
-        surf = _pv_surf if _pv_surf is not None else _build_pv_surf(vertices, triangles)
-        cloud = pv.PolyData(points.astype(np.float64))
-        result = cloud.select_enclosed_points(surf, check_surface=False, tolerance=0.0)
-        return result['SelectedPoints'].astype(bool)
-    except Exception as _e:
-        print(f"  [inside] PyVista failed ({_e}), using numpy fallback")
-        return _points_inside_mesh_numpy(points, vertices, triangles)
-
-
-def min_distance_to_mesh(points, vertices, triangles, _pv_surf=None):
-    """Compute minimum distance from each point to the mesh surface.
-
-    Tries PyVista's find_closest_cell first; falls back to a chunked numpy
-    Eberly closest-point implementation.
-
-    Args:
-        points: (N, 3) query points
-        vertices: (M, 3) mesh vertices
-        triangles: (T, 3) triangle vertex indices (0-indexed)
-        _pv_surf: Optional pre-built pv.PolyData (internal, avoids rebuilding)
-
-    Returns:
-        (N,) minimum distances
-    """
-    try:
-        import pyvista as pv
-        surf = _pv_surf if _pv_surf is not None else _build_pv_surf(vertices, triangles)
-        _, closest_pts = surf.find_closest_cell(
-            points.astype(np.float64), return_closest_point=True
-        )
-        return np.linalg.norm(points - closest_pts, axis=1)
-    except Exception as _e:
-        print(f"  [distance] PyVista failed ({_e}), using numpy fallback")
-        return _min_distance_to_mesh_numpy(points, vertices, triangles)
-
-
 def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None, edge_length_factor=0.5):
     """Check which points are valid (outside mesh for external, inside for internal).
 
@@ -275,15 +228,7 @@ def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
         print(f"  Auto min_surface_distance: {min_surface_distance*1000:.2f} mm "
               f"({edge_length_factor}x avg edge length {avg_edge*1000:.2f} mm)")
 
-    # Build PyVista surface once; share between inside-check and distance-check
-    _pv_surf = None
-    try:
-        _pv_surf = _build_pv_surf(vertices, triangles)
-        print(f"  Method: PyVista BVH (select_enclosed_points + find_closest_cell)")
-    except Exception:
-        print(f"  Method: numpy chunked fallback (Möller-Trumbore + Eberly)")
-
-    inside = points_inside_mesh(points, vertices, triangles, _pv_surf=_pv_surf)
+    inside = points_inside_mesh(points, vertices, triangles)
 
     if is_internal == 0:
         # External problem: points should be outside
@@ -293,7 +238,7 @@ def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
         valid = inside
 
     # Check minimum distance to surface
-    dist = min_distance_to_mesh(points, vertices, triangles, _pv_surf=_pv_surf)
+    dist = min_distance_to_mesh(points, vertices, triangles)
     too_close = dist < min_surface_distance
     valid &= ~too_close
 

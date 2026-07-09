@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from pynumcalc.sim.fieldpoints import (
-    _points_inside_mesh_numpy,
-    _min_distance_to_mesh_numpy,
+    points_inside_mesh,
+    min_distance_to_mesh,
     combine_and_track,
     load_fieldpoint_sets,
     split_by_offsets,
@@ -46,13 +46,13 @@ class TestPointsInsideMesh:
         v, t = unit_cube
         # Offset from face diagonals to avoid ray-edge ambiguity
         pts = np.array([[0.3, 0.4, 0.6]])
-        inside = _points_inside_mesh_numpy(pts, v, t)
+        inside = points_inside_mesh(pts, v, t)
         assert inside[0]
 
     def test_outside_point(self, unit_cube):
         v, t = unit_cube
         pts = np.array([[2.0, 0.5, 0.5]])
-        inside = _points_inside_mesh_numpy(pts, v, t)
+        inside = points_inside_mesh(pts, v, t)
         assert not inside[0]
 
     def test_multiple_points(self, unit_cube):
@@ -62,7 +62,7 @@ class TestPointsInsideMesh:
             [2.0, 2.0, 2.0],  # outside
             [0.1, 0.2, 0.3],  # inside (corner region)
         ])
-        inside = _points_inside_mesh_numpy(pts, v, t)
+        inside = points_inside_mesh(pts, v, t)
         assert inside[0]
         assert not inside[1]
         assert inside[2]
@@ -73,21 +73,21 @@ class TestMinDistanceToMesh:
         v, t = unit_cube
         # Point on the z=0 face
         pts = np.array([[0.5, 0.5, 0.0]])
-        dist = _min_distance_to_mesh_numpy(pts, v, t)
+        dist = min_distance_to_mesh(pts, v, t)
         assert dist[0] == pytest.approx(0.0, abs=1e-10)
 
     def test_outside_distance(self, unit_cube):
         v, t = unit_cube
         # Point 1 unit above center of top face
         pts = np.array([[0.5, 0.5, 2.0]])
-        dist = _min_distance_to_mesh_numpy(pts, v, t)
+        dist = min_distance_to_mesh(pts, v, t)
         assert dist[0] == pytest.approx(1.0, abs=1e-10)
 
     def test_inside_distance(self, unit_cube):
         v, t = unit_cube
         # Point at center — distance to nearest face is 0.5
         pts = np.array([[0.5, 0.5, 0.5]])
-        dist = _min_distance_to_mesh_numpy(pts, v, t)
+        dist = min_distance_to_mesh(pts, v, t)
         assert dist[0] == pytest.approx(0.5, abs=1e-10)
 
 
