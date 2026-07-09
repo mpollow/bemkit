@@ -134,8 +134,8 @@ read on first access, then cached).
 ```python
 from pynumcalc import SimulationData
 
-sim = SimulationData.from_model("examples/smallLSdemo")          # auto-discover variant
-sim = SimulationData.from_model("examples/smallLSdemo", variant="box")  # explicit variant
+sim = SimulationData.from_model("examples/sphcap")          # auto-discover variant
+sim = SimulationData.from_model("examples/sphcap", variant="sphcap-50-20.lc5-25")  # explicit variant
 
 sim.set_names             # ['g30_1m', 'onaxis', 'planeXZ', ...]
 sim.frequencies           # (nf,) Hz array

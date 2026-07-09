@@ -8,17 +8,18 @@ bem_type = 4
 time_factor = -1.0  # 1.0 or -1.0 depending on application
 is_internal = 0    # 0 for external problem, other values for internal
 
-#[cad]
-#radius = 50        # mm
-#aperture = 20      # degrees
-#
-#[mesh]
-#lc_min = 10.0       # mm - min element size
-#lc_max = 10.0      # mm - max element size
-#dist_min = 50.0    # mm - distance field min
-#dist_max = 100.0   # mm - distance field max
-
 fieldpoints="fieldpoints"
+
+[cad]
+radius = 50        # mm
+aperture = 20      # degrees
+
+[mesh]
+lc_min = 5.0       # mm - min element size
+lc_max = 25.0      # mm - max element size
+dist_min = 50.0    # mm - distance field min
+dist_max = 100.0   # mm - distance field max
+
 #[fieldpoints]
 ## min_surface_distance_factor = 0.1  # × avg edge length (default: 0.1)
 #onaxis = "fieldpoints/onaxis.npy"
