@@ -33,3 +33,20 @@ def test_no_plugins_is_fine(monkeypatch):
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command")
     cli._register_plugins(sub)  # must not raise
+
+
+def test_broken_plugin_is_skipped_with_warning(monkeypatch, capsys):
+    class BrokenEntryPoint:
+        name = "broken"
+
+        def load(self):
+            raise ImportError("boom")
+
+    monkeypatch.setattr(cli, "_iter_cli_entry_points",
+                        lambda: [BrokenEntryPoint(), FakeEntryPoint()])
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    cli._register_plugins(sub)
+    assert "broken" in capsys.readouterr().err
+    args = parser.parse_args(["fancycheck"])  # the healthy plugin still registers
+    assert args.command == "fancycheck"

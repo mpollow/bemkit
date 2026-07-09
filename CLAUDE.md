@@ -51,7 +51,7 @@ pynumcalc/
 stays matplotlib/pyvista-free; those are only imported lazily inside `analysis`/`viz`/`cli`
 commands that need them (`plot`, `geometry`, `results`).
 
-**Geometry authoring** lives in the external `bemgeo` package (`~/projects/2026_LLM_cadquery`),
+**Geometry authoring** lives in the external `bemgeo` package (separate repo),
 not in pynumcalc. pynumcalc is a pure consumer of the STEP files bemgeo writes: the color
 contract (blue=rigid, red=vibrating) is *read* in `pynumcalc/meshing/generate.py`.
 
@@ -105,11 +105,11 @@ bem metric INPUT.mesh OUTPUT.sol --hmin ...
 
 # 3D pre-run inspection (was viz_geometry.py)
 bem examples/sphcap geometry                              # mesh + BC + eval grid
-bem examples/sphcap geometry --variant sphcap-50-10        # prefix match, slider if >1
+bem examples/sphcap geometry --variant sphcap-50-20        # prefix match, slider if >1
 
 # 3D post-run inspection (was viz_results.py)
 bem examples/sphcap results onaxis --freq 1000            # surface + field pressure
-bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-10  # variant filter
+bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
 ```
 
 Diagnostic `bem MODEL check ...` subcommands are provided by the private `bemkit` package
@@ -385,4 +385,5 @@ Point selection: `points=None` (all), int, slice, array, or bool mask.
 
 ## Reference
 
-NumCalc source: `~/projects_EXT/Mesh2HRTF/mesh2hrtf/NumCalc/src/NC_Input.cpp`
+NumCalc source: `mesh2hrtf/NumCalc/src/NC_Input.cpp` in
+https://github.com/Any2HRTF/Mesh2HRTF

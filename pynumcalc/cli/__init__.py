@@ -36,7 +36,10 @@ def _iter_cli_entry_points():
 def _register_plugins(sub):
     """Let installed packages add `bem` subcommands (group: pynumcalc.cli)."""
     for ep in _iter_cli_entry_points():
-        ep.load()(sub)
+        try:
+            ep.load()(sub)
+        except Exception as exc:  # a broken plugin must not take down the CLI
+            print(f"warning: skipping CLI plugin {ep.name!r}: {exc}", file=sys.stderr)
 
 
 def main(argv=None):

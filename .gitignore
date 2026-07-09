@@ -3,4 +3,5 @@ __pycache__/
 .venv/
 be.out/
 be.npz
-NC*.out
+NC*.outexamples/*/numcalc/
+examples/*/plots/
