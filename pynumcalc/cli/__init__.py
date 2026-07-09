@@ -28,6 +28,17 @@ def load_model_config(model_dir):
         sys.exit(f"No vars.toml in {model_dir}")
 
 
+def _iter_cli_entry_points():
+    from importlib.metadata import entry_points
+    return entry_points(group="pynumcalc.cli")
+
+
+def _register_plugins(sub):
+    """Let installed packages add `bem` subcommands (group: pynumcalc.cli)."""
+    for ep in _iter_cli_entry_points():
+        ep.load()(sub)
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -48,6 +59,7 @@ def main(argv=None):
     _plot.register(sub)
     _viz3d.register(sub)
     _web.register(sub)
+    _register_plugins(sub)
 
     args = parser.parse_args(argv)
     model_dir = Path(args.model_dir).resolve()
