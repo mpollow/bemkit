@@ -112,8 +112,10 @@ bem examples/sphcap results onaxis --freq 1000            # surface + field pres
 bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
 ```
 
-Diagnostic `bem MODEL check ...` subcommands are provided by the private `bemkit` package
-via the `pynumcalc.cli` entry-point group.
+Two subcommand families ship as separate packages via the `pynumcalc.cli`
+entry-point group: diagnostic `bem MODEL check ...` (private `bemkit` package)
+and `bem MODEL export-web` (AGPL-licensed `pynumcalc-web` package, writes
+auralizer web bundles).
 
 `bem MODEL geometry` options: `--variant` (repeatable), `--no-bc`, `--no-mesh`, `--no-grid`,
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
