@@ -1,4 +1,4 @@
-"""Model meshing: mesh file I/O, GMSH generation, mmgs metrics."""
+"""Model meshing: mesh file I/O, GMSH generation."""
 
 from pynumcalc.meshing.io import (
     RIGID, VIBRATING, MESH_EXTENSIONS, MeshInfo,

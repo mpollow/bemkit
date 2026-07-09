@@ -12,7 +12,6 @@ from pynumcalc.cli import main
     ["x", "plot", "--help"],
     ["x", "geometry", "--help"],
     ["x", "results", "--help"],
-    ["metric", "--help"],
 ])
 def test_help_exits_zero(argv):
     with pytest.raises(SystemExit) as exc:

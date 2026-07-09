@@ -45,15 +45,9 @@ def _register_plugins(sub):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
 
-    # `bem metric ...` is the one command without a model directory.
-    if argv[:1] == ["metric"]:
-        from pynumcalc.cli._metric import main as metric_main
-        return metric_main(argv[1:])
-
     parser = argparse.ArgumentParser(
         prog="bem", description="BEM pipeline for NumCalc models. "
-        "Run `bem MODEL_DIR` for status, or `bem metric --help` for the "
-        "standalone mmgs metric tool.")
+        "Run `bem MODEL_DIR` for status.")
     parser.add_argument("model_dir", help="Path to model directory")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 

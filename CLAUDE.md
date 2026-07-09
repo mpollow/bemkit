@@ -13,7 +13,6 @@ pynumcalc/
 │   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
 │   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
 │   │                      # generate.py — gmsh STEP/PLY meshing (lazy gmsh)
-│   │                      # metric.py — mmgs .sol metric file generation
 │   ├── sim/              # NumCalc layer (no analysis/viz deps)
 │   │                      # fields.py      — make_fields_onaxis/polar/plane generators
 │   │                      # fieldpoints.py — validation, loading, offsets
@@ -42,7 +41,6 @@ pynumcalc/
 │                          # _pipeline.py — mesh/export/run/pack/all + status
 │                          # _plot.py     — 2D plot subcommand
 │                          # _viz3d.py    — geometry/results 3D subcommands
-│                          # _metric.py   — standalone mmgs metric tool
 ├── pyproject.toml      # deps: numpy + meshio only; extras: viz/viz3d/meshing/analytic/all
 └── examples/              # Per-model dirs (see below)
 ```
@@ -97,9 +95,6 @@ bem examples/sphcap all                # mesh -> export -> run -> plot
 # --variant goes AFTER the subcommand:
 bem examples/sphcap export --variant foo
 bem examples/sphcap run --variant foo
-
-# Standalone (no model dir)
-bem metric INPUT.mesh OUTPUT.sol --hmin ...
 
 # Run NumCalc externally: cd numcalc/{variant} && NumCalc  (output: NC.out, be.out/)
 
