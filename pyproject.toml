@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pynumcalc"
+version = "0.1.0"
+description = "Python pipeline for Mesh2HRTF NumCalc BEM simulations: meshing, export, run, results, visualization"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "meshio",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib"]
+viz3d = ["matplotlib", "pyvista"]
+meshing = ["gmsh"]
+analytic = ["sphharm"]
+all = ["matplotlib", "pyvista", "gmsh", "sphharm"]
+
+[project.scripts]
+bem = "pynumcalc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pynumcalc*"]
+
+[tool.setuptools.package-data]
+"pynumcalc.sim" = ["templates/NC.inp"]
