@@ -31,7 +31,7 @@ bemkit/
 │   │                      # result.py      — BEMResult, load_result
 │   │                      # normalization.py — normalize_pressure
 │   │                      # _grid.py       — grid detection (private)
-│   │                      # analytic.py    — spherical cap solver (optional: sphharm)
+│   │                      # analytic.py    — spherical cap solver (optional: scipy)
 │   ├── viz/               # 2D/3D visualization (matplotlib/pyvista)
 │   │                      # freq.py, time.py, polar.py, field.py — 2D plots
 │   │                      # scene.py       — BEMScene 3D rendering (lazy pyvista, no I/O)

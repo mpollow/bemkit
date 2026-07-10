@@ -18,8 +18,8 @@ dependencies = [
 viz = ["matplotlib"]
 viz3d = ["matplotlib", "pyvista"]
 meshing = ["gmsh"]
-analytic = ["sphharm"]
-all = ["matplotlib", "pyvista", "gmsh", "sphharm"]
+analytic = ["scipy"]
+all = ["matplotlib", "pyvista", "gmsh", "scipy"]
 
 [project.scripts]
 bem = "bemkit.cli:main"
