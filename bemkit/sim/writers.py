@@ -225,6 +225,11 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
     v.update(
         n_total_nodes=n_points + n_eval,
         n_total_elements=n_tri + n_evalelem,
+        n_object_nodes=n_points,
+        n_object_elements=n_tri,
+        n_eval_nodes=n_eval,
+        n_eval_elements=n_evalelem,
+        variant=variant,
         date=datetime.today().strftime("%Y-%m-%d"),
         n_frequencies=v["nbins"] - 1,
         freq_time=(v["nbins"] - 1) * 1e-6,
@@ -234,6 +239,15 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
     )
     v.setdefault("time_factor", 1.0)
     v.setdefault("is_internal", 0)
+
+    offsets_file = nc_dir / "eval_offsets.json"
+    if offsets_file.exists():
+        from bemkit.sim.fieldpoints import load_offsets
+        fp_sets = load_offsets(offsets_file)["sets"]
+        v["fieldpoint_summary"] = ", ".join(
+            f"{name} ({info['n_valid']})" for name, info in fp_sets.items())
+    else:
+        v["fieldpoint_summary"] = f"{n_eval} points"
 
     sym = v.get("SYMMETRY", {})
     v["num_symmetric_planes"] = sum(1 for p in sym.get("planes", []) if p != 0)

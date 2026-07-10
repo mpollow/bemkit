@@ -1,6 +1,10 @@
 ##-------------------------------------------
-## This file was filled by the BEM framework
+## Created using bemkit
 ## Date: {date}
+## Variant: {variant}
+## Sample rate: {sr} Hz | Frequencies: {n_frequencies}
+## Mesh: {n_object_nodes} nodes, {n_object_elements} elements | EvalGrid: {n_eval_nodes} nodes, {n_eval_elements} elements
+## Fieldpoints: {fieldpoint_summary}
 ##-------------------------------------------
 Mesh2HRTF 1.0.0
 ##

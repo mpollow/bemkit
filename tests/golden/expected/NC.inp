@@ -1,6 +1,10 @@
 ##-------------------------------------------
-## This file was filled by the BEM framework
+## Created using bemkit
 ## Date: 2026-06-10
+## Variant: tetra
+## Sample rate: 8000 Hz | Frequencies: 4
+## Mesh: 4 nodes, 4 elements | EvalGrid: 3 nodes, 2 elements
+## Fieldpoints: onaxis (3)
 ##-------------------------------------------
 Mesh2HRTF 1.0.0
 ##
