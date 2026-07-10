@@ -47,7 +47,8 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(
         prog="bem", description="BEM pipeline for NumCalc models. "
-        "Run `bem MODEL_DIR` for status.")
+        "Run `bem` (or `bem COMMAND`) from inside a model directory, "
+        "or pass MODEL_DIR explicitly.")
     parser.add_argument("model_dir", help="Path to model directory")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -57,6 +58,19 @@ def main(argv=None):
     _viz3d.register(sub)
     _web.register(sub)
     _register_plugins(sub)
+
+    # argparse can't reliably combine an *optional* model_dir positional with
+    # the subparsers action - e.g. `nargs="?"` on model_dir makes plain
+    # `bem MODEL_DIR` (no COMMAND) ambiguous and fails to parse. So model_dir
+    # stays required from argparse's point of view, and we resolve the
+    # "default to cwd" behavior ourselves before argparse ever sees the
+    # tokens: if the first token names a known subcommand, or there are no
+    # tokens at all, there's no model_dir token to consume, so insert "."
+    # explicitly. A model directory that happens to share a name with a
+    # subcommand (e.g. a dir literally called "mesh") must be passed as
+    # "./mesh" to disambiguate.
+    if not argv or argv[0] in sub.choices:
+        argv = ["."] + argv
 
     args = parser.parse_args(argv)
     model_dir = Path(args.model_dir).resolve()

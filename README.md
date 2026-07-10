@@ -22,6 +22,11 @@ NumCalc itself is a separate program (part of Mesh2HRTF, EUPL-licensed);
     bem examples/sphcap plot         # frequency response + impulse response
     bem examples/sphcap              # status
 
+MODEL_DIR defaults to the current directory, so from inside a model
+directory the above can be shortened to `bem mesh`, `bem export`, `bem`, etc.
+(a model directory named the same as a subcommand, e.g. `mesh/`, needs a
+path prefix to disambiguate: `bem ./mesh`).
+
 ## Validation
 
 `bemkit.analysis.analytic` computes the exact solution for a vibrating

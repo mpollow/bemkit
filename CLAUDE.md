@@ -82,6 +82,11 @@ examples/<name>/
 
 ### Pipeline CLI (`bem`)
 
+MODEL_DIR defaults to `.` (the current directory) when the first token is a
+known subcommand or absent, so `bem mesh` from inside a model directory is
+equivalent to `bem . mesh`. A model directory literally named the same as a
+subcommand (e.g. `mesh/`) needs a path prefix to disambiguate: `bem ./mesh`.
+
 ```bash
 bem examples/sphcap                    # show status (default)
 bem examples/sphcap mesh               # generate mesh from geometry/*.step or mesh/*.ply
