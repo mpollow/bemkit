@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from pynumcalc.sim.runner import (
+from bemkit.sim.runner import (
     Job, LocalRunner, missing_ranges, plan_jobs, run_jobs, split_steps,
 )
 

@@ -1,4 +1,4 @@
-# pynumcalc
+# bemkit
 
 Python pipeline for [Mesh2HRTF NumCalc](https://github.com/Any2HRTF/Mesh2HRTF)
 BEM simulations, aimed at audio acoustics (loudspeakers, HRTFs, microphone
@@ -11,7 +11,7 @@ reference solver for validation, and 2D/3D visualization.
     pip install -e ".[all]"          # or pick extras: viz, viz3d, meshing, analytic
 
 NumCalc itself is a separate program (part of Mesh2HRTF, EUPL-licensed);
-`pynumcalc` writes its inputs, runs it as a subprocess, and reads its outputs.
+`bemkit` writes its inputs, runs it as a subprocess, and reads its outputs.
 
 ## Quickstart
 
@@ -23,13 +23,13 @@ NumCalc itself is a separate program (part of Mesh2HRTF, EUPL-licensed);
 
 ## Validation
 
-`pynumcalc.analysis.analytic` computes the exact solution for a vibrating
+`bemkit.analysis.analytic` computes the exact solution for a vibrating
 spherical cap; the test suite compares BEM output against it. The
 `examples/sphcap` model is that validation case.
 
 ## Extending the CLI
 
-Installed packages can add `bem` subcommands via the `pynumcalc.cli`
+Installed packages can add `bem` subcommands via the `bemkit.cli`
 entry-point group; each entry point is a `register(subparsers)` callable.
 
 ## Contributing

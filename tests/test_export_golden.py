@@ -5,8 +5,8 @@ import re
 import shutil
 from pathlib import Path
 
-from pynumcalc.config import ModelConfig
-from pynumcalc.sim.export import export_variant
+from bemkit.config import ModelConfig
+from bemkit.sim.export import export_variant
 
 GOLDEN = Path(__file__).parent / "golden"
 

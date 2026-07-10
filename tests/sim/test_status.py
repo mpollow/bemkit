@@ -1,6 +1,6 @@
 import numpy as np
 
-from pynumcalc.sim.status import (
+from bemkit.sim.status import (
     available_bins,
     is_complete,
     missing_bins,

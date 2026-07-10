@@ -3,9 +3,9 @@ import json
 import numpy as np
 import meshio
 
-from pynumcalc.config import ModelConfig
-from pynumcalc.sim.boundary import resolve_boundary
-from pynumcalc.sim.export import ExportInfo, export_variant
+from bemkit.config import ModelConfig
+from bemkit.sim.boundary import resolve_boundary
+from bemkit.sim.export import ExportInfo, export_variant
 
 
 def _make_model(tmp_path):

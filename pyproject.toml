@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pynumcalc"
+name = "bemkit"
 version = "0.1.0"
 description = "Python pipeline for Mesh2HRTF NumCalc BEM simulations: meshing, export, run, results, visualization"
 readme = "README.md"
@@ -22,10 +22,10 @@ analytic = ["sphharm"]
 all = ["matplotlib", "pyvista", "gmsh", "sphharm"]
 
 [project.scripts]
-bem = "pynumcalc.cli:main"
+bem = "bemkit.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["pynumcalc*"]
+include = ["bemkit*"]
 
 [tool.setuptools.package-data]
-"pynumcalc.sim" = ["templates/NC.inp"]
+"bemkit.sim" = ["templates/NC.inp"]

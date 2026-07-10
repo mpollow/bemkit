@@ -4,8 +4,8 @@ import warnings
 import numpy as np
 import pytest
 
-from pynumcalc.analysis.normalization import normalize_pressure
-from pynumcalc.analysis.simulation import SimulationData
+from bemkit.analysis.normalization import normalize_pressure
+from bemkit.analysis.simulation import SimulationData
 
 
 class TestNormalizePressure:

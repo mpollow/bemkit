@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.config — ModelConfig, freq_bin."""
+"""Tests for bemkit.config — ModelConfig, freq_bin."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.config import freq_bin, ModelConfig
+from bemkit.config import freq_bin, ModelConfig
 
 
 # ── ModelConfig.freq_array ──────────────────────────────────────────────────

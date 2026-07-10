@@ -1,4 +1,4 @@
-# pynumcalc
+# bemkit
 
 Public, GPL-3.0-licensed repo. Python library and `bem` CLI for Mesh2HRTF NumCalc
 simulations from CAD geometry.
@@ -6,8 +6,8 @@ simulations from CAD geometry.
 ## Project Structure
 
 ```
-pynumcalc/
-├── pynumcalc/
+bemkit/
+├── bemkit/
 │   ├── __init__.py     # eager core exports; analysis/viz resolve lazily via __getattr__
 │   ├── config.py       # ModelConfig (single config object, dict-style access), freq_bin
 │   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
@@ -56,12 +56,12 @@ are the minimal set: `onaxis`, `polar`, `plane`. The mmgs metric workflow and ga
 spherical grids live in the private layer.
 
 **Geometry authoring** lives in the external `bemgeo` package (separate repo),
-not in pynumcalc. pynumcalc is a pure consumer of the STEP files bemgeo writes: the color
-contract (blue=rigid, red=vibrating) is *read* in `pynumcalc/meshing/generate.py`.
+not in bemkit. bemkit is a pure consumer of the STEP files bemgeo writes: the color
+contract (blue=rigid, red=vibrating) is *read* in `bemkit/meshing/generate.py`.
 
-`pip install -e .` installs the `bem` console script (entry point `pynumcalc.cli:main`).
-Without installing (e.g. externally-managed system Python), use `python -m pynumcalc.cli`
-— identical interface: `python -m pynumcalc.cli examples/sphcap export`.
+`pip install -e .` installs the `bem` console script (entry point `bemkit.cli:main`).
+Without installing (e.g. externally-managed system Python), use `python -m bemkit.cli`
+— identical interface: `python -m bemkit.cli examples/sphcap export`.
 
 Model directory layout (unchanged):
 ```
@@ -113,10 +113,10 @@ bem examples/sphcap results onaxis --freq 1000            # surface + field pres
 bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
 ```
 
-Two subcommand families ship as separate packages via the `pynumcalc.cli`
-entry-point group: diagnostic `bem MODEL check ...` (private `bemkit` package)
-and `bem MODEL export-web` (AGPL-licensed `pynumcalc-web` package, writes
-auralizer web bundles).
+Two subcommand families ship as separate packages via the `bemkit.cli`
+entry-point group: diagnostic `bem MODEL check ...` (private `bemlab` package)
+and `bem MODEL export-web` (GPL-3.0 `bemkit-web` package, writes auralizer web
+bundles).
 
 `bem MODEL geometry` options: `--variant` (repeatable), `--no-bc`, `--no-mesh`, `--no-grid`,
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
@@ -130,12 +130,12 @@ auralizer web bundles).
 
 ### SimulationData (lazy result accessor)
 
-`SimulationData` (in `pynumcalc.analysis.simulation`, exported from package root) provides
+`SimulationData` (in `bemkit.analysis.simulation`, exported from package root) provides
 numpy-like access to all data in a `numcalc/{variant}/` directory with lazy loading (files
 read on first access, then cached).
 
 ```python
-from pynumcalc import SimulationData
+from bemkit import SimulationData
 
 sim = SimulationData.from_model("examples/sphcap")          # auto-discover variant
 sim = SimulationData.from_model("examples/sphcap", variant="sphcap-50-20.lc5-25")  # explicit variant
@@ -211,7 +211,7 @@ Fieldpoints config can also be a plain directory path: `fieldpoints = './fieldpo
 Each entry must be a `.npy` file path (or the whole `[fieldpoints]` table replaced by a
 directory string) — there is no expression syntax.
 
-### Generating fieldpoint .npy files (pynumcalc.sim.fields)
+### Generating fieldpoint .npy files (bemkit.sim.fields)
 
 `make_fields_onaxis`, `make_fields_polar`, `make_fields_plane` are Python helpers (exported
 from the package root) for *generating* `.npy` files — they are not referenced from
@@ -219,7 +219,7 @@ from the package root) for *generating* `.npy` files — they are not referenced
 `fieldpoints/`:
 
 ```python
-from pynumcalc import make_fields_polar
+from bemkit import make_fields_polar
 import numpy as np
 
 points = make_fields_polar(dims='xy', res=5, radius=1.0)  # (N, 3) meters
@@ -270,7 +270,7 @@ bins are independent (`-istart`/`-iend`), and `be.out/be.{i}/` outputs are disjo
 variant can be split across several processes/machines and merged trivially (no merge step
 needed — outputs just land in the same `be.out/`).
 
-- `Runner` ABC (`pynumcalc.sim.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
+- `Runner` ABC (`bemkit.sim.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
   `LocalRunner` is the only implementation today (subprocess with CWD=variant dir); SSH or
   scheduler-based runners would implement the same interface — transfer the bundle, start
   NumCalc, report status, bring `be.out/` back.
@@ -279,9 +279,9 @@ needed — outputs just land in the same `be.out/`).
 - `bem MODEL run --split N` fans each variant out into N bin-range jobs (`-istart`/`-iend`),
   via `plan_jobs`/`split_steps`.
 - `bem MODEL run --missing-only` only (re-)runs frequency bins absent from `be.out/`/`be.npz`
-  — uses `pynumcalc.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so partial/failed
+  — uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so partial/failed
   runs can resume without redoing completed bins.
-- `pynumcalc.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
+- `bemkit.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
 - `be.npz` shadows `be.out/` everywhere, so `bem MODEL run` removes a leftover `be.npz`
@@ -290,7 +290,7 @@ needed — outputs just land in the same `be.out/`).
   `--missing-only`) also deletes the variant's old `NC*.out` logs so superseded
   warnings don't linger in `bem status`; resumes keep them.
 - Bin presence ≠ convergence: NumCalc records non-convergence only in its log.
-  `pynumcalc.sim.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
+  `bemkit.sim.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
   ("Maximum number of iterations is reached", "Iteration method CGS failed") and maps them
   to bins; `bem status` and `bem run` surface them. Such warnings usually mean a defective
   mesh — re-mesh rather than raising `-nitermax`.
@@ -316,7 +316,7 @@ Points validated against mesh surface using Moller-Trumbore ray-casting (multi-d
 
 ## NC.inp Format
 
-See `pynumcalc/sim/templates/NC.inp` (package data). Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2` (specified velocity).
+See `bemkit/sim/templates/NC.inp` (package data). Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2` (specified velocity).
 STEP colors: Blue (0,0,255) = rigid, Red (255,0,0) = vibrating.
 
 ### NumCalc Boundary Condition Types
@@ -360,18 +360,18 @@ Element indices are 0-indexed. Single element: `[7875, 7875, 1.0]` → `ELEM 787
 
 ## Analytic Solution
 
-`pynumcalc.analysis.analytic` (exported as `sphcap_pressure` from the package root) computes
+`bemkit.analysis.analytic` (exported as `sphcap_pressure` from the package root) computes
 exact pressure for axisymmetric spherical cap vibration via SH expansion.
 `sphcap_pressure(eval_points, frequencies, c0, rho0, angle_deg, radius_mm, nmax)` → raw pressure array.
 Normalization matches BEM pipeline: velocity BC (v=1) → raw pressure → ÷(rho0·omega·A_vib) → pressure_acc.
 
-## Visualization: pynumcalc.viz
+## Visualization: bemkit.viz
 
 Composable matplotlib/PyVista visualizations. All 2D functions take an Axes and BEMResult, return artists.
 
 2D plots: `freq_magnitude`, `freq_phase`, `freq_real_imag`, `impulse_response`, `energy_time_curve`, `polar_directivity`, `polar_balloon_slice`, `heatmap`, `contour`, `scatter_field`, `spherical_heatmap`
 
-3D scenes (`BEMScene`, in `pynumcalc.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
+3D scenes (`BEMScene`, in `bemkit.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
 - `add_mesh(nodes, elements)` — generic triangular mesh
 - `add_object_mesh(nodes, elements, bc_elements=None)` — ObjectMesh with optional BC coloring
 - `add_eval_grid(points)` — evaluation point cloud
@@ -382,7 +382,7 @@ Composable matplotlib/PyVista visualizations. All 2D functions take an Axes and 
 - Quantities: `magnitude_db`, `magnitude`, `phase`, `real`, `imag`
 - Convenience methods: `add_screenshot_hotkey()`, `add_variant_slider()`, `show_or_screenshot()`
 
-`ResultsViewer` (`pynumcalc.viz.results_viewer`): Interactive viewer that owns data loading, frequency/variant sliders, and clim key bindings. Loads NumCalc files on demand and passes data to BEMScene. Backs `bem MODEL results`.
+`ResultsViewer` (`bemkit.viz.results_viewer`): Interactive viewer that owns data loading, frequency/variant sliders, and clim key bindings. Loads NumCalc files on demand and passes data to BEMScene. Backs `bem MODEL results`.
 
 Point selection: `points=None` (all), int, slice, array, or bool mask.
 

@@ -1,6 +1,6 @@
 import pytest
 
-from pynumcalc.cli import main
+from bemkit.cli import main
 
 
 @pytest.mark.parametrize("argv", [
@@ -25,9 +25,9 @@ def test_status_on_model_without_vars_toml(tmp_path):
 
 
 def test_python_dash_m_invocation():
-    """`python -m pynumcalc.cli` works without installing the bem entry point."""
+    """`python -m bemkit.cli` works without installing the bem entry point."""
     import subprocess
     import sys
-    r = subprocess.run([sys.executable, "-m", "pynumcalc.cli", "--help"],
+    r = subprocess.run([sys.executable, "-m", "bemkit.cli", "--help"],
                        capture_output=True, text=True)
     assert r.returncode == 0 and "bem" in r.stdout

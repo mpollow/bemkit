@@ -1,10 +1,10 @@
-"""Tests for pynumcalc.meshing.io — get_mesh_scale, find_mesh_file, MeshInfo."""
+"""Tests for bemkit.meshing.io — get_mesh_scale, find_mesh_file, MeshInfo."""
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from pynumcalc.meshing.io import get_mesh_scale, find_mesh_file, MeshInfo, MESH_EXTENSIONS
+from bemkit.meshing.io import get_mesh_scale, find_mesh_file, MeshInfo, MESH_EXTENSIONS
 
 
 class TestGetMeshScale:

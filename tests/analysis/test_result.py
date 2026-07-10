@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.analysis.result — BEMResult accessors, slicing, properties."""
+"""Tests for bemkit.analysis.result — BEMResult accessors, slicing, properties."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.analysis.result import BEMResult
+from bemkit.analysis.result import BEMResult
 
 
 @pytest.fixture()

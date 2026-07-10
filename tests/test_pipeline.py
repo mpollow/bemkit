@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pynumcalc.config import ModelConfig
-from pynumcalc.pipeline import RunStage
+from bemkit.config import ModelConfig
+from bemkit.pipeline import RunStage
 
 GOLDEN_MODEL = Path(__file__).parent / "golden" / "model"
 
@@ -144,8 +144,8 @@ class TestPackStage:
         # A variant with an empty be.out/ (exported, never run) must be skipped,
         # not abort packing of the other variants in the same model.
         import meshio
-        from pynumcalc.config import ModelConfig
-        from pynumcalc.pipeline import PackStage
+        from bemkit.config import ModelConfig
+        from bemkit.pipeline import PackStage
 
         model = tmp_path / "m"
         (model / "mesh").mkdir(parents=True)

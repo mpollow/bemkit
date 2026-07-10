@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.sim.fields — onaxis, polar, plane generators."""
+"""Tests for bemkit.sim.fields — onaxis, polar, plane generators."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.sim.fields import make_fields_onaxis, make_fields_polar, make_fields_plane
+from bemkit.sim.fields import make_fields_onaxis, make_fields_polar, make_fields_plane
 
 
 # ── make_fields_onaxis ───────────────────────────────────────────────────────

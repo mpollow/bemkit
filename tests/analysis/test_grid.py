@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.analysis._grid — grid detection and reshape."""
+"""Tests for bemkit.analysis._grid — grid detection and reshape."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.analysis._grid import detect_grid, reshape_to_grid
+from bemkit.analysis._grid import detect_grid, reshape_to_grid
 
 
 class TestDetectCartesianGrid:

@@ -1,4 +1,4 @@
-"""Tests for pynumcalc.sim.packing — be.out -> be.npz."""
+"""Tests for bemkit.sim.packing — be.out -> be.npz."""
 
 import json
 import shutil
@@ -6,14 +6,14 @@ import shutil
 import numpy as np
 import pytest
 
-from pynumcalc.sim.packing import (
+from bemkit.sim.packing import (
     clear_pack,
     has_results,
     is_packed,
     pack_variant,
     unpack_variant,
 )
-from pynumcalc.analysis.simulation import SimulationData
+from bemkit.analysis.simulation import SimulationData
 
 
 @pytest.fixture()
@@ -54,7 +54,7 @@ class TestPackVariant:
 
     def test_round_trip_values(self, numcalc_dir):
         """Values written to be.npz match raw ASCII reads within complex64 precision."""
-        from pynumcalc.sim.readers import _read_numcalc_data, _read_numcalc_velocity_data
+        from bemkit.sim.readers import _read_numcalc_data, _read_numcalc_velocity_data
 
         ascii_pE_b1 = _read_numcalc_data(numcalc_dir / "be.out" / "be.1" / "pEvalGrid")
         ascii_vE_b2 = _read_numcalc_velocity_data(numcalc_dir / "be.out" / "be.2" / "vEvalGrid")
@@ -72,8 +72,8 @@ class TestPackVariant:
 
     def test_verify_round_trip_catches_corruption(self, numcalc_dir):
         """The pre-delete gate must reject a be.out/ that diverges from be.npz."""
-        from pynumcalc.sim.packing import _verify_round_trip, _write_ascii_quantity
-        from pynumcalc.sim.readers import _read_numcalc_data, list_bins
+        from bemkit.sim.packing import _verify_round_trip, _write_ascii_quantity
+        from bemkit.sim.readers import _read_numcalc_data, list_bins
 
         pack_variant(numcalc_dir, verbose=False)  # keeps be.out/
         be_out = numcalc_dir / "be.out"

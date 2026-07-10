@@ -1,11 +1,11 @@
-"""Tests for pynumcalc.sim.config_snapshot and SimulationData's use of it."""
+"""Tests for bemkit.sim.config_snapshot and SimulationData's use of it."""
 
 import warnings
 
 import numpy as np
 
-from pynumcalc.analysis.simulation import SimulationData
-from pynumcalc.sim.config_snapshot import read_snapshot, write_snapshot
+from bemkit.analysis.simulation import SimulationData
+from bemkit.sim.config_snapshot import read_snapshot, write_snapshot
 
 
 def test_write_and_read_roundtrip(tmp_path):
@@ -15,7 +15,7 @@ def test_write_and_read_roundtrip(tmp_path):
     snap = read_snapshot(tmp_path)
     assert snap["sr"] == 48000 and snap["nbins"] == 65
     assert snap["bem_type"] == 4
-    assert "pynumcalc_version" in snap and "exported_at" in snap
+    assert "bemkit_version" in snap and "exported_at" in snap
 
 
 def test_read_missing_returns_none(tmp_path):

@@ -1,8 +1,8 @@
-"""Third-party packages extend `bem` via the pynumcalc.cli entry-point group."""
+"""Third-party packages extend `bem` via the bemkit.cli entry-point group."""
 
 import argparse
 
-from pynumcalc import cli
+from bemkit import cli
 
 
 class FakeEntryPoint:

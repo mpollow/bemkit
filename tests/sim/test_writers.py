@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.sim.writers — roundtrip write→read verification."""
+"""Tests for bemkit.sim.writers — roundtrip write→read verification."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.sim.writers import (
+from bemkit.sim.writers import (
     write_eval_grid_nodes,
     write_eval_grid_elements,
     write_nc_inp,
@@ -11,7 +11,7 @@ from pynumcalc.sim.writers import (
     _count_nodes,
     _count_elements,
 )
-from pynumcalc.sim.readers import read_eval_grid_nodes
+from bemkit.sim.readers import read_eval_grid_nodes
 
 
 class TestWriteEvalGridNodes:
@@ -152,7 +152,7 @@ class TestWriteNcInp:
         assert "VELO" not in text  # no BC emitted
 
     def test_modelconfig_typed_defaults_fill_omitted_keys(self, tmp_path):
-        from pynumcalc.config import ModelConfig
+        from bemkit.config import ModelConfig
         self._counts(tmp_path)
         model = tmp_path / "model"
         model.mkdir()

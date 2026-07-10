@@ -2,7 +2,7 @@
 """Generate fieldpoint .npy files for sphcap."""
 from pathlib import Path
 import numpy as np
-from pynumcalc import make_fields_onaxis, make_fields_polar, make_fields_plane
+from bemkit import make_fields_onaxis, make_fields_polar, make_fields_plane
 
 fp_dir = Path(__file__).parent / "fieldpoints"
 fp_dir.mkdir(exist_ok=True)

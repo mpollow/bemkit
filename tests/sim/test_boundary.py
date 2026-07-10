@@ -1,10 +1,10 @@
-"""Tests for pynumcalc.sim.boundary — geometric BC resolution."""
+"""Tests for bemkit.sim.boundary — geometric BC resolution."""
 
 import meshio
 import numpy as np
 import pytest
 
-from pynumcalc.sim.boundary import (
+from bemkit.sim.boundary import (
     flatten, resolve_boundary, variant_target,
 )
 

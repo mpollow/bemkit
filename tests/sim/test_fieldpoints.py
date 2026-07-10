@@ -1,9 +1,9 @@
-"""Tests for pynumcalc.sim.fieldpoints — inside/distance checks, combine/split roundtrip."""
+"""Tests for bemkit.sim.fieldpoints — inside/distance checks, combine/split roundtrip."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.sim.fieldpoints import (
+from bemkit.sim.fieldpoints import (
     points_inside_mesh,
     min_distance_to_mesh,
     combine_and_track,

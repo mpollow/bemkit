@@ -2,7 +2,7 @@
 """Generate the example mesh from the STEP geometry (same as `bem . mesh`)."""
 
 from pathlib import Path
-from pynumcalc.meshing.generate import mesh_from_step
+from bemkit.meshing.generate import mesh_from_step
 
 model_dir = Path.cwd()
 mesh_dir = model_dir / "mesh"

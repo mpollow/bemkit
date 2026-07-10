@@ -6,14 +6,14 @@ __init__, pipeline, and cli may use the upper layers only inside functions
 (lazily), never at module top level.
 
 (Geometry authoring moved to the external `bemgeo` package, so `cad/` is no
-longer part of pynumcalc — see CLAUDE.md.)
+longer part of bemkit — see CLAUDE.md.)
 """
 
 import ast
 from pathlib import Path
 
-PKG = Path(__file__).resolve().parents[1] / "pynumcalc"
-UPPER = ("pynumcalc.analysis", "pynumcalc.viz")
+PKG = Path(__file__).resolve().parents[1] / "bemkit"
+UPPER = ("bemkit.analysis", "bemkit.viz")
 VIZ_LIBS = ("pyvista", "matplotlib")
 CORE = ["config.py", "meshing", "sim"]
 GLUE = ["__init__.py", "pipeline.py", "cli"]
