@@ -51,10 +51,11 @@ def main(argv=None):
     parser.add_argument("model_dir", help="Path to model directory")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    from bemkit.cli import _pipeline, _plot, _viz3d
+    from bemkit.cli import _pipeline, _plot, _viz3d, _web
     _pipeline.register(sub)
     _plot.register(sub)
     _viz3d.register(sub)
+    _web.register(sub)
     _register_plugins(sub)
 
     args = parser.parse_args(argv)

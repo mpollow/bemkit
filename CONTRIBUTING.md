@@ -10,3 +10,10 @@ keeps relicensing decisions possible for the project.
 Run the tests with `pytest` before submitting. The layer rules are enforced
 by `tests/test_boundaries.py`: `config`/`meshing`/`sim` never import
 `analysis`/`viz`; glue modules only lazily.
+
+Changing `bemkit/web.py` output? The bundle format is a cross-repo contract:
+the bemkit-auralizer repo pins a golden manifest (real `bem export-web`
+output) in `packages/bundle/test-fixtures/small-ls.manifest.json` and
+documents the format in its `docs/bundle-format.md`. An intentional format
+change means bumping `FORMAT_VERSION` on both sides and refreshing that
+golden fixture from a fresh export.

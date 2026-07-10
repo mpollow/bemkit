@@ -4,7 +4,8 @@ Python pipeline for [Mesh2HRTF NumCalc](https://github.com/Any2HRTF/Mesh2HRTF)
 BEM simulations, aimed at audio acoustics (loudspeakers, HRTFs, microphone
 arrays): mesh generation (gmsh), NC.inp export, parallel/resumable runs,
 result loading with physical normalization, an analytic spherical-cap
-reference solver for validation, and 2D/3D visualization.
+reference solver for validation, 2D/3D visualization, and a web-bundle
+exporter for the `bemkit-auralizer` browser player (`bem MODEL export-web`).
 
 ## Install
 

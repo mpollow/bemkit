@@ -37,10 +37,13 @@ bemkit/
 │   │                      # scene.py       — BEMScene 3D rendering (lazy pyvista, no I/O)
 │   │                      # results_viewer.py — interactive 3D viewer (owns data loading)
 │   │                      # _style.py      — colormaps, formatting
+│   ├── web.py             # auralizer-bundle exporter (`bem MODEL export-web`);
+│   │                      #   format contract: bemkit-auralizer docs/bundle-format.md
 │   └── cli/               # `bem` entry point
 │                          # _pipeline.py — mesh/export/run/pack/all + status
 │                          # _plot.py     — 2D plot subcommand
 │                          # _viz3d.py    — geometry/results 3D subcommands
+│                          # _web.py      — export-web subcommand
 ├── pyproject.toml      # deps: numpy + meshio only; extras: viz/viz3d/meshing/analytic/all
 └── examples/              # Per-model dirs (see below)
 ```
@@ -113,10 +116,11 @@ bem examples/sphcap results onaxis --freq 1000            # surface + field pres
 bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
 ```
 
-Two subcommand families ship as separate packages via the `bemkit.cli`
-entry-point group: diagnostic `bem MODEL check ...` (private `bemlab` package)
-and `bem MODEL export-web` (GPL-3.0 `bemkit-web` package, writes auralizer web
-bundles).
+`bem MODEL export-web` writes an auralizer web bundle (consumed by the
+bemkit-auralizer framework; the format contract is that repo's
+docs/bundle-format.md, guarded there by a golden-manifest test). The
+diagnostic `bem MODEL check ...` family ships separately via the
+`bemkit.cli` entry-point group (private `bemlab` package).
 
 `bem MODEL geometry` options: `--variant` (repeatable), `--no-bc`, `--no-mesh`, `--no-grid`,
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,

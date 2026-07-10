@@ -37,6 +37,7 @@ from bemkit.sim.writers import (
 
 # -- Analysis / viz (lazy: `import bemkit` stays matplotlib-free) --
 _LAZY = {
+    "export_web": "bemkit.web",
     "SimulationData": "bemkit.analysis.simulation",
     "BEMResult": "bemkit.analysis.result",
     "load_result": "bemkit.analysis.result",

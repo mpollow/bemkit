@@ -16,7 +16,7 @@ PKG = Path(__file__).resolve().parents[1] / "bemkit"
 UPPER = ("bemkit.analysis", "bemkit.viz")
 VIZ_LIBS = ("pyvista", "matplotlib")
 CORE = ["config.py", "meshing", "sim"]
-GLUE = ["__init__.py", "pipeline.py", "cli"]
+GLUE = ["__init__.py", "pipeline.py", "web.py", "cli"]
 
 
 def _py_files(entry):
