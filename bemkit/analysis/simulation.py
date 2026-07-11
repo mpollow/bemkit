@@ -50,7 +50,7 @@ class SimulationData:
         self._nc_dir = Path(nc_dir)
 
         # Prefer the bundle's config snapshot (what was exported) over the live
-        # config (current vars.toml); warn if they drift. This keeps result
+        # config (current config.toml); warn if they drift. This keeps result
         # interpretation (frequencies, air properties) tied to the actual run.
         from bemkit.sim.config_snapshot import read_snapshot, warn_on_drift
         snapshot = read_snapshot(self._nc_dir)

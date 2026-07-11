@@ -2,7 +2,7 @@
 
 ModelConfig is the single configuration object of the toolkit. It also
 supports dict-style access (``config["sr"]``, ``config.get(...)``) so code
-paths that historically took the raw vars.toml dict keep working.
+paths that historically took the raw config.toml dict keep working.
 """
 
 import tomllib
@@ -14,7 +14,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Typed wrapper around a model directory's vars.toml."""
+    """Typed wrapper around a model directory's config.toml."""
 
     model_dir: Path
     modelname: str
@@ -31,9 +31,9 @@ class ModelConfig:
 
     @classmethod
     def from_dir(cls, model_dir):
-        """Load vars.toml; modelname defaults to the directory name."""
+        """Load config.toml; modelname defaults to the directory name."""
         model_dir = Path(model_dir).resolve()
-        with open(model_dir / "vars.toml", "rb") as f:
+        with open(model_dir / "config.toml", "rb") as f:
             raw = tomllib.load(f)
         raw.setdefault("modelname", model_dir.name)
         return cls(
@@ -53,9 +53,9 @@ class ModelConfig:
 
     # -- dict-style access (backward compatible with raw-dict callers) --
     #
-    # Lookups consult vars.toml first, then fall back to the typed dataclass
+    # Lookups consult config.toml first, then fall back to the typed dataclass
     # fields, so config.get("air_density") returns the default 1.2 even when
-    # vars.toml omits it — dict access never diverges from attribute access.
+    # config.toml omits it — dict access never diverges from attribute access.
 
     def __getitem__(self, key):
         if key in self.raw:

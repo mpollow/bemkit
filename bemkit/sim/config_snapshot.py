@@ -1,8 +1,8 @@
 """Per-bundle config snapshot.
 
 At export time the effective configuration that produced a ``numcalc/{variant}/``
-bundle is written to ``config.json`` inside it. Result loaders prefer this
-snapshot over the live ``vars.toml`` so that editing ``sr``/``nbins`` (or the
+bundle is written to ``snapshot.json`` inside it. Result loaders prefer this
+snapshot over the live ``config.toml`` so that editing ``sr``/``nbins`` (or the
 air properties) after a run cannot silently reinterpret already-computed results
 at the wrong frequencies. A mismatch between the snapshot and the live config is
 surfaced as a warning rather than silently followed.
@@ -14,7 +14,9 @@ import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
-SNAPSHOT_NAME = "config.json"
+SNAPSHOT_NAME = "snapshot.json"
+# Older bundles wrote the snapshot as ``config.json``; still read it if present.
+_LEGACY_SNAPSHOT_NAME = "config.json"
 
 # Fields whose value defines how results are interpreted; a drift in any of
 # these between snapshot and live config is worth warning about.
@@ -45,7 +47,7 @@ def _mesh_sha256(mesh_file):
 
 
 def write_snapshot(nc_dir, config, *, mesh_file=None, resolved_boundary=None):
-    """Write ``nc_dir/config.json`` capturing the effective config.
+    """Write ``nc_dir/snapshot.json`` capturing the effective config.
 
     Parameters
     ----------
@@ -75,10 +77,17 @@ def write_snapshot(nc_dir, config, *, mesh_file=None, resolved_boundary=None):
 
 
 def read_snapshot(nc_dir):
-    """Return the bundle's ``config.json`` as a dict, or None if absent."""
-    path = Path(nc_dir) / SNAPSHOT_NAME
+    """Return the bundle's ``snapshot.json`` as a dict, or None if absent.
+
+    Falls back to the legacy ``config.json`` name for bundles exported before
+    the rename.
+    """
+    nc_dir = Path(nc_dir)
+    path = nc_dir / SNAPSHOT_NAME
     if not path.exists():
-        return None
+        path = nc_dir / _LEGACY_SNAPSHOT_NAME
+        if not path.exists():
+            return None
     with open(path) as f:
         return json.load(f)
 
@@ -90,12 +99,12 @@ def warn_on_drift(snapshot, config, nc_dir=None):
         snap_val = snapshot.get(key)
         live_val = config.get(key)
         if snap_val is not None and live_val is not None and snap_val != live_val:
-            drift.append(f"{key}: exported {snap_val!r} vs vars.toml {live_val!r}")
+            drift.append(f"{key}: exported {snap_val!r} vs config.toml {live_val!r}")
     if drift:
         where = f" for {nc_dir}" if nc_dir is not None else ""
         warnings.warn(
-            f"Bundle config.json differs from current vars.toml{where}: "
-            f"{'; '.join(drift)}. Results reflect what was exported (config.json); "
+            f"Bundle snapshot.json differs from current config.toml{where}: "
+            f"{'; '.join(drift)}. Results reflect what was exported (snapshot.json); "
             f"re-export to apply the new values.",
             stacklevel=2,
         )

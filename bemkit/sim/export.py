@@ -51,7 +51,7 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     # -- fieldpoints --
     fp_config = config.fieldpoints_cfg
     if not fp_config:
-        raise ValueError("No [fieldpoints] in vars.toml")
+        raise ValueError("No [fieldpoints] in config.toml")
     sets = load_fieldpoint_sets(fp_config, model_dir)
     valid_masks = {}
     for name, points in sets.items():

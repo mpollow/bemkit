@@ -81,7 +81,7 @@ class BEMResult:
         variant : str
             Variant name (= subdirectory of numcalc/).
         config : dict
-            Model config (from vars.toml).
+            Model config (from config.toml).
 
         Returns
         -------

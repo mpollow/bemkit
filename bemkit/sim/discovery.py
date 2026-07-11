@@ -15,8 +15,8 @@ def numcalc_dir(model_dir, variant):
 
 
 def _explicit_variant_names(model_dir):
-    """Names from [variants] in vars.toml, or None if absent/no vars.toml."""
-    if not (Path(model_dir) / "vars.toml").exists():
+    """Names from [variants] in config.toml, or None if absent/no config.toml."""
+    if not (Path(model_dir) / "config.toml").exists():
         return None
     tbl = ModelConfig.from_dir(model_dir).get("variants")
     return list(tbl.keys()) if tbl else None

@@ -189,7 +189,7 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
     """Generate nc_dir/NC.inp from the packaged template.
 
     Args:
-        config: ModelConfig or raw vars.toml dict (needs modelname, sr, nbins,
+        config: ModelConfig or raw config.toml dict (needs modelname, sr, nbins,
             bem_type, air_density, speed_of_sound; optional time_factor,
             is_internal, SYMMETRY, BOUNDARY, PLANE WAVES, POINT SOURCES, velocity)
         variant: variant name. When config has a [BOUNDARY.<variant>] dict
@@ -217,7 +217,7 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
 
     v = dict(config.raw) if hasattr(config, "raw") else dict(config)
     if hasattr(config, "__dataclass_fields__"):
-        # ModelConfig: let its typed field defaults fill keys vars.toml omitted,
+        # ModelConfig: let its typed field defaults fill keys config.toml omitted,
         # so dict-style and attribute access never diverge.
         for name in ("modelname", "sr", "nbins", "bem_type", "air_density",
                      "speed_of_sound", "time_factor", "is_internal"):

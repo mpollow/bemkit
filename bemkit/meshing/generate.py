@@ -57,7 +57,7 @@ def mesh_from_step(step_file, output_file,
         gmsh.model.addPhysicalGroup(2, all_surfaces, RIGID)
         gmsh.model.setPhysicalName(2, RIGID, "rigid")
         print(f"  No color tags found -- {len(all_surfaces)} surface(s) marked rigid")
-        print("  Set boundary conditions via [BOUNDARY] in vars.toml")
+        print("  Set boundary conditions via [BOUNDARY] in config.toml")
     else:
         if rigid:
             gmsh.model.addPhysicalGroup(2, rigid, RIGID)

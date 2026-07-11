@@ -51,13 +51,13 @@ def test_simulationdata_warns_on_drift(numcalc_dir):
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         SimulationData(numcalc_dir, live)
-    assert any("differs from current vars.toml" in str(w.message) for w in caught)
+    assert any("differs from current config.toml" in str(w.message) for w in caught)
 
 
 def test_no_snapshot_uses_live_config(numcalc_dir):
-    # Fixture has no config.json — live config governs, no warning.
+    # Fixture has no snapshot.json — live config governs, no warning.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         sim = SimulationData(numcalc_dir, {"sr": 16000, "nbins": 3})
-    assert not any("vars.toml" in str(w.message) for w in caught)
+    assert not any("config.toml" in str(w.message) for w in caught)
     np.testing.assert_allclose(sim.frequencies, np.linspace(0, 8000, 3)[1:])

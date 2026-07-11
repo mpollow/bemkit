@@ -25,7 +25,7 @@ def load_model_config(model_dir):
     try:
         return ModelConfig.from_dir(model_dir)
     except FileNotFoundError:
-        sys.exit(f"No vars.toml in {model_dir}")
+        sys.exit(f"No config.toml in {model_dir}")
 
 
 def _iter_cli_entry_points():

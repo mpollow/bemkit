@@ -154,7 +154,7 @@ class TestPackStage:
         for stem in ("good", "empty"):
             meshio.write_points_cells(model / "mesh" / f"{stem}.stl", verts,
                                       [("triangle", tris)])
-        (model / "vars.toml").write_text("sr = 8000\nnbins = 5\n")
+        (model / "config.toml").write_text("sr = 8000\nnbins = 5\n")
 
         # good/: two real bins with scalar boundary + eval quantities
         for bi in (1, 2):

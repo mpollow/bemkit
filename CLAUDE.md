@@ -69,7 +69,7 @@ Without installing (e.g. externally-managed system Python), use `python -m bemki
 Model directory layout (unchanged):
 ```
 examples/<name>/
-├── vars.toml          # Configuration
+├── config.toml          # Configuration
 ├── pre_*.py / pre_*.sh  # Model-local preprocessing scripts
 ├── fieldpoints/       # .npy fieldpoint files
 ├── geometry/          # CAD output (.step)
@@ -184,9 +184,9 @@ sim.pressure_at(12, domain="boundary")  # (M,) complex
 sim.velocity_at(12, domain="eval")      # (N_total, 3) complex
 ```
 
-## Configuration: vars.toml
+## Configuration: config.toml
 
-Per-model config in `examples/<name>/vars.toml`. `modelname` is optional (defaults to directory name).
+Per-model config in `examples/<name>/config.toml`. `modelname` is optional (defaults to directory name).
 
 ```toml
 modelname = "sphcap"      # optional
@@ -224,7 +224,7 @@ directory string) — there is no expression syntax.
 
 `make_fields_onaxis`, `make_fields_polar`, `make_fields_plane` are Python helpers (exported
 from the package root) for *generating* `.npy` files — they are not referenced from
-`vars.toml` directly. Use them in a `pre_*.py` script and `np.save()` the result into
+`config.toml` directly. Use them in a `pre_*.py` script and `np.save()` the result into
 `fieldpoints/`:
 
 ```python
@@ -342,7 +342,7 @@ Each element can be assigned one of three BC types via `ELEM e1 TO e2 bctype rea
 - An element may have both `VELO` and `ADMI` simultaneously (unique combination).
 - `ADMI` supports frequency-dependent values via piecewise-linear curves: `curve1`/`curve2` reference curve numbers for real/imaginary parts of the admittance. Set to `-1` if not frequency-dependent.
 
-### BOUNDARY section in vars.toml
+### BOUNDARY section in config.toml
 
 Global (same element for all variants):
 ```toml

@@ -10,7 +10,7 @@ from bemkit.config import freq_bin, ModelConfig
 
 class TestFreqArray:
     def _mc(self, tmp_path, sr, nbins):
-        (tmp_path / "vars.toml").write_text(f"sr = {sr}\nnbins = {nbins}\n")
+        (tmp_path / "config.toml").write_text(f"sr = {sr}\nnbins = {nbins}\n")
         return ModelConfig.from_dir(tmp_path)
 
     def test_basic(self, tmp_path):
@@ -68,7 +68,7 @@ class TestFreqBin:
 
 class TestModelConfigFromDir:
     def test_loads_vars_toml(self, tmp_path):
-        (tmp_path / "vars.toml").write_text(
+        (tmp_path / "config.toml").write_text(
             'sr = 48000\nnbins = 65\n'
         )
         cfg = ModelConfig.from_dir(tmp_path)
@@ -78,13 +78,13 @@ class TestModelConfigFromDir:
     def test_modelname_defaults_to_dirname(self, tmp_path):
         d = tmp_path / "my_model"
         d.mkdir()
-        (d / "vars.toml").write_text('sr = 48000\nnbins = 65\n')
+        (d / "config.toml").write_text('sr = 48000\nnbins = 65\n')
         cfg = ModelConfig.from_dir(d)
         assert cfg["modelname"] == "my_model"
         assert cfg.modelname == "my_model"
 
     def test_explicit_modelname(self, tmp_path):
-        (tmp_path / "vars.toml").write_text(
+        (tmp_path / "config.toml").write_text(
             'modelname = "custom"\nsr = 48000\nnbins = 65\n'
         )
         cfg = ModelConfig.from_dir(tmp_path)
@@ -96,7 +96,7 @@ class TestModelConfigFromDir:
             ModelConfig.from_dir(tmp_path / "nonexistent")
 
     def test_dict_style_get_and_contains(self, tmp_path):
-        (tmp_path / "vars.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("missing", 42) == 42
         assert cfg.get("sr") == 48000
@@ -111,7 +111,7 @@ class TestModelConfig:
     def model_dir(self, tmp_path):
         d = tmp_path / "test_model"
         d.mkdir()
-        (d / "vars.toml").write_text(
+        (d / "config.toml").write_text(
             'sr = 32000\nnbins = 33\nair_density = 1.25\n'
             'speed_of_sound = 343.0\nbem_type = 1\n'
         )
@@ -127,7 +127,7 @@ class TestModelConfig:
         assert mc.modelname == "test_model"
 
     def test_defaults(self, tmp_path):
-        (tmp_path / "vars.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
         mc = ModelConfig.from_dir(tmp_path)
         assert mc.air_density == 1.2
         assert mc.speed_of_sound == 340.0
@@ -142,12 +142,12 @@ class TestModelConfig:
         assert freqs[-1] == pytest.approx(16000)
 
     def test_mesh_map_empty(self, tmp_path):
-        (tmp_path / "vars.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
         mc = ModelConfig.from_dir(tmp_path)
         assert mc.mesh_map() == {}
 
     def test_mesh_map_with_variants(self, tmp_path):
-        (tmp_path / "vars.toml").write_text(
+        (tmp_path / "config.toml").write_text(
             'sr = 48000\nnbins = 65\n'
             '[variants.left]\nmesh = "shared"\n'
             '[variants.right]\n'
@@ -161,14 +161,14 @@ class TestDictAccessFallback:
     """Dict-style access falls back to typed defaults (no raw/attribute divergence)."""
 
     def test_get_falls_back_to_dataclass_default(self, tmp_path):
-        (tmp_path / "vars.toml").write_text("sr = 48000\nnbins = 65\n")
+        (tmp_path / "config.toml").write_text("sr = 48000\nnbins = 65\n")
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("air_density") == cfg.air_density == 1.2
         assert cfg["speed_of_sound"] == 340.0
         assert "bem_type" in cfg
 
     def test_unknown_key_still_raises(self, tmp_path):
-        (tmp_path / "vars.toml").write_text("sr = 48000\nnbins = 65\n")
+        (tmp_path / "config.toml").write_text("sr = 48000\nnbins = 65\n")
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("no_such_key", 7) == 7
         with pytest.raises(KeyError):

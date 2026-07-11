@@ -236,9 +236,9 @@ def cmd_results(model_dir, args):
         raise SystemExit(1)
 
     # Load config
-    vars_file = model_dir / "vars.toml"
+    vars_file = model_dir / "config.toml"
     if not vars_file.exists():
-        print(f"Error: vars.toml not found in {model_dir}")
+        print(f"Error: config.toml not found in {model_dir}")
         raise SystemExit(1)
     config = ModelConfig.from_dir(model_dir)
 
