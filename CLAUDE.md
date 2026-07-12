@@ -12,10 +12,12 @@ bemkit/
 │   ├── config.py       # ModelConfig (single config object, dict-style access), freq_bin
 │   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
 │   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
-│   │                      # generate.py — gmsh STEP/PLY meshing (lazy gmsh)
+│   │                      # generate.py — gmsh STEP/scan meshing (lazy gmsh):
+│   │                      #   mesh_from_step, mesh_from_surface (.ply/.stl/.obj)
 │   ├── sim/              # NumCalc layer (no analysis/viz deps)
 │   │                      # fields.py      — make_fields_onaxis/polar/plane generators
 │   │                      # fieldpoints.py — validation, loading, offsets
+│   │                      # boundary.py    — BC resolution (near= anchors → ranges)
 │   │                      # writers.py     — NumCalc input writing (write_nc_inp,
 │   │                      #                  templates/NC.inp package data)
 │   │                      # export.py      — export_variant, ExportInfo
@@ -53,7 +55,9 @@ pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumb
 Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
 commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
 
-**Scope**: public meshing is gmsh STEP/PLY generation; public examples are models whose
+**Scope**: public meshing is gmsh generation from STEP CAD and tessellated scan
+surfaces (`geometry/` holds remesh sources; `mesh/` files are trusted as-is);
+public examples are models whose
 surface is rigid or vibrating (the implemented STEP color contract). Fieldpoint generators
 are the minimal set: `onaxis`, `polar`, `plane`. The mmgs metric workflow and gaussian
 spherical grids live in the private layer.
@@ -72,7 +76,7 @@ examples/<name>/
 ├── config.toml          # Configuration
 ├── pre_*.py / pre_*.sh  # Model-local preprocessing scripts
 ├── fieldpoints/       # .npy fieldpoint files
-├── geometry/          # CAD output (.step)
+├── geometry/          # remesh sources: CAD (.step) + scans (.ply/.stl/.obj)
 ├── mesh/              # Mesh files (.msh, .stl, .ply)
 ├── numcalc/<variant>/ # Per-variant: ObjectMesh/, EvalGrid/, NC.inp, NC.out, be.out/ (or be.npz), eval_offsets.json
 └── plots/             # Output figures
@@ -89,7 +93,7 @@ subcommand (e.g. `mesh/`) needs a path prefix to disambiguate: `bem ./mesh`.
 
 ```bash
 bem examples/sphcap                    # show status (default)
-bem examples/sphcap mesh               # generate mesh from geometry/*.step or mesh/*.ply
+bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc (parallel)
 bem examples/sphcap run -j 4           # cap parallel NumCalc instances
@@ -366,6 +370,28 @@ cap = [[s1, e1, 1.0], [s2, e2, 1.0], ...]   # list of [start, end, velocity] ran
 ```
 
 Element indices are 0-indexed. Single element: `[7875, 7875, 1.0]` → `ELEM 7875 TO 7875 VELO 1.0000 -1 0.0 -1`.
+
+Geometric anchors (`bemkit/sim/boundary.py`) — resolved against the mesh at
+export time, so they survive remeshing; anchors/radii in meters:
+```toml
+[BOUNDARY.ear]
+spot  = { near = [0.06, 0.0, 0.10] }                  # nearest element
+patch = { near = [0.0, 0.0, 0.05], radius = 0.01 }    # all centroids within radius
+multi = { near = [[x1,y1,z1], [x2,y2,z2]], velocity = 0.5 }  # one element per anchor
+```
+Export raises if an anchor is >5% of the mesh extent from its nearest element,
+or a `radius` selects no elements (units/frame mistake). A variant name is
+matched against `[BOUNDARY.<name>]` first with its full name, then with the
+`__recipe`/`@profile` suffix stripped (`ear__r05` → `[BOUNDARY.ear]`).
+
+### PLANE WAVES / POINT SOURCES (incident fields)
+
+`["PLANE WAVES"]` / `["POINT SOURCES"]` tables in config.toml pass through to
+NC.inp; each entry is an 8-value row `[nr, x, y, z, ampl_real, -1, ampl_imag, -1]`
+(malformed rows raise at export — header counts must match emitted lines).
+Curve refs are always written as `-1`: frequency-dependent amplitudes (CURVES)
+are not supported. `pressure_acc` normalization assumes a velocity BC; use
+`norm="raw"` for pure scattering setups.
 
 ## Analytic Solution
 
