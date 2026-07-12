@@ -7,8 +7,9 @@ resolved against the mesh at export time::
     [BOUNDARY.ear]
     left_ear = { near = [0.06, 0.0, 0.10] }              # nearest element
     loudspeaker = { near = [[x1, y1, z1], [x2, y2, z2]] } # one element per anchor
+    cap = { near = [0.0, 0.0, 0.05], radius = 0.01 }     # all elements within 10 mm
 
-Anchors are in meters (like fieldpoint files). This is the library form of the
+Anchors and radii are in meters (like fieldpoint files). This is the library form of the
 per-model ``find_bc`` scripts: element indices become *derived* data, so the
 same ``[BOUNDARY.<target>]`` definition serves every mesh recipe of a target.
 
@@ -20,6 +21,7 @@ unchanged for backward compatibility.
 import numpy as np
 
 from bemkit.meshing.io import read_mesh_triangles
+from bemkit.sim.writers import _contiguous_ranges
 
 
 def variant_target(variant):
@@ -99,15 +101,33 @@ def resolve_boundary(config, variant, mesh_file):
             v0 = val.get("velocity", val.get("v", default_v))
             near = val["near"]
             anchors = near if _is_point_list(near) else [near]
-            ranges = []
-            for pt in anchors:
-                idx, dist = _nearest_element(centroids, pt)
-                if diag and dist > 0.05 * diag:
-                    raise ValueError(
-                        f"BOUNDARY '{key}' anchor {list(pt)} for variant '{variant}' "
-                        f"is {dist:.4g} m from its nearest element (>5% of the mesh "
-                        f"extent {diag:.4g} m). Check the anchor's units/frame.")
-                ranges.append((idx, idx, float(v0)))
+            radius = val.get("radius")
+            if radius is not None:
+                selected = set()
+                for pt in anchors:
+                    d = np.linalg.norm(centroids - np.asarray(pt, dtype=float),
+                                       axis=1)
+                    idx = np.nonzero(d <= float(radius))[0]
+                    if len(idx) == 0:
+                        raise ValueError(
+                            f"BOUNDARY '{key}' anchor {list(pt)} for variant "
+                            f"'{variant}' has no element centroid within radius "
+                            f"{radius} m (nearest is {d.min():.4g} m away). "
+                            f"Check the anchor/radius units and frame.")
+                    selected.update(int(i) for i in idx)
+                ranges = [(s, e, float(v0))
+                          for s, e in _contiguous_ranges(selected)]
+            else:
+                ranges = []
+                for pt in anchors:
+                    idx, dist = _nearest_element(centroids, pt)
+                    if diag and dist > 0.05 * diag:
+                        raise ValueError(
+                            f"BOUNDARY '{key}' anchor {list(pt)} for variant "
+                            f"'{variant}' is {dist:.4g} m from its nearest element "
+                            f"(>5% of the mesh extent {diag:.4g} m). Check the "
+                            f"anchor's units/frame.")
+                    ranges.append((idx, idx, float(v0)))
             resolved[key] = ranges
         elif isinstance(val, list) and len(val) >= 1:
             if isinstance(val[0], list):          # [[s, e, v], ...]

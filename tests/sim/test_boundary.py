@@ -62,6 +62,41 @@ class TestResolveBoundary:
         resolved = resolve_boundary(cfg, "tetra", path)
         assert resolved["patch"] == [(0, 0, 0.5), (3, 3, 0.5)]
 
+    def test_radius_selects_all_elements_within(self, mesh_file):
+        path, vertices, triangles = mesh_file
+        cents = _centroids(vertices, triangles)
+        anchor = cents[1]
+        r = float(np.linalg.norm(cents - anchor, axis=1).max()) + 1e-6
+        cfg = {"BOUNDARY": {"drv": {
+            "near": anchor.tolist(), "radius": r, "velocity": 0.5}}}
+        resolved = resolve_boundary(cfg, "tetra", path)
+        assert resolved["drv"] == [(0, 3, 0.5)]  # all 4, collapsed to one range
+
+    def test_radius_selects_subset(self, mesh_file):
+        path, vertices, triangles = mesh_file
+        cents = _centroids(vertices, triangles)
+        d = np.sort(np.linalg.norm(cents - cents[1], axis=1))
+        r = float(d[1]) / 2  # smaller than the nearest other centroid
+        cfg = {"BOUNDARY": {"drv": {"near": cents[1].tolist(), "radius": r}}}
+        resolved = resolve_boundary(cfg, "tetra", path)
+        assert resolved["drv"] == [(1, 1, 1.0)]
+
+    def test_radius_multi_anchor_union(self, mesh_file):
+        path, vertices, triangles = mesh_file
+        cents = _centroids(vertices, triangles)
+        d = np.sort(np.linalg.norm(cents - cents[0], axis=1))
+        r = float(d[1]) / 2
+        cfg = {"BOUNDARY": {"drv": {
+            "near": [cents[0].tolist(), cents[3].tolist()], "radius": r}}}
+        resolved = resolve_boundary(cfg, "tetra", path)
+        assert resolved["drv"] == [(0, 0, 1.0), (3, 3, 1.0)]
+
+    def test_radius_with_no_elements_raises(self, mesh_file):
+        path, _, _ = mesh_file
+        cfg = {"BOUNDARY": {"drv": {"near": [0.5, 0.3, 0.4], "radius": 1e-9}}}
+        with pytest.raises(ValueError, match="within radius"):
+            resolve_boundary(cfg, "tetra", path)
+
     def test_far_anchor_raises(self, mesh_file):
         path, _, _ = mesh_file
         cfg = {"BOUNDARY": {"drv": {"near": [100.0, 100.0, 100.0]}}}
