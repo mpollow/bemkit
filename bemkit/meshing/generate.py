@@ -1,4 +1,4 @@
-"""Parametric mesh generation from STEP/PLY files using GMSH.
+"""Parametric mesh generation from CAD (STEP) and scan surfaces using GMSH.
 
 GMSH is imported lazily -- only needed when generating meshes.
 """
@@ -99,14 +99,19 @@ def mesh_from_step(step_file, output_file,
     return output_file
 
 
-def mesh_from_ply(ply_file, output_file,
-                  lc_min=5.0, lc_max=25.0,
-                  dist_min=50.0, dist_max=100.0):
-    """Generate a GMSH surface mesh from a PLY scan.
+# Tessellated surface formats accepted as remesh sources in geometry/
+# (anything gmsh.merge can read; treated as meters, scaled to mm)
+SURFACE_EXTENSIONS = ['.ply', '.stl', '.obj']
+
+
+def mesh_from_surface(surface_file, output_file,
+                      lc_min=5.0, lc_max=25.0,
+                      dist_min=50.0, dist_max=100.0):
+    """Generate a GMSH surface mesh from a tessellated scan (.ply/.stl/.obj).
 
     Intended for acoustic BEM on scanned geometries (e.g. head + pinna).
 
-    The PLY is treated as a discrete, already-clean surface:
+    The input is treated as a discrete, already-clean surface:
     - must be watertight
     - must have consistent normals
     - no topology repair is performed here
@@ -114,7 +119,7 @@ def mesh_from_ply(ply_file, output_file,
     A distance-based size field is applied globally.
 
     Args:
-        ply_file: Path to input PLY surface mesh
+        surface_file: Path to input surface mesh (any format gmsh can merge)
         output_file: Path for output .msh file
         lc_min: Minimum element size (mm)
         lc_max: Maximum element size (mm)
@@ -127,19 +132,19 @@ def mesh_from_ply(ply_file, output_file,
     import gmsh
     import numpy as np
 
-    ply_file = Path(ply_file)
+    surface_file = Path(surface_file)
     output_file = Path(output_file)
 
-    if not ply_file.exists():
-        raise FileNotFoundError(f"Input mesh not found: {ply_file}")
+    if not surface_file.exists():
+        raise FileNotFoundError(f"Input mesh not found: {surface_file}")
 
     gmsh.initialize()
     gmsh.option.setNumber("General.Terminal", 1)
 
-    print(f"Loading PLY surface: {ply_file}")
-    gmsh.merge(str(ply_file))
+    print(f"Loading surface: {surface_file}")
+    gmsh.merge(str(surface_file))
 
-    # Convert from meters (PLY) to millimeters (GMSH/BEM convention)
+    # Convert from meters (surface scan) to millimeters (GMSH/BEM convention)
     print("Converting units from meters to millimeters...")
     node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
     for i, tag in enumerate(node_tags):
@@ -161,7 +166,7 @@ def mesh_from_ply(ply_file, output_file,
 
     if not surfaces:
         gmsh.finalize()
-        raise RuntimeError("No surface entities found in PLY file")
+        raise RuntimeError(f"No surface entities found in {surface_file.name}")
 
     SURFACE = 1
     gmsh.model.addPhysicalGroup(2, surfaces, SURFACE)
@@ -204,3 +209,7 @@ def mesh_from_ply(ply_file, output_file,
 
     gmsh.finalize()
     return output_file
+
+
+# Backward-compatible name from when PLY was the only supported scan format
+mesh_from_ply = mesh_from_surface

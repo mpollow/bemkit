@@ -4,9 +4,11 @@ Stages cover mesh → export → run → pack. Plotting is CLI-level (it needs
 the viz layer, which core must not import).
 """
 
+import os
 import subprocess
 import sys
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from bemkit.config import ModelConfig
 from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo
@@ -28,27 +30,21 @@ class PipelineStage(ABC):
         """Check if stage output already exists for a variant."""
 
 
-def _generate_mesh(config, kind):
-    """Generate a .msh from geometry/{model}.step or mesh/{model}.ply."""
-    from bemkit.meshing.generate import mesh_from_ply, mesh_from_step  # lazy gmsh
+def _generate_mesh(config, input_file):
+    """Generate mesh/{stem}.msh from one geometry/ source (CAD or scan)."""
+    from bemkit.meshing.generate import mesh_from_step, mesh_from_surface  # lazy gmsh
 
+    input_file = Path(input_file)
     mesh_dir = config.model_dir / "mesh"
     mesh_dir.mkdir(exist_ok=True)
-    output_file = mesh_dir / f"{config.modelname}.msh"
-    defaults = {"step": (5.0, 25.0, 50.0, 100.0), "ply": (2.0, 4.0, 20.0, 80.0)}[kind]
+    output_file = mesh_dir / f"{input_file.stem}.msh"
+    is_step = input_file.suffix == ".step"
+    defaults = (5.0, 25.0, 50.0, 100.0) if is_step else (2.0, 4.0, 20.0, 80.0)
     lc_min = config.mesh_cfg.get("lc_min", defaults[0])
     lc_max = config.mesh_cfg.get("lc_max", defaults[1])
     dist_min = config.mesh_cfg.get("dist_min", defaults[2])
     dist_max = config.mesh_cfg.get("dist_max", defaults[3])
-
-    if kind == "step":
-        input_file = config.model_dir / "geometry" / f"{config.modelname}.step"
-        fn = mesh_from_step
-    else:
-        input_file = config.model_dir / "mesh" / f"{config.modelname}.ply"
-        fn = mesh_from_ply
-    if not input_file.exists():
-        raise FileNotFoundError(f"Input not found: {input_file}")
+    fn = mesh_from_step if is_step else mesh_from_surface
 
     print(f"Generating surface mesh from {input_file}")
     print(f"  Mesh size: lc_min={lc_min} mm, lc_max={lc_max} mm")
@@ -66,43 +62,55 @@ class MeshStage(PipelineStage):
 
     def run(self, config, **kwargs):
         model_dir = config.model_dir
+        # Scripts run with cwd=model_dir, so a repo-checkout bemkit (not pip-
+        # installed) would not be importable — put its root on PYTHONPATH.
+        env = os.environ.copy()
+        pkg_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = (pkg_root + os.pathsep + env["PYTHONPATH"]
+                             if env.get("PYTHONPATH") else pkg_root)
         for s in sorted(model_dir.glob("pre_*.[ps][yh]")):
             if s.name.startswith("__"):
                 continue
             cmd = [sys.executable if s.suffix == ".py" else "bash", str(s)]
             print(f"\n{'=' * 60}\n  {' '.join(cmd)}\n{'=' * 60}")
-            r = subprocess.run(cmd, cwd=str(model_dir))
+            r = subprocess.run(cmd, cwd=str(model_dir), env=env)
             if r.returncode:
                 raise RuntimeError(f"pre-script failed (exit {r.returncode}): {s.name}")
 
+        # geometry/ holds remesh sources (CAD .step + tessellated scans);
+        # everything in mesh/ is a trusted, ready-to-use mesh, never remeshed.
+        from bemkit.meshing.generate import SURFACE_EXTENSIONS
         geom_dir = model_dir / "geometry"
         mesh_dir = model_dir / "mesh"
-        step_files = sorted(geom_dir.glob("*.step")) if geom_dir.is_dir() else []
-        ply_files = sorted(
-            p for p in (mesh_dir.glob("*.ply") if mesh_dir.is_dir() else [])
-            if not (mesh_dir / p.stem).with_suffix(".msh").exists())
+        sources = sorted(
+            (f for f in (geom_dir.iterdir() if geom_dir.is_dir() else [])
+             if f.suffix in ['.step'] + SURFACE_EXTENSIONS), key=lambda f: f.name)
 
         results = []
-        if step_files:
-            for step_file in step_files:
-                msh = (model_dir / "mesh" / step_file.stem).with_suffix(".msh")
-                if msh.exists():
-                    print(f"  Mesh exists, skipping: {msh.name}")
+        if sources:
+            mesh_files = sorted(f for f in (mesh_dir.iterdir() if mesh_dir.is_dir()
+                                            else []) if f.suffix in MESH_EXTENSIONS)
+            for src in sources:
+                # A pre_* script may have meshed this source under
+                # recipe-suffixed names (stem.recipe.msh) — those count too.
+                derived = [f for f in mesh_files
+                           if f.stem.split('.')[0] == src.stem]
+                if derived:
+                    print(f"  Mesh exists, skipping {src.name}: "
+                          f"{', '.join(f.name for f in derived)}")
+                    results += [MeshInfo.from_file(f) for f in derived]
                 else:
-                    msh = _generate_mesh(config, "step")
-                results.append(MeshInfo.from_file(msh))
-        elif ply_files:
-            for _ in ply_files:
-                msh = _generate_mesh(config, "ply")
-                results.append(MeshInfo.from_file(msh))
+                    results.append(MeshInfo.from_file(_generate_mesh(config, src)))
         else:
-            existing = [f for f in (mesh_dir.iterdir() if mesh_dir.is_dir() else [])
-                        if f.suffix in MESH_EXTENSIONS]
+            existing = sorted(
+                (f for f in (mesh_dir.iterdir() if mesh_dir.is_dir() else [])
+                 if f.suffix in MESH_EXTENSIONS), key=lambda f: f.name)
             if existing:
                 print(f"  Mesh files already exist: {', '.join(f.name for f in existing)}")
                 results = [MeshInfo.from_file(f) for f in existing]
             else:
-                print("  No geometry sources found (no *.step in geometry/, no *.ply in mesh/)")
+                print("  No geometry sources found "
+                      "(nothing in geometry/, no mesh files in mesh/)")
         return results
 
 

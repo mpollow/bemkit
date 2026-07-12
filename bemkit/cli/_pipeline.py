@@ -4,7 +4,8 @@ import sys
 
 
 def register(sub):
-    p = sub.add_parser("mesh", help="Generate mesh from geometry/*.step or mesh/*.ply")
+    p = sub.add_parser("mesh", help="Generate mesh from geometry/ sources "
+                                    "(.step CAD, .ply/.stl/.obj scans)")
     p.set_defaults(func=cmd_mesh)
 
     p = sub.add_parser("export", help="Fieldpoints + mesh + NC.inp (all variants)")
@@ -146,8 +147,10 @@ def show_status(model_dir):
         mesh_files = sorted(f for f in mesh_dir.iterdir()
                             if f.suffix in MESH_EXTENSIONS)
         mesh_stems = {f.stem.split('.')[0] for f in mesh_files}
+        from bemkit.meshing.generate import SURFACE_EXTENSIONS
         unmeshed = sorted(f.stem for f in geom_dir.iterdir()
-                          if f.suffix == '.step' and f.stem not in mesh_stems)
+                          if f.suffix in ['.step'] + SURFACE_EXTENSIONS
+                          and f.stem not in mesh_stems)
         if unmeshed:
             print(f"  Geometries without meshes: {', '.join(unmeshed)}\n")
 

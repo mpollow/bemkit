@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from bemkit.config import ModelConfig
-from bemkit.pipeline import RunStage
+from bemkit.pipeline import MeshStage, RunStage
 
 GOLDEN_MODEL = Path(__file__).parent / "golden" / "model"
 
@@ -64,6 +64,83 @@ def _make_npz(nc_dir, bins, nf=4):
 
 def _stage_run(model_dir, **kw):
     return RunStage().run(ModelConfig.from_dir(model_dir), **kw)
+
+
+class TestMeshStage:
+    """geometry/ holds remesh sources (CAD + scans); mesh/ is always trusted."""
+
+    @pytest.fixture()
+    def mesh_model(self, tmp_path, monkeypatch):
+        """Sparse model dir + fake mesh generators recording their input names."""
+        model = tmp_path / "m"
+        model.mkdir()
+        (model / "config.toml").write_text("sr = 8000\nnbins = 5\n")
+        calls = []
+
+        def fake_gen(input_file, output_file, **kw):
+            calls.append(Path(input_file).name)
+            Path(output_file).touch()
+            return Path(output_file)
+
+        import bemkit.meshing.generate as generate
+        monkeypatch.setattr(generate, "mesh_from_step", fake_gen)
+        monkeypatch.setattr(generate, "mesh_from_surface", fake_gen)
+        return model, calls
+
+    def test_ply_in_mesh_dir_is_trusted_not_remeshed(self, mesh_model):
+        model, calls = mesh_model
+        (model / "mesh").mkdir()
+        (model / "mesh" / "scan.ply").touch()
+        results = MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == []
+        assert [r.mesh_file.name for r in results] == ["scan.ply"]
+
+    def test_each_geometry_source_meshed_by_its_own_name(self, mesh_model):
+        # Remesh sources: CAD .step plus any tessellated surface format.
+        model, calls = mesh_model
+        (model / "geometry").mkdir()
+        for name in ("a.step", "b.step", "raw.stl", "scan.ply", "head.obj"):
+            (model / "geometry" / name).touch()
+        results = MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == ["a.step", "b.step", "head.obj", "raw.stl", "scan.ply"]
+        assert sorted(f.name for f in (model / "mesh").iterdir()) == \
+            ["a.msh", "b.msh", "head.msh", "raw.msh", "scan.msh"]
+        assert [r.mesh_file.name for r in results] == \
+            ["a.msh", "b.msh", "head.msh", "raw.msh", "scan.msh"]
+
+    def test_existing_msh_skips_that_source_only(self, mesh_model):
+        model, calls = mesh_model
+        (model / "geometry").mkdir()
+        (model / "geometry" / "a.step").touch()
+        (model / "geometry" / "b.step").touch()
+        (model / "mesh").mkdir()
+        (model / "mesh" / "a.msh").touch()
+        MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == ["b.step"]
+
+    def test_pre_script_can_import_bemkit(self, mesh_model, monkeypatch):
+        # pre_* scripts must import THIS bemkit even when the package is not
+        # installed (externally-managed python) and cwd is the model dir.
+        model, _ = mesh_model
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+        (model / "pre_check.py").write_text(
+            "import bemkit, pathlib\n"
+            "pathlib.Path('bemkit_path.txt').write_text(bemkit.__file__)\n")
+        MeshStage().run(ModelConfig.from_dir(model))
+        import bemkit
+        assert (model / "bemkit_path.txt").read_text() == bemkit.__file__
+
+    def test_recipe_suffixed_mesh_counts_as_meshed(self, mesh_model):
+        # A pre_* script may have meshed the source under recipe-suffixed
+        # names (a.lc5-25.msh) — don't generate a duplicate default mesh.
+        model, calls = mesh_model
+        (model / "geometry").mkdir()
+        (model / "geometry" / "a.step").touch()
+        (model / "mesh").mkdir()
+        (model / "mesh" / "a.lc5-25.msh").touch()
+        results = MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == []
+        assert [r.mesh_file.name for r in results] == ["a.lc5-25.msh"]
 
 
 class TestRunStage:
