@@ -184,6 +184,24 @@ def _boundary_ranges_from_config(bc, variant):
     return ranges
 
 
+def _source_entries(cfg, section):
+    """Validate a PLANE WAVES / POINT SOURCES table into 8-value rows.
+
+    Every entry must be a list of 8 values (matching the NC.inp line layout);
+    anything else raises, because a dropped entry would leave the header count
+    claiming a source line that never appears and NumCalc would misparse.
+    """
+    entries = cfg.get(section) or {}
+    rows = []
+    for key, val in entries.items():
+        if not (isinstance(val, list) and len(val) == 8):
+            raise ValueError(
+                f'["{section}"] entry {key!r} must be a list of 8 values '
+                f"[nr, x, y, z, ampl_real, -1, ampl_imag, -1], got: {val!r}")
+        rows.append(val)
+    return rows
+
+
 def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
                  boundary_ranges=None, verbose=True):
     """Generate nc_dir/NC.inp from the packaged template.
@@ -222,6 +240,7 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
         for name in ("modelname", "sr", "nbins", "bem_type", "air_density",
                      "speed_of_sound", "time_factor", "is_internal"):
             v.setdefault(name, getattr(config, name))
+    sources = {s: _source_entries(v, s) for s in ("PLANE WAVES", "POINT SOURCES")}
     v.update(
         n_total_nodes=n_points + n_eval,
         n_total_elements=n_tri + n_evalelem,
@@ -234,8 +253,8 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
         n_frequencies=v["nbins"] - 1,
         freq_time=(v["nbins"] - 1) * 1e-6,
         max_frequency=v["sr"] / 2,
-        n_planewaves=len(v.get("PLANE WAVES", {})),
-        n_pointsources=len(v.get("POINT SOURCES", {})),
+        n_planewaves=len(sources["PLANE WAVES"]),
+        n_pointsources=len(sources["POINT SOURCES"]),
     )
     v.setdefault("time_factor", 1.0)
     v.setdefault("is_internal", 0)
@@ -295,13 +314,14 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
                   f"Check that [BOUNDARY.{variant}] exists and its entries are well-formed.")
         nc.write('RETU\n##\n')
 
-        for section in ('PLANE WAVES', 'POINT SOURCES'):
-            if section in v:
+        for section, rows in sources.items():
+            if rows:
                 nc.write(f'{section}\n')
-                for val in v[section].values():
-                    if isinstance(val, list) and len(val) == 8:
-                        nc.write(f'{val[0]} {val[1]} {val[2]} {val[3]} '
-                                 f'{val[4]} -1 {val[6]} -1\n')
+                for val in rows:
+                    # curve refs (positions 5/7) are always -1: frequency-
+                    # dependent amplitude CURVES are not supported.
+                    nc.write(f'{val[0]} {val[1]} {val[2]} {val[3]} '
+                             f'{val[4]} -1 {val[6]} -1\n')
                 nc.write('##\n')
 
         nc.write('POST PROCESS\n##\nEND\n')

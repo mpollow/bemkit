@@ -151,6 +151,33 @@ class TestWriteNcInp:
         text = (tmp_path / "NC.inp").read_text()
         assert "VELO" not in text  # no BC emitted
 
+    def test_source_sections_written_with_matching_header_count(self, tmp_path):
+        self._counts(tmp_path)
+        config = {
+            "modelname": "tiny", "sr": 8000, "nbins": 5, "bem_type": 4,
+            "air_density": 1.2, "speed_of_sound": 340.0,
+            "PLANE WAVES": {"1": [1, 0, -1, 0, 1, -1, 0, -1]},
+            "POINT SOURCES": {"1": [1, 0, 2, 0, 1, -1, 0, -1]},
+        }
+        write_nc_inp(config, "tiny", tmp_path, verbose=False)
+        text = (tmp_path / "NC.inp").read_text()
+        assert "PLANE WAVES\n1 0 -1 0 1 -1 0 -1\n##" in text
+        assert "POINT SOURCES\n1 0 2 0 1 -1 0 -1\n##" in text
+        # header source counts must match the emitted lines
+        assert "1 1 0 0.0000e+00 0 0 0" in text
+
+    def test_malformed_source_entry_raises(self, tmp_path):
+        # A silently dropped entry would leave the header count claiming a
+        # source line that never appears — NumCalc would misparse the file.
+        self._counts(tmp_path)
+        config = {
+            "modelname": "tiny", "sr": 8000, "nbins": 5, "bem_type": 4,
+            "air_density": 1.2, "speed_of_sound": 340.0,
+            "PLANE WAVES": {"1": [1, 0, -1]},  # not 8 values
+        }
+        with pytest.raises(ValueError, match="PLANE WAVES"):
+            write_nc_inp(config, "tiny", tmp_path, verbose=False)
+
     def test_modelconfig_typed_defaults_fill_omitted_keys(self, tmp_path):
         from bemkit.config import ModelConfig
         self._counts(tmp_path)
