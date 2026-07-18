@@ -38,6 +38,26 @@ def test_crashed_bin_stub_reported_missing(numcalc_dir):
     assert not is_complete(numcalc_dir, nf=2)
 
 
+def test_half_written_bin_reported_missing(numcalc_dir):
+    # A run killed mid-bin leaves a complete pBoundary next to an empty
+    # pEvalGrid (NumCalc writes the boundary files first). The bin must
+    # count as missing so `bem run` recomputes it instead of leaving a
+    # permanent hole in the eval data.
+    (numcalc_dir / "be.out" / "be.2" / "pEvalGrid").write_text("")
+    (numcalc_dir / "be.out" / "be.2" / "vEvalGrid").write_text("")
+    assert available_bins(numcalc_dir) == [1]
+    assert 2 in missing_bins(numcalc_dir, nf=2)
+
+
+def test_bundle_without_eval_grid_needs_only_boundary(numcalc_dir):
+    # No EvalGrid/ in the bundle -> pEvalGrid is not an expected output.
+    import shutil
+    shutil.rmtree(numcalc_dir / "EvalGrid")
+    for bi in (1, 2):
+        (numcalc_dir / "be.out" / f"be.{bi}" / "pEvalGrid").unlink()
+    assert available_bins(numcalc_dir) == [1, 2]
+
+
 def test_available_bins_from_npz(tmp_path):
     np.savez(tmp_path / "be.npz", bin_indices=np.array([1, 3], dtype=np.int32))
     assert available_bins(tmp_path) == [1, 3]

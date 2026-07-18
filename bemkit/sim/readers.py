@@ -172,6 +172,30 @@ def _bin_file_ok(f: Path) -> bool:
     return f.exists() and f.stat().st_size > 10
 
 
+def complete_bins(nc_dir):
+    """1-based bins in nc_dir/be.out/ whose result files are fully written.
+
+    Within a bin NumCalc writes the boundary files before the eval-grid
+    files, so a killed run can leave a complete ``pBoundary`` next to an
+    empty ``pEvalGrid``. A bin only counts as complete when every expected
+    quantity has content — ``pEvalGrid`` is expected whenever the bundle has
+    an ``EvalGrid/``. Resume (``bem run``) and packing rely on this so a
+    half-written bin gets recomputed instead of silently kept.
+    """
+    nc_dir = Path(nc_dir)
+    be_out = nc_dir / "be.out"
+    if not be_out.is_dir():
+        return []
+    need_eval = (nc_dir / "EvalGrid" / "Nodes.txt").exists()
+    bins = []
+    for i in list_bins(be_out):
+        d = be_out / f"be.{i}"
+        if _bin_file_ok(d / "pBoundary") and (
+                not need_eval or _bin_file_ok(d / "pEvalGrid")):
+            bins.append(i)
+    return bins
+
+
 def load_bins_ascii(be_out, quantity, nf, bins=None):
     """Load one quantity from be.out ASCII across bins into a single array.
 

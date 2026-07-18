@@ -31,6 +31,7 @@ from bemkit.sim.readers import (
     QUANTITIES,
     _read_numcalc_data,
     _read_numcalc_velocity_data,
+    complete_bins,
     list_bins,
     load_bins_ascii,
 )
@@ -94,7 +95,9 @@ def pack_variant(nc_dir, *, dtype=np.complex64,
     if not arrays:
         raise FileNotFoundError(f"No quantity files found in {be_out}")
 
-    arrays["bin_indices"] = np.asarray(bins, dtype=np.int32)
+    # Claim only fully-written bins: a half-written bin (killed mid-write)
+    # is packed as NaN columns but stays "missing" so a resume recomputes it.
+    arrays["bin_indices"] = np.asarray(complete_bins(nc_dir), dtype=np.int32)
 
     npz_path = nc_dir / "be.npz"
     tmp = nc_dir / "_be.partial.npz"  # np.savez requires .npz extension

@@ -52,6 +52,20 @@ class TestPackVariant:
             assert nz["vBoundary"].shape == (4, 2)
             np.testing.assert_array_equal(nz["bin_indices"], [1, 2])
 
+    def test_half_written_bin_not_claimed(self, numcalc_dir):
+        # A bin killed mid-write (complete pBoundary, empty pEvalGrid) is
+        # packed as NaN eval columns but must stay out of bin_indices, so a
+        # later resume still sees it as missing and recomputes it.
+        (numcalc_dir / "be.out" / "be.2" / "pEvalGrid").write_text("")
+        (numcalc_dir / "be.out" / "be.2" / "vEvalGrid").write_text("")
+        pack_variant(numcalc_dir, delete_original=True, verbose=False)
+        with np.load(numcalc_dir / "be.npz") as nz:
+            np.testing.assert_array_equal(nz["bin_indices"], [1])
+            assert np.all(np.isnan(nz["pEvalGrid"][:, 1]))
+            assert not np.any(np.isnan(nz["pBoundary"][:, 1]))
+        from bemkit.sim.status import missing_bins
+        assert 2 in missing_bins(numcalc_dir, nf=2)
+
     def test_round_trip_values(self, numcalc_dir):
         """Values written to be.npz match raw ASCII reads within complex64 precision."""
         from bemkit.sim.readers import _read_numcalc_data, _read_numcalc_velocity_data

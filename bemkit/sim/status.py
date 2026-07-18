@@ -9,28 +9,25 @@ from pathlib import Path
 
 import numpy as np
 
-from bemkit.sim.readers import _bin_file_ok, list_bins
+from bemkit.sim.readers import complete_bins
 
 
 def available_bins(nc_dir):
     """Sorted 1-based bin indices with results (from be.npz or be.out/).
 
-    A ``be.{i}/`` directory alone does not count: NumCalc leaves an empty or
-    header-only ``pBoundary`` stub for bins that crashed or were skipped, so a
-    bin is only "available" when its ``pBoundary`` file has real content. This
-    matches the loaders (``load_bins_ascii``), so a crashed bin is reported
-    missing and ``run --missing-only`` will re-run it.
+    A ``be.{i}/`` directory alone does not count: NumCalc leaves empty or
+    header-only stubs for bins that crashed, were skipped, or were killed
+    mid-write (boundary files are written before eval files), so a bin is
+    only "available" when every expected quantity file has real content
+    (see ``readers.complete_bins``). A crashed or half-written bin is thus
+    reported missing and ``bem run`` will re-run it.
     """
     nc_dir = Path(nc_dir)
     npz_file = nc_dir / "be.npz"
     if npz_file.exists():
         with np.load(npz_file) as nz:
             return [int(b) for b in nz["bin_indices"]]
-    be_out = nc_dir / "be.out"
-    if be_out.is_dir():
-        return [i for i in list_bins(be_out)
-                if _bin_file_ok(be_out / f"be.{i}" / "pBoundary")]
-    return []
+    return complete_bins(nc_dir)
 
 
 def missing_bins(nc_dir, nf):
