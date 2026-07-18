@@ -48,12 +48,19 @@ def _register_plugins(sub):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
 
+    # model_dir is effectively optional (defaults to the current directory,
+    # see below) but must stay a required positional for argparse — so the
+    # usage string is written by hand to show the truth.
     parser = argparse.ArgumentParser(
-        prog="bem", description="BEM pipeline for NumCalc models. "
+        prog="bem", usage="bem [MODEL_DIR] [COMMAND] [options]",
+        description="BEM pipeline for NumCalc models. "
         "Run `bem` (or `bem COMMAND`) from inside a model directory, "
         "or pass MODEL_DIR explicitly.")
-    parser.add_argument("model_dir", help="Path to model directory")
-    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
+    parser.add_argument(
+        "model_dir", metavar="MODEL_DIR",
+        help="Path to model directory (default: current directory)")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND",
+                                prog="bem [MODEL_DIR]")
 
     from bemkit.cli import _pipeline, _plot, _viz3d, _web
     _pipeline.register(sub)
