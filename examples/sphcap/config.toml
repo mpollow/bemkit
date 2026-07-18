@@ -14,9 +14,9 @@ is_internal = 0    # 0 for external problem, other values for internal
 # Geometry data for reference (rigid sphere, vibrating cap): the STEP file in
 # geometry/ was authored with bemgeo from these values. bemkit does not read
 # this table — a [geometry] exec script could.
-[cad]
-radius = 50        # mm
-aperture = 20      # degrees
+#[cad]
+#radius = 50        # mm
+#aperture = 20      # degrees
 
 [mesh]
 lc_min = 5.0       # mm - min element size
@@ -42,10 +42,12 @@ res = 10           # mm
 
 # Same geometry at several mesh resolutions (per-variant [mesh] overrides;
 # each is generated as mesh/<variant>.msh from the geometry/ source):
-# [variants.fine]
-# mesh = { lc_min = 2.5, lc_max = 12.0 }
-# [variants.coarse]
-# mesh = { lc_min = 10.0, lc_max = 50.0 }
+[variants.standard]
+mesh = { }
+[variants.fine]
+mesh = { lc_min = 2.5, lc_max = 12.0 }
+[variants.coarse]
+mesh = { lc_min = 10.0, lc_max = 50.0 }
 
 # Uncomment to enable symmetry (num_planes calculated automatically from planes list)
 # [SYMMETRY]
