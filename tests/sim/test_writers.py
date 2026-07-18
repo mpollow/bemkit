@@ -116,6 +116,33 @@ class TestWriteNcInp:
         assert "ELEM 10 TO 10 VELO 1.0000 -1 0.0 -1" in text
         assert "ELEM 20 TO 20" not in text  # other variant's BC excluded
 
+    def test_recipe_suffixed_variant_matches_target_section(self, tmp_path):
+        # The config-fallback path must use the same variant matching as
+        # export_variant (resolve_boundary): 'left__r05' falls back to
+        # [BOUNDARY.left] after stripping the __recipe suffix.
+        self._counts(tmp_path)
+        config = {
+            "modelname": "tiny", "sr": 8000, "nbins": 5, "bem_type": 4,
+            "air_density": 1.2, "speed_of_sound": 340.0,
+            "BOUNDARY": {"left": {"ear": [10, 10, 1.0]}},
+        }
+        write_nc_inp(config, "left__r05", tmp_path, verbose=False)
+        text = (tmp_path / "NC.inp").read_text()
+        assert "ELEM 10 TO 10 VELO 1.0000 -1 0.0 -1" in text
+
+    def test_geometric_anchor_without_mesh_raises(self, tmp_path):
+        # near= anchors need a mesh to resolve against; the direct
+        # write_nc_inp path has none, so this must raise instead of
+        # silently emitting a fully rigid surface.
+        self._counts(tmp_path)
+        config = {
+            "modelname": "tiny", "sr": 8000, "nbins": 5, "bem_type": 4,
+            "air_density": 1.2, "speed_of_sound": 340.0,
+            "BOUNDARY": {"spot": {"near": [0.0, 0.0, 0.05]}},
+        }
+        with pytest.raises(ValueError, match="near"):
+            write_nc_inp(config, "tiny", tmp_path, verbose=False)
+
     def test_nested_range_boundary_entries(self, tmp_path):
         self._counts(tmp_path)
         config = {

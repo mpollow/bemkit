@@ -162,28 +162,6 @@ def _contiguous_ranges(indices):
     return [tuple(r) for r in ranges]
 
 
-def _boundary_ranges_from_config(bc, variant):
-    """Flatten a config [BOUNDARY] table into (start, end, velocity) tuples.
-
-    A per-variant subsection ``[BOUNDARY.<variant>]`` is used exclusively when
-    present; otherwise the global entries apply. Each entry value is either a
-    single ``[s, e, v]`` range or a list of such ranges.
-    """
-    if variant in bc and isinstance(bc[variant], dict):
-        entries = bc[variant]
-    else:
-        entries = bc
-    ranges = []
-    for val in entries.values():
-        if not isinstance(val, list) or len(val) < 1:
-            continue
-        if isinstance(val[0], list):        # list of [s, e, v] ranges
-            ranges += [(r[0], r[1], r[2]) for r in val if len(r) >= 3]
-        elif len(val) >= 3:                 # single [s, e, v]
-            ranges.append((val[0], val[1], val[2]))
-    return ranges
-
-
 def _source_entries(cfg, section):
     """Validate a PLANE WAVES / POINT SOURCES table into 8-value rows.
 
@@ -297,7 +275,12 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
         if boundary_ranges is not None:
             elems += list(boundary_ranges)
         elif had_boundary_table:
-            elems += _boundary_ranges_from_config(v["BOUNDARY"], variant)
+            # Same parser as export_variant, so variant matching (including
+            # the __recipe/@profile stripping) cannot diverge between the two
+            # paths. Geometric near= anchors need a mesh and raise here —
+            # resolve them via export_variant / resolve_boundary instead.
+            from bemkit.sim.boundary import flatten, resolve_boundary
+            elems += flatten(resolve_boundary(config, variant, mesh_file=None))
 
         for s, e, v0 in elems:
             if not (0 <= int(s) <= int(e) < n_tri):

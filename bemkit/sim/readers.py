@@ -113,7 +113,7 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
                     continue
 
                 # End of BOUNDARY section
-                if in_boundary and line in ("RETU", "##", "") and not line.startswith("ELEM"):
+                if in_boundary and line in ("RETU", "##", ""):
                     break
 
                 # Parse ELEM lines: "ELEM 0 TO 24 VELO 1.0000 -1 0.0 -1"
@@ -135,7 +135,12 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
                                 if len(parts) >= 3 and parts[2].upper() == "VELO":
                                     vibrating_elements.append(elem_start)
                         except (ValueError, IndexError):
-                            pass
+                            # A skipped ELEM line silently changes A_vib (and
+                            # thus normalization) — surface it instead.
+                            import warnings
+                            warnings.warn(
+                                f"Malformed ELEM line in {nc_inp_file}: {line!r}",
+                                stacklevel=2)
     except FileNotFoundError:
         pass
 

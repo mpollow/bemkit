@@ -65,10 +65,14 @@ class SimulationData:
         nbins = eff["nbins"]
         self.frequencies = np.linspace(0, sr / 2, nbins)[1:]
 
-        # Prefer the packed be.npz when present; otherwise scan be.out/
+        # Prefer the packed be.npz when present; otherwise scan be.out/.
+        # Quantities are cached decompressed on first access (an NpzFile
+        # re-reads and decompresses the whole member on every __getitem__,
+        # and keeping one open would hold a stale handle across re-runs).
         from bemkit.sim.status import available_bins
         npz_file = self._nc_dir / "be.npz"
-        self._packed_npz = np.load(npz_file, allow_pickle=False) if npz_file.exists() else None
+        self._npz_path = npz_file if npz_file.exists() else None
+        self._npz_cache = {}
         self.available_bins = available_bins(self._nc_dir)
 
         # Load offsets (tiny file, eager)
@@ -370,8 +374,8 @@ class SimulationData:
         (N,) complex array
         """
         filename = "pEvalGrid" if domain == "eval" else "pBoundary"
-        if self._packed_npz is not None:
-            p = self._packed_npz[filename][:, bin_idx - 1].astype(np.complex128, copy=False)
+        if self._npz_path is not None:
+            p = self._packed(filename)[:, bin_idx - 1]
         else:
             from bemkit.sim.readers import _read_numcalc_data
             p = _read_numcalc_data(
@@ -401,10 +405,9 @@ class SimulationData:
         (N, 3) complex for eval (3D vector), (N,) complex for boundary (scalar normal)
         """
         filename = "vEvalGrid" if domain == "eval" else "vBoundary"
-        if self._packed_npz is not None:
-            arr = self._packed_npz[filename]
+        if self._npz_path is not None:
+            arr = self._packed(filename)
             v = arr[:, bin_idx - 1, :] if domain == "eval" else arr[:, bin_idx - 1]
-            v = v.astype(np.complex128, copy=False)
         else:
             from bemkit.sim.readers import _read_numcalc_velocity_data, _read_numcalc_data
             if domain == "eval":
@@ -469,8 +472,26 @@ class SimulationData:
 
     # -- Internal helpers --
 
+    def _packed(self, quantity):
+        """Cached complex128 array for one quantity from be.npz.
+
+        Opens the file per miss instead of holding an NpzFile for the object's
+        lifetime, and caches the decompressed array so single-bin accessors
+        (frequency-slider dragging) don't re-decompress the whole quantity
+        on every call.
+        """
+        if quantity not in self._npz_cache:
+            with np.load(self._npz_path, allow_pickle=False) as nz:
+                if quantity not in nz.files:
+                    raise FileNotFoundError(f"{quantity} not in {self._npz_path}")
+                self._npz_cache[quantity] = nz[quantity].astype(
+                    np.complex128, copy=False)
+        return self._npz_cache[quantity]
+
     def _load_all_bins(self, filename):
-        """Load a quantity across all frequency bins via sim.readers.load_bins."""
+        """Load a quantity across all frequency bins (be.npz preferred)."""
+        if self._npz_path is not None:
+            return self._packed(filename)
         from bemkit.sim.readers import load_bins
         return load_bins(self._nc_dir, filename, len(self.frequencies))
 

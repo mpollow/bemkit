@@ -35,6 +35,11 @@ class ModelConfig:
         model_dir = Path(model_dir).resolve()
         with open(model_dir / "config.toml", "rb") as f:
             raw = tomllib.load(f)
+        missing = [k for k in ("sr", "nbins") if k not in raw]
+        if missing:
+            raise ValueError(
+                f"{model_dir / 'config.toml'} is missing required "
+                f"key(s): {', '.join(missing)}")
         raw.setdefault("modelname", model_dir.name)
         return cls(
             model_dir=model_dir,

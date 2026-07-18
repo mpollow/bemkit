@@ -5,6 +5,7 @@ the viz layer, which core must not import).
 """
 
 import os
+import shutil
 import subprocess
 import sys
 from abc import ABC, abstractmethod
@@ -93,8 +94,11 @@ class MeshStage(PipelineStage):
             for src in sources:
                 # A pre_* script may have meshed this source under
                 # recipe-suffixed names (stem.recipe.msh) — those count too.
+                # Match on the full source stem so a dotted source name
+                # (head.v2.step) is not confused with head.step recipes.
                 derived = [f for f in mesh_files
-                           if f.stem.split('.')[0] == src.stem]
+                           if f.stem == src.stem
+                           or f.stem.startswith(src.stem + '.')]
                 if derived:
                     print(f"  Mesh exists, skipping {src.name}: "
                           f"{', '.join(f.name for f in derived)}")
@@ -165,6 +169,10 @@ class RunStage(PipelineStage):
         if not jobs:
             print("  Nothing to run (all bins present).")
             return [], []
+        if shutil.which("NumCalc") is None:
+            raise RuntimeError(
+                "NumCalc not found on PATH — install Mesh2HRTF's NumCalc "
+                "or add its directory to PATH.")
         # A leftover be.npz would shadow the fresh be.out/ results; for a
         # resume, restore its bins into be.out/ first so the runs merge.
         job_dirs = {j.nc_dir for j in jobs}

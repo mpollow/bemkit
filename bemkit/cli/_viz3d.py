@@ -259,8 +259,7 @@ def cmd_results(model_dir, args):
     # Discover variants
     variants = discover_variants(
         model_dir, args.variant,
-        need_be_out=show_surface or args.impedance,
-        need_results=args.set_name if show_points else None,
+        need_be_out=show_surface or args.impedance or show_points,
     )
 
     if not variants:

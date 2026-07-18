@@ -32,12 +32,22 @@ def mesh_from_step(step_file, output_file,
         Path to the generated .msh file
     """
     import gmsh
-    import numpy as np
 
     step_file = Path(step_file)
     output_file = Path(output_file)
 
     gmsh.initialize()
+    try:
+        return _mesh_from_step(gmsh, step_file, output_file,
+                               lc_min, lc_max, dist_min, dist_max)
+    finally:
+        # Always finalize — a leftover initialized gmsh makes every later
+        # call in this process fail on initialize().
+        gmsh.finalize()
+
+
+def _mesh_from_step(gmsh, step_file, output_file,
+                    lc_min, lc_max, dist_min, dist_max):
     gmsh.option.setNumber("General.Terminal", 1)
 
     gmsh.merge(str(step_file))
@@ -94,7 +104,6 @@ def mesh_from_step(step_file, output_file,
     print(f"Mesh generated: {n_nodes} nodes, {n_triangles} triangles")
     gmsh.write(str(output_file))
     print(f"Mesh saved: {output_file}")
-    gmsh.finalize()
 
     return output_file
 
@@ -130,7 +139,6 @@ def mesh_from_surface(surface_file, output_file,
         Path to the generated .msh file
     """
     import gmsh
-    import numpy as np
 
     surface_file = Path(surface_file)
     output_file = Path(output_file)
@@ -139,19 +147,28 @@ def mesh_from_surface(surface_file, output_file,
         raise FileNotFoundError(f"Input mesh not found: {surface_file}")
 
     gmsh.initialize()
+    try:
+        return _mesh_from_surface(gmsh, surface_file, output_file,
+                                  lc_min, lc_max, dist_min, dist_max)
+    finally:
+        gmsh.finalize()
+
+
+def _mesh_from_surface(gmsh, surface_file, output_file,
+                       lc_min, lc_max, dist_min, dist_max):
     gmsh.option.setNumber("General.Terminal", 1)
 
     print(f"Loading surface: {surface_file}")
     gmsh.merge(str(surface_file))
 
-    # Convert from meters (surface scan) to millimeters (GMSH/BEM convention)
+    # Convert from meters (surface scan) to millimeters (GMSH/BEM convention).
+    # One bulk affine transform instead of a per-node setNode loop, which is
+    # one API round-trip per node and crawls on large scans.
     print("Converting units from meters to millimeters...")
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    for i, tag in enumerate(node_tags):
-        xyz = [node_coords[3*i] * 1000,
-               node_coords[3*i+1] * 1000,
-               node_coords[3*i+2] * 1000]
-        gmsh.model.mesh.setNode(tag, xyz, [])
+    gmsh.model.mesh.affineTransform(
+        [1000, 0, 0, 0,
+         0, 1000, 0, 0,
+         0, 0, 1000, 0])
 
     # Classify discrete surface and create geometry
     # Angle threshold is deliberately high to avoid artificial feature splitting
@@ -165,7 +182,6 @@ def mesh_from_surface(surface_file, output_file,
     surfaces = [tag for dim, tag in gmsh.model.getEntities(2)]
 
     if not surfaces:
-        gmsh.finalize()
         raise RuntimeError(f"No surface entities found in {surface_file.name}")
 
     SURFACE = 1
@@ -207,7 +223,6 @@ def mesh_from_surface(surface_file, output_file,
     gmsh.write(str(output_file))
     print(f"Mesh saved: {output_file}")
 
-    gmsh.finalize()
     return output_file
 
 

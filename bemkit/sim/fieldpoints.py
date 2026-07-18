@@ -197,7 +197,7 @@ def min_distance_to_mesh(points, vertices, triangles):
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None, edge_length_factor=0.5):
+def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None, edge_length_factor=0.1):
     """Check which points are valid (outside mesh for external, inside for internal).
 
     Uses ray-casting to determine inside/outside and distance checking for

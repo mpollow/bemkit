@@ -58,7 +58,7 @@ def _nearest_element(centroids, point):
     return idx, float(d[idx])
 
 
-def resolve_boundary(config, variant, mesh_file):
+def resolve_boundary(config, variant, mesh_file=None):
     """Resolve a variant's [BOUNDARY] entries to element ranges.
 
     Parameters
@@ -67,9 +67,9 @@ def resolve_boundary(config, variant, mesh_file):
         Must support ``get``. Reads ``config["BOUNDARY"]`` and, for geometric
         entries, ``config.get("velocity", 1.0)``.
     variant : str
-    mesh_file : Path or str
+    mesh_file : Path or str or None
         Mesh the ranges are resolved against (only read if a geometric ``near=``
-        entry is present).
+        entry is present; None raises for such entries).
 
     Returns
     -------
@@ -94,6 +94,12 @@ def resolve_boundary(config, variant, mesh_file):
     resolved = {}
     for key, val in entries.items():
         if isinstance(val, dict) and "near" in val:
+            if mesh_file is None:
+                raise ValueError(
+                    f"BOUNDARY '{key}' for variant '{variant}' uses a geometric "
+                    f"'near=' anchor, which must be resolved against a mesh — "
+                    f"call resolve_boundary with mesh_file (or export via "
+                    f"export_variant).")
             if centroids is None:
                 vertices, triangles = read_mesh_triangles(mesh_file)
                 centroids = vertices[triangles].mean(axis=1)

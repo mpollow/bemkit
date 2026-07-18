@@ -23,7 +23,7 @@ def _explicit_variant_names(model_dir):
 
 
 def discover_variants(model_dir, prefixes=None, *, need_be_out=False,
-                      need_results=None, need_object_mesh=False):
+                      need_object_mesh=False):
     """Discover variants from mesh/ dir or [variants] table with optional filtering.
 
     Parameters
@@ -32,9 +32,7 @@ def discover_variants(model_dir, prefixes=None, *, need_be_out=False,
     prefixes : list of str or None
         Prefix match filters.
     need_be_out : bool
-        If True, only include variants with numcalc/{v}/be.out/.
-    need_results : str or None
-        If set_name string, only include variants with numcalc/{v}/be.out/.
+        If True, only include variants with results (be.out/ or be.npz).
     need_object_mesh : bool
         If True, only include variants with numcalc/{v}/ObjectMesh/Nodes.txt.
 
@@ -54,7 +52,6 @@ def discover_variants(model_dir, prefixes=None, *, need_be_out=False,
         variants = [f.stem for f in mesh_files]
     if prefixes:
         variants = [v for v in variants if any(v.startswith(p) for p in prefixes)]
-    # Filter by available data
     filtered = []
     for v in variants:
         if need_object_mesh:
@@ -63,8 +60,5 @@ def discover_variants(model_dir, prefixes=None, *, need_be_out=False,
         if need_be_out:
             if not has_results(model_dir / "numcalc" / v):
                 continue
-        if need_results is not None:
-            if not has_results(model_dir / "numcalc" / v):
-                continue
         filtered.append(v)
-    return filtered if (need_be_out or need_results is not None or need_object_mesh) else variants
+    return filtered

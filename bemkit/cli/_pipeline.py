@@ -146,11 +146,14 @@ def show_status(model_dir):
     if geom_dir.is_dir() and mesh_dir.is_dir():
         mesh_files = sorted(f for f in mesh_dir.iterdir()
                             if f.suffix in MESH_EXTENSIONS)
-        mesh_stems = {f.stem.split('.')[0] for f in mesh_files}
         from bemkit.meshing.generate import SURFACE_EXTENSIONS
-        unmeshed = sorted(f.stem for f in geom_dir.iterdir()
-                          if f.suffix in ['.step'] + SURFACE_EXTENSIONS
-                          and f.stem not in mesh_stems)
+        # Full-stem match (same rule as MeshStage), so a dotted source name
+        # (head.v2.step) is not claimed by meshes of head.step.
+        unmeshed = sorted(g.stem for g in geom_dir.iterdir()
+                          if g.suffix in ['.step'] + SURFACE_EXTENSIONS
+                          and not any(f.stem == g.stem
+                                      or f.stem.startswith(g.stem + '.')
+                                      for f in mesh_files))
         if unmeshed:
             print(f"  Geometries without meshes: {', '.join(unmeshed)}\n")
 

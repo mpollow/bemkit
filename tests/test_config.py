@@ -36,6 +36,20 @@ class TestFreqArray:
         np.testing.assert_allclose(diffs, diffs[0])
 
 
+# ── ModelConfig validation ──────────────────────────────────────────────────
+
+class TestModelConfigValidation:
+    def test_missing_required_keys_raises_with_filename(self, tmp_path):
+        (tmp_path / "config.toml").write_text("modelname = 'x'\n")
+        with pytest.raises(ValueError, match=r"config\.toml.*sr.*nbins"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_missing_nbins_only(self, tmp_path):
+        (tmp_path / "config.toml").write_text("sr = 48000\n")
+        with pytest.raises(ValueError, match="nbins"):
+            ModelConfig.from_dir(tmp_path)
+
+
 # ── freq_bin ─────────────────────────────────────────────────────────────────
 
 class TestFreqBin:

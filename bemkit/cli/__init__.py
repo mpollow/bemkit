@@ -7,6 +7,7 @@ inside command functions only — `bem MODEL export` must work without them.
 import argparse
 import importlib
 import sys
+import tomllib
 from pathlib import Path
 
 
@@ -26,6 +27,8 @@ def load_model_config(model_dir):
         return ModelConfig.from_dir(model_dir)
     except FileNotFoundError:
         sys.exit(f"No config.toml in {model_dir}")
+    except (ValueError, tomllib.TOMLDecodeError) as e:
+        sys.exit(str(e))
 
 
 def _iter_cli_entry_points():

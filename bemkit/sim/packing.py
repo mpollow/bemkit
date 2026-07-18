@@ -81,7 +81,7 @@ def pack_variant(nc_dir, *, dtype=np.complex64,
         print(f"Packing {nc_dir} ({len(bins)} bins, nf={nf})")
 
     arrays: dict[str, np.ndarray] = {}
-    for name, vector in QUANTITIES.items():
+    for name in QUANTITIES:
         arr = load_bins_ascii(be_out, name, nf, bins=bins)
         if arr is None:
             if verbose:
