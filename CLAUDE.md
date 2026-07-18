@@ -96,7 +96,9 @@ equivalent to `bem . mesh`. A model directory literally named the same as a
 subcommand (e.g. `mesh/`) needs a path prefix to disambiguate: `bem ./mesh`.
 
 ```bash
-bem examples/sphcap                    # show status (default)
+bem examples/sphcap                    # show status (default; `bem MODEL status` is the same)
+#   status shows per-variant stages, bins done, solver warnings, and live
+#   NumCalc jobs (⟳ running, current bin — detected via /proc CWDs)
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc (parallel)
@@ -335,6 +337,12 @@ needed — outputs just land in the same `be.out/`).
   the runs merge); re-run `pack` afterwards. A `--force` recompute also deletes the
   variant's old `NC*.out` logs so superseded warnings don't linger in `bem status`;
   resumes keep them.
+- Live jobs are detected, not tracked: `bemkit.sim.status.numcalc_pids(nc_dir)` scans
+  /proc for NumCalc processes whose CWD is the variant dir (works for `bem run` and
+  manual `cd numcalc/<v> && NumCalc`; returns [] on platforms without /proc).
+  `bem status` shows them (with `current_step` from the newest NC*.out log), and
+  `bem run` skips variants that are already running so two NumCalc processes never
+  race the same be.out/.
 - Bin presence ≠ convergence: NumCalc records non-convergence only in its log.
   `bemkit.sim.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
   ("Maximum number of iterations is reached", "Iteration method CGS failed") and maps them

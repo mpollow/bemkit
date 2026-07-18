@@ -2,8 +2,10 @@ import numpy as np
 
 from bemkit.sim.status import (
     available_bins,
+    current_step,
     is_complete,
     missing_bins,
+    numcalc_pids,
     solver_warnings,
 )
 
@@ -62,6 +64,24 @@ def test_available_bins_from_npz(tmp_path):
     np.savez(tmp_path / "be.npz", bin_indices=np.array([1, 3], dtype=np.int32))
     assert available_bins(tmp_path) == [1, 3]
     assert missing_bins(tmp_path, 4) == [2, 4]
+
+
+def test_current_step_reads_newest_log(tmp_path):
+    import os
+    (tmp_path / "NC.out").write_text("Step 3, Frequency = 750 Hz\n")
+    os.utime(tmp_path / "NC.out", (1, 1))  # older
+    (tmp_path / "NC5-8.out").write_text(
+        "Step 5, Frequency = 1250 Hz\nStep 6, Frequency = 1500 Hz\n")
+    assert current_step(tmp_path) == 6
+
+
+def test_current_step_without_logs(tmp_path):
+    assert current_step(tmp_path) is None
+
+
+def test_numcalc_pids_none_running(tmp_path):
+    # No NumCalc has tmp_path as CWD; must be [] (also [] without /proc).
+    assert numcalc_pids(tmp_path) == []
 
 
 _LOG = """\

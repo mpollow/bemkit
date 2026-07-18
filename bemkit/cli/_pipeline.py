@@ -4,6 +4,10 @@ import sys
 
 
 def register(sub):
+    p = sub.add_parser("status", help="Per-variant stage checklist incl. "
+                                      "running NumCalc jobs (the default)")
+    p.set_defaults(func=cmd_status)
+
     p = sub.add_parser("mesh", help="Generate mesh from geometry/ sources "
                                     "(.step CAD, .ply/.stl/.obj scans)")
     p.set_defaults(func=cmd_mesh)
@@ -51,6 +55,10 @@ def _run_stage(name, config, **kwargs):
         sys.exit(str(e))
 
 
+def cmd_status(model_dir, args):
+    show_status(model_dir)
+
+
 def cmd_mesh(model_dir, args):
     from bemkit.cli import load_model_config
     _run_stage("mesh", load_model_config(model_dir))
@@ -96,7 +104,8 @@ def show_status(model_dir):
     """Default command: per-variant stage checklist + next-step hint."""
     from bemkit.cli import load_model_config
     from bemkit.pipeline import STAGES
-    from bemkit.sim.status import available_bins, solver_warnings
+    from bemkit.sim.status import (
+        available_bins, current_step, numcalc_pids, solver_warnings)
 
     config = load_model_config(model_dir)
     variants = config.variants(None)
@@ -116,6 +125,7 @@ def show_status(model_dir):
     nf = config.nbins - 1
     order = ["mesh", "export", "run", "pack"]
     needs = {name: [] for name in order}
+    running = []
     for v in variants:
         print(f"  {v}:")
         nc_dir = model_dir / "numcalc" / v
@@ -127,6 +137,13 @@ def show_status(model_dir):
                 if 0 < n_avail < nf:
                     extra = f"  ({n_avail}/{nf} bins)"
                     done = False
+                pids = numcalc_pids(nc_dir)
+                if pids:
+                    running.append(v)
+                    step = current_step(nc_dir)
+                    at = f", computing bin {step}" if step else ""
+                    extra += (f"  ⟳ running ({len(pids)} NumCalc "
+                              f"process(es){at})")
                 issues = solver_warnings(nc_dir)
                 if issues:
                     bins = sorted({b for _, b, _ in issues if b is not None})
@@ -169,8 +186,17 @@ def show_status(model_dir):
     rel = (model_dir.relative_to(Path.cwd())
            if model_dir.is_relative_to(Path.cwd()) else model_dir)
     for name in order:
-        if needs[name]:
-            n, total = len(needs[name]), len(variants)
+        pending = needs[name]
+        if name == "run" and pending:
+            # Don't suggest `bem run` for variants NumCalc is working on —
+            # and if every pending run is in flight, waiting IS the next step.
+            pending = [v for v in pending if v not in running]
+            if not pending:
+                print(f"  NumCalc running ({', '.join(running)}) — "
+                      f"re-run `bem` to refresh.")
+                break
+        if pending:
+            n, total = len(pending), len(variants)
             count = f"({n}/{total} variants)" if total > 1 else ""
             print(f"  Next: bem {rel} {name}  {count}".rstrip())
             break

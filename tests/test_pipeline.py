@@ -267,6 +267,20 @@ class TestRunStage:
         assert sorted(p.name for p in (nc / "be.out").iterdir()) == \
             ["be.1", "be.2", "be.3", "be.4"]
 
+    def test_skips_variant_with_running_numcalc(self, model_dir, monkeypatch,
+                                                capsys):
+        # A second NumCalc in the same variant dir would race the first
+        # one's be.out/ writes — `run` must skip live variants.
+        import bemkit.sim.status as status
+        monkeypatch.setattr(status, "numcalc_pids", lambda d: [4242])
+        nc = model_dir / "numcalc" / "tetra"
+
+        completed, failed = _stage_run(model_dir)
+
+        assert (completed, failed) == ([], [])
+        assert "already running" in capsys.readouterr().out
+        assert not (nc / "args.txt").exists()  # NumCalc never invoked
+
     def test_complete_run_is_noop_by_default(self, model_dir):
         nc = model_dir / "numcalc" / "tetra"
         _make_npz(nc, [1, 2, 3, 4])

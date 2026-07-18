@@ -216,11 +216,19 @@ class RunStage(PipelineStage):
         if not variants:
             raise FileNotFoundError(
                 f"No mesh files in {config.model_dir / 'mesh'}. Run 'export' first.")
+        from bemkit.sim.status import numcalc_pids
         pairs = []
         for v in variants:
             nc_dir = config.model_dir / "numcalc" / v
             if not nc_dir.is_dir():
                 print(f"  {v}: skipping (no numcalc/{v}/ — run 'export' first)")
+                continue
+            pids = numcalc_pids(nc_dir)
+            if pids:
+                # A second NumCalc in the same dir would race the first one's
+                # be.out/ writes and corrupt bins.
+                print(f"  {v}: skipping (NumCalc already running, "
+                      f"pid {', '.join(map(str, pids))})")
                 continue
             pairs.append((v, nc_dir))
         nf = config.nbins - 1

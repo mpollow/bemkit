@@ -40,6 +40,49 @@ def is_complete(nc_dir, nf):
     return not missing_bins(nc_dir, nf)
 
 
+def numcalc_pids(nc_dir):
+    """PIDs of NumCalc processes currently running with CWD = nc_dir.
+
+    State is derived, not tracked: NumCalc always runs with the variant
+    directory as its working directory (LocalRunner, or a manual
+    ``cd numcalc/<v> && NumCalc``), so a /proc scan identifies live jobs
+    exactly. Returns [] on platforms without /proc (best effort).
+    """
+    import os
+    nc_dir = Path(nc_dir).resolve()
+    proc = Path("/proc")
+    pids = []
+    if not proc.is_dir():
+        return pids
+    for p in proc.iterdir():
+        if not p.name.isdigit():
+            continue
+        try:
+            if (p / "comm").read_text().strip() != "NumCalc":
+                continue
+            if Path(os.readlink(p / "cwd")) == nc_dir:
+                pids.append(int(p.name))
+        except OSError:  # process vanished or belongs to another user
+            continue
+    return sorted(pids)
+
+
+def current_step(nc_dir):
+    """1-based bin the newest NC*.out log last reported working on, or None."""
+    nc_dir = Path(nc_dir)
+    logs = sorted(nc_dir.glob("NC*.out"), key=lambda f: f.stat().st_mtime)
+    if not logs:
+        return None
+    step = None
+    for line in logs[-1].read_text(errors="replace").splitlines():
+        if line.startswith("Step ") and ", Frequency" in line:
+            try:
+                step = int(line.split(None, 2)[1].rstrip(","))
+            except ValueError:
+                pass
+    return step
+
+
 # A bin can be present in be.out/ yet non-converged — NumCalc records that
 # only in its log (NC_CommonFunctions.cpp:1167, :1184).
 _SOLVER_WARNINGS = (

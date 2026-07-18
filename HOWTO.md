@@ -311,8 +311,12 @@ re-exporting a changed mesh or config.
 Check progress any time:
 
 ```bash
-bem examples/sphcap                   # status: per-variant bins done / missing / warnings
+bem examples/sphcap                   # status: per-variant bins done / missing / warnings,
+                                      #   plus live NumCalc jobs (⟳ running, current bin)
 ```
+
+`bem run` on a variant that is already being computed is skipped (two NumCalc
+processes in one directory would corrupt results), so it is always safe to call.
 
 You can also run NumCalc entirely outside bemkit:
 `cd numcalc/<variant> && NumCalc` (outputs `NC.out`, `be.out/`).
