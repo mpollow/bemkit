@@ -97,9 +97,12 @@ def _resolve_source(sources, variant, source_stem):
 
 class MeshStage(PipelineStage):
     def check(self, config, variant):
-        mesh_dir = config.model_dir / "mesh"
-        return mesh_dir.is_dir() and any(
-            f.suffix in MESH_EXTENSIONS for f in mesh_dir.iterdir())
+        stem = config.mesh_map().get(variant, variant)
+        try:
+            find_mesh_file(config.model_dir / "mesh", stem)
+            return True
+        except FileNotFoundError:
+            return False
 
     def run(self, config, **kwargs):
         from bemkit.meshing.generate import SURFACE_EXTENSIONS

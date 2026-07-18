@@ -115,7 +115,7 @@ def show_status(model_dir):
 
     print(f"\n{model_dir}  (variants: {', '.join(variants)})\n")
     nf = config.nbins - 1
-    order = ["export", "run", "pack"]
+    order = ["mesh", "export", "run", "pack"]
     needs = {name: [] for name in order}
     for v in variants:
         print(f"  {v}:")

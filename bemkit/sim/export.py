@@ -45,7 +45,14 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     nc_dir = model_dir / "numcalc" / variant
     if mesh_file is None:
         mesh_stem = config.mesh_map().get(variant, variant)
-        mesh_file = find_mesh_file(model_dir / "mesh", mesh_stem)
+        try:
+            mesh_file = find_mesh_file(model_dir / "mesh", mesh_stem)
+        except FileNotFoundError as e:
+            if config.variant_mesh_params(variant) is not None:
+                raise FileNotFoundError(
+                    f"{e} — variant '{variant}' is meshed from geometry/; "
+                    f"run 'bem mesh' first") from e
+            raise
     nc_dir.mkdir(parents=True, exist_ok=True)
 
     # -- fieldpoints --
