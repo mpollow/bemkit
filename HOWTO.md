@@ -349,7 +349,8 @@ bem examples/sphcap plot phase | etc | ir | contour
 
 ### Interactive 3D field/surface inspection
 ```bash
-bem examples/sphcap results onaxis --freq 1000                 # surface + field pressure
+bem examples/sphcap results --freq 1000                        # surface + all fieldpoint sets
+bem examples/sphcap results onaxis --freq 1000                 # restrict to one set
 bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-10
 #   --quantity magnitude_db|magnitude|phase|real|imag
 #   --intensity  (acoustic intensity arrows)   --impedance   --plane   --screenshot out.png

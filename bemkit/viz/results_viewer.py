@@ -92,9 +92,9 @@ class ResultsViewer:
         self.surface_quantity = args.surface_quantity or args.quantity
         self.points_quantity = args.points_quantity or args.quantity
 
-        # What to show
+        # What to show (args.set_name=None means all fieldpoint sets)
         self.show_surface = not args.no_surface
-        self.show_points = not args.no_points and args.set_name is not None
+        self.show_points = not args.no_points
 
         # RGBA phase mode
         phase_fade = not args.no_phase_fade
@@ -201,7 +201,7 @@ class ResultsViewer:
         self.sim = SimulationData(nc_dir, self.config)
 
         v_show_surface = self.show_surface and has_data
-        v_show_points = self.show_points and args.set_name is not None and has_data
+        v_show_points = self.show_points and has_data
 
         result = None
         if v_show_points:
@@ -325,7 +325,7 @@ class ResultsViewer:
 
         # Add impedance points
         impedance_actor = None
-        if args.impedance and args.set_name is not None:
+        if args.impedance:
             pts, p, v = self._get_eval_field(bin_idx, args.set_name)
             if pts is not None:
                 imp_scalars = _compute_impedance_scalars(

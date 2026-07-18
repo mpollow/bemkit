@@ -128,7 +128,8 @@ bem examples/sphcap geometry                              # mesh + BC + eval gri
 bem examples/sphcap geometry --variant sphcap-50-20        # prefix match, slider if >1
 
 # 3D post-run inspection (was viz_results.py)
-bem examples/sphcap results onaxis --freq 1000            # surface + field pressure
+bem examples/sphcap results --freq 1000                   # surface + all fieldpoint sets
+bem examples/sphcap results onaxis --freq 1000            # restrict to one set
 bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
 ```
 
@@ -142,7 +143,7 @@ diagnostic `bem MODEL check ...` family ships separately via the
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
 `--bc-vibrating-color`, `--camera` (xz/xy/yz/iso), `--background`, `--screenshot`
 
-`bem MODEL results [SET]` options: `--variant` (repeatable), `--quantity` (magnitude_db/magnitude/phase/real/imag),
+`bem MODEL results [SET]` (SET optional; default shows all fieldpoint sets) options: `--variant` (repeatable), `--quantity` (magnitude_db/magnitude/phase/real/imag),
 `--surface-quantity`, `--points-quantity`, `--norm` (acc/raw), `--no-surface`, `--no-points`,
 `--no-phase-fade`, `--plane`, `--intensity`, `--intensity-scale`, `--intensity-length` (db/magnitude/uniform),
 `--intensity-clim LO HI`, `--impedance`, `--impedance-quantity`, `--mesh-opacity`, `--point-size`,

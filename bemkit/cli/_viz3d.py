@@ -24,7 +24,8 @@ def register(sub):
 
     p = sub.add_parser("results", help="3D post-run inspection: surface + field pressure")
     p.add_argument("set_name", nargs="?", default=None,
-                   help="Fieldpoint set name for eval point coloring (e.g., 'onaxis')")
+                   help="Fieldpoint set to show (e.g., 'onaxis'; "
+                        "default: all sets)")
     p.add_argument("--variant", action="append", default=None,
                    help="Variant prefix filter, repeatable (e.g., --variant sphcap-50-10)")
     p.add_argument("--freq", type=float, default=1000.0,
@@ -248,9 +249,9 @@ def cmd_results(model_dir, args):
     print(f"Model: {modelname}")
     print(f"Requested freq: {args.freq:.1f} Hz → nearest bin: {actual_freq:.1f} Hz")
 
-    # Determine what to show
+    # Determine what to show (set_name=None means all fieldpoint sets)
     show_surface = not args.no_surface
-    show_points = not args.no_points and args.set_name is not None
+    show_points = not args.no_points
 
     if not show_surface and not show_points and not args.impedance:
         print("Error: Nothing to visualize (surface and points disabled, no --impedance)")
@@ -274,17 +275,13 @@ def cmd_results(model_dir, args):
                 print(f"Error: No variants with result data found")
             raise SystemExit(1)
 
-    # Hints
-    if args.impedance and args.set_name is None:
-        print("  Hint: --impedance requires a set_name to filter points "
-              "(e.g., 'bem MODEL results onaxis --impedance')")
-    if not show_points and not args.no_points and args.set_name is None:
+    if show_points and args.set_name is None:
         offsets_files = sorted((model_dir / "numcalc").glob("*/eval_offsets.json"))
         if offsets_files:
             import json as _json
             sets = list(_json.load(open(offsets_files[0]))["sets"].keys())
-            print(f"  Hint: no set_name given — fieldpoints not shown. "
-                  f"Available sets: {', '.join(sets)}")
+            print(f"  Showing all fieldpoint sets: {', '.join(sets)} "
+                  f"(pass a set name to filter)")
 
     # Create scene and viewer
     scene = setup_scene(screenshot=args.screenshot)
@@ -309,12 +306,13 @@ def cmd_results(model_dir, args):
             print(f"  + Surface pressure ({viewer.surface_quantity} @ {actual_freq:.1f} Hz, "
                   f"opacity={args.mesh_opacity})")
     if viewer.points_actor is not None:
+        set_label = args.set_name if args.set_name is not None else "all"
         if viewer.points_rgba:
-            print(f"  + Eval points: set={args.set_name!r}, "
+            print(f"  + Eval points: set={set_label}, "
                   f"phase+alpha (alpha=top {PHASE_DB_RANGE:.0f} dB), "
                   f"norm={args.norm}, point_size={args.point_size}")
         else:
-            print(f"  + Eval points: set={args.set_name!r}, "
+            print(f"  + Eval points: set={set_label}, "
                   f"quantity={viewer.points_quantity}, norm={args.norm}, "
                   f"point_size={args.point_size}")
 
