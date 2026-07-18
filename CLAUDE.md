@@ -101,7 +101,8 @@ bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc (parallel)
 bem examples/sphcap run -j 4           # cap parallel NumCalc instances
-bem examples/sphcap run --split 4 --missing-only  # fan out + resume (see below)
+bem examples/sphcap run --split 4     # fan out into 4 bin-range jobs (see below)
+bem examples/sphcap run --force        # recompute all bins (default only runs missing ones)
 bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink, complex64)
 bem examples/sphcap pack --delete-original   # also remove be.out/ after verify
 bem examples/sphcap plot               # freq + ir plots (all sets)
@@ -321,17 +322,19 @@ needed — outputs just land in the same `be.out/`).
   scoped to a 1-based inclusive bin range.
 - `bem MODEL run --split N` fans each variant out into N bin-range jobs (`-istart`/`-iend`),
   via `plan_jobs`/`split_steps`.
-- `bem MODEL run --missing-only` only (re-)runs frequency bins absent from `be.out/`/`be.npz`
-  — uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so partial/failed
-  runs can resume without redoing completed bins.
+- `bem MODEL run` only computes frequency bins absent from `be.out/`/`be.npz` (the
+  default) — it uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so
+  partial/failed runs resume without redoing completed bins, and a complete run is a
+  no-op. `--force` recomputes everything from scratch — required after re-exporting a
+  changed mesh or config, since bin presence says nothing about which export produced it.
 - `bemkit.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
 - `be.npz` shadows `be.out/` everywhere, so `bem MODEL run` removes a leftover `be.npz`
-  for every variant it runs (with `--missing-only` its bins are first restored into
-  `be.out/` so the resume merges); re-run `pack` afterwards. A full recompute (no
-  `--missing-only`) also deletes the variant's old `NC*.out` logs so superseded
-  warnings don't linger in `bem status`; resumes keep them.
+  for every variant it runs (on a resume its bins are first restored into `be.out/` so
+  the runs merge); re-run `pack` afterwards. A `--force` recompute also deletes the
+  variant's old `NC*.out` logs so superseded warnings don't linger in `bem status`;
+  resumes keep them.
 - Bin presence ≠ convergence: NumCalc records non-convergence only in its log.
   `bemkit.sim.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
   ("Maximum number of iterations is reached", "Iteration method CGS failed") and maps them

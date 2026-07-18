@@ -236,14 +236,14 @@ class TestExportStage:
 
 
 class TestRunStage:
-    def test_full_run_clears_stale_npz_and_logs(self, model_dir):
+    def test_force_clears_stale_npz_and_logs(self, model_dir):
         nc = model_dir / "numcalc" / "tetra"
         _make_npz(nc, [1, 2])
         (nc / "NC3-4.out").write_text(
             "Step 3, Frequency = 750 Hz\n"
             "Warning: Maximum number of iterations is reached!\n")
 
-        completed, failed = _stage_run(model_dir)
+        completed, failed = _stage_run(model_dir, force=True)
 
         assert [j.name for j in completed] == ["tetra"] and failed == []
         assert not (nc / "be.npz").exists()
@@ -251,12 +251,12 @@ class TestRunStage:
         assert sorted(p.name for p in (nc / "be.out").iterdir()) == \
             ["be.1", "be.2", "be.3", "be.4"]
 
-    def test_missing_only_restores_npz_and_keeps_logs(self, model_dir):
+    def test_default_resumes_restoring_npz_and_keeping_logs(self, model_dir):
         nc = model_dir / "numcalc" / "tetra"
         _make_npz(nc, [1, 2])
         (nc / "NC.out").write_text("Step 1, Frequency = 100 Hz\nfine\n")
 
-        completed, failed = _stage_run(model_dir, missing_only=True)
+        completed, failed = _stage_run(model_dir)
 
         assert failed == []
         assert not (nc / "be.npz").exists()
@@ -267,22 +267,14 @@ class TestRunStage:
         assert sorted(p.name for p in (nc / "be.out").iterdir()) == \
             ["be.1", "be.2", "be.3", "be.4"]
 
-    def test_missing_only_complete_npz_untouched(self, model_dir):
+    def test_complete_run_is_noop_by_default(self, model_dir):
         nc = model_dir / "numcalc" / "tetra"
         _make_npz(nc, [1, 2, 3, 4])
 
-        completed, failed = _stage_run(model_dir, missing_only=True)
+        completed, failed = _stage_run(model_dir)
 
         assert (completed, failed) == ([], [])
-        assert (nc / "be.npz").exists()
-        assert not (nc / "args.txt").exists()
-
-    def test_full_run_over_complete_refuses_without_force(self, model_dir):
-        nc = model_dir / "numcalc" / "tetra"
-        _make_npz(nc, [1, 2, 3, 4])  # complete
-        with pytest.raises(RuntimeError, match="already complete"):
-            _stage_run(model_dir)
-        assert (nc / "be.npz").exists()      # results untouched
+        assert (nc / "be.npz").exists()        # results untouched
         assert not (nc / "args.txt").exists()  # NumCalc never invoked
 
     def test_force_allows_full_rerun_over_complete(self, model_dir):

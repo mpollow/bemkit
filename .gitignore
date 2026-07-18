@@ -6,3 +6,4 @@ be.npz
 NC*.out
 examples/*/numcalc/
 examples/*/plots/
+build/

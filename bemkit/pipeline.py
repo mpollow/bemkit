@@ -16,7 +16,7 @@ from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
 from bemkit.sim.export import export_variant
 from bemkit.sim.packing import clear_pack, has_results, is_packed, pack_variant
 from bemkit.sim.runner import plan_jobs, run_jobs
-from bemkit.sim.status import is_complete, solver_warnings
+from bemkit.sim.status import solver_warnings
 
 
 class PipelineStage(ABC):
@@ -206,7 +206,12 @@ class RunStage(PipelineStage):
         return has_results(config.model_dir / "numcalc" / variant)
 
     def run(self, config, *, prefixes=None, max_jobs=None, split=None,
-            missing_only=False, force=False, **kwargs):
+            force=False, **kwargs):
+        # Default is resume: only bins absent from be.out//be.npz are
+        # computed, so interrupted runs continue and complete runs are
+        # no-ops. --force recomputes everything (discarding old results) —
+        # needed after a re-export that changed the mesh or config.
+        missing_only = not force
         variants = config.variants(prefixes)
         if not variants:
             raise FileNotFoundError(
@@ -219,18 +224,9 @@ class RunStage(PipelineStage):
                 continue
             pairs.append((v, nc_dir))
         nf = config.nbins - 1
-        # A full (non-resume) re-run wipes be.out/ before recomputing. Refuse to
-        # discard already-complete results unless explicitly forced.
-        if not missing_only and not force:
-            complete = [v for v, nc_dir in pairs if is_complete(nc_dir, nf)]
-            if complete:
-                raise RuntimeError(
-                    f"{len(complete)} variant(s) already complete "
-                    f"({', '.join(complete)}). A full re-run would discard those "
-                    f"results. Use --missing-only to resume, or --force to recompute.")
         jobs = plan_jobs(pairs, nf, split=split, missing_only=missing_only)
         if not jobs:
-            print("  Nothing to run (all bins present).")
+            print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
         if shutil.which("NumCalc") is None:
             raise RuntimeError(

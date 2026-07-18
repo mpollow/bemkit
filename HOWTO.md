@@ -295,11 +295,13 @@ parallelize and resume trivially.
 bem examples/sphcap run                       # all variants, parallel
 bem examples/sphcap run -j 4                  # cap at 4 concurrent NumCalc procs
 bem examples/sphcap run --split 4             # fan each variant into 4 bin-range jobs
-bem examples/sphcap run --split 4 --missing-only   # resume: only redo absent bins
+bem examples/sphcap run --force               # recompute all bins from scratch
 ```
 
-`--missing-only` computes the gap from what's already in `be.out/`/`be.npz`, so a
-killed run continues where it stopped — no bookkeeping file needed.
+`run` computes only the bins missing from `be.out/`/`be.npz`, so a killed run
+continues where it stopped — no bookkeeping file needed — and running against
+complete results is a no-op. Use `--force` to recompute everything, e.g. after
+re-exporting a changed mesh or config.
 
 > **Convergence ≠ completion.** A bin can finish but not converge. `bem run` and
 > `bem status` scan `NC*.out` and surface warnings

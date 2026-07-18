@@ -12,16 +12,16 @@ def register(sub):
     _add_variant(p)
     p.set_defaults(func=cmd_export)
 
-    p = sub.add_parser("run", help="Run NumCalc (parallel)")
+    p = sub.add_parser("run", help="Run NumCalc (parallel; computes missing "
+                                   "bins only — resumes interrupted runs)")
     _add_variant(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
                    help="Max parallel NumCalc instances (default: all)")
     p.add_argument("--split", type=int, default=None, metavar="N",
                    help="Fan each variant out as N bin-range processes (-istart/-iend)")
-    p.add_argument("--missing-only", action="store_true",
-                   help="Only run frequency bins absent from be.out/ (resume)")
     p.add_argument("--force", action="store_true",
-                   help="Allow a full re-run to discard already-complete results")
+                   help="Recompute all bins from scratch, discarding existing "
+                        "results (needed after re-exporting a changed mesh/config)")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("pack", help="Pack be.out/ into be.npz (~4x shrink)")
@@ -34,7 +34,6 @@ def register(sub):
     _add_variant(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N")
     p.add_argument("--split", type=int, default=None, metavar="N")
-    p.add_argument("--missing-only", action="store_true")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_all)
 
@@ -67,7 +66,7 @@ def cmd_run(model_dir, args):
     config = load_model_config(model_dir)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        split=args.split, missing_only=args.missing_only, force=args.force)
+        split=args.split, force=args.force)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
 
@@ -86,7 +85,7 @@ def cmd_all(model_dir, args):
     _run_stage("export", config, prefixes=args.variant)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        split=args.split, missing_only=args.missing_only, force=args.force)
+        split=args.split, force=args.force)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
     run_default_plots(model_dir, prefixes=args.variant)
@@ -173,8 +172,7 @@ def show_status(model_dir):
         if needs[name]:
             n, total = len(needs[name]), len(variants)
             count = f"({n}/{total} variants)" if total > 1 else ""
-            hint = " --missing-only" if name == "run" else ""
-            print(f"  Next: bem {rel} {name}{hint}  {count}".rstrip())
+            print(f"  Next: bem {rel} {name}  {count}".rstrip())
             break
     else:
         print("  All stages complete.")
