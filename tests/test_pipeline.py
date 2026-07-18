@@ -74,7 +74,7 @@ class TestMeshStage:
         """Sparse model dir + fake mesh generators recording their input names."""
         model = tmp_path / "m"
         model.mkdir()
-        (model / "config.toml").write_text("sr = 8000\nnbins = 5\n")
+        (model / "config.toml").write_text("[bem]\nsr = 8000\nnbins = 5\n")
         calls = []
 
         def fake_gen(input_file, output_file, **kw):
@@ -118,29 +118,121 @@ class TestMeshStage:
         MeshStage().run(ModelConfig.from_dir(model))
         assert calls == ["b.step"]
 
-    def test_pre_script_can_import_bemkit(self, mesh_model, monkeypatch):
-        # pre_* scripts must import THIS bemkit even when the package is not
-        # installed (externally-managed python) and cwd is the model dir.
+    def test_exec_script_can_import_bemkit(self, mesh_model, monkeypatch):
+        # [geometry].exec scripts must import THIS bemkit even when the
+        # package is not installed (externally-managed python) and cwd is
+        # the model dir.
         model, _ = mesh_model
         monkeypatch.delenv("PYTHONPATH", raising=False)
-        (model / "pre_check.py").write_text(
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[geometry]\nexec = "./make_geo.py"\n')
+        (model / "make_geo.py").write_text(
             "import bemkit, pathlib\n"
             "pathlib.Path('bemkit_path.txt').write_text(bemkit.__file__)\n")
         MeshStage().run(ModelConfig.from_dir(model))
         import bemkit
         assert (model / "bemkit_path.txt").read_text() == bemkit.__file__
 
-    def test_recipe_suffixed_mesh_counts_as_meshed(self, mesh_model):
-        # A pre_* script may have meshed the source under recipe-suffixed
-        # names (a.lc5-25.msh) — don't generate a duplicate default mesh.
+    def test_pre_scripts_are_not_run(self, mesh_model, capsys):
+        # The old pre_* glob is gone: leftovers are only reported, not run.
+        model, _ = mesh_model
+        (model / "pre_old.py").write_text(
+            "import pathlib; pathlib.Path('ran.txt').touch()\n")
+        MeshStage().run(ModelConfig.from_dir(model))
+        assert not (model / "ran.txt").exists()
+        assert "pre_old.py" in capsys.readouterr().out
+
+    def test_missing_exec_script_raises(self, mesh_model):
+        model, _ = mesh_model
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[geometry]\nexec = "./nope.py"\n')
+        with pytest.raises(FileNotFoundError, match="nope.py"):
+            MeshStage().run(ModelConfig.from_dir(model))
+
+    def test_variant_mesh_overrides_generate_per_variant(self, mesh_model):
+        # [variants] with mesh tables: one mesh per variant, named after it,
+        # meshed from the sole geometry source with merged params.
+        model, calls = mesh_model
+        (model / "geometry").mkdir()
+        (model / "geometry" / "box.step").touch()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[mesh]\nlc_min = 2.0\nlc_max = 4.0\n'
+            '[variants.fine]\nmesh = { lc_min = 1.0 }\n'
+            '[variants.coarse]\nmesh = { lc_min = 3.0 }\n')
+        results = MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == ["box.step", "box.step"]
+        assert sorted(f.name for f in (model / "mesh").iterdir()) == \
+            ["coarse.msh", "fine.msh"]
+        assert [r.mesh_file.name for r in results] == ["fine.msh", "coarse.msh"]
+
+    def test_variant_existing_mesh_skipped(self, mesh_model):
+        model, calls = mesh_model
+        (model / "geometry").mkdir()
+        (model / "geometry" / "box.step").touch()
+        (model / "mesh").mkdir()
+        (model / "mesh" / "fine.msh").touch()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[variants.fine]\nmesh = { lc_min = 1.0 }\n')
+        results = MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == []
+        assert [r.mesh_file.name for r in results] == ["fine.msh"]
+
+    def test_variant_ambiguous_source_raises(self, mesh_model):
+        # Two sources, no source= key, variant name matches neither.
+        model, _ = mesh_model
+        (model / "geometry").mkdir()
+        (model / "geometry" / "a.step").touch()
+        (model / "geometry" / "b.step").touch()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[variants.fine]\nmesh = { lc_min = 1.0 }\n')
+        with pytest.raises(ValueError, match="source"):
+            MeshStage().run(ModelConfig.from_dir(model))
+
+    def test_variant_explicit_source(self, mesh_model):
         model, calls = mesh_model
         (model / "geometry").mkdir()
         (model / "geometry" / "a.step").touch()
+        (model / "geometry" / "b.step").touch()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[variants.fine]\nsource = "b"\nmesh = { lc_min = 1.0 }\n')
+        MeshStage().run(ModelConfig.from_dir(model))
+        assert calls == ["b.step"]
+
+    def test_variant_trusted_mesh_not_generated(self, mesh_model):
+        # BC-defined variant (mesh = string): trusted file, never remeshed.
+        model, calls = mesh_model
         (model / "mesh").mkdir()
-        (model / "mesh" / "a.lc5-25.msh").touch()
+        (model / "mesh" / "shared.msh").touch()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[variants.left]\nmesh = "shared"\n'
+            '[variants.right]\nmesh = "shared"\n')
         results = MeshStage().run(ModelConfig.from_dir(model))
         assert calls == []
-        assert [r.mesh_file.name for r in results] == ["a.lc5-25.msh"]
+        assert [r.mesh_file.name for r in results] == ["shared.msh", "shared.msh"]
+
+
+class TestExportStage:
+    def test_fieldpoints_exec_runs_before_export(self, tmp_path):
+        # The [fieldpoints].exec script runs at export time (even though the
+        # stage then fails here for lack of meshes, the script has run).
+        from bemkit.pipeline import ExportStage
+        model = tmp_path / "m"
+        model.mkdir()
+        (model / "config.toml").write_text(
+            '[bem]\nsr = 8000\nnbins = 5\n'
+            '[fieldpoints]\nexec = "./make_fp.py"\n')
+        (model / "make_fp.py").write_text(
+            "import pathlib; pathlib.Path('fp_ran.txt').touch()\n")
+        with pytest.raises(FileNotFoundError):
+            ExportStage().run(ModelConfig.from_dir(model))
+        assert (model / "fp_ran.txt").exists()
 
 
 class TestRunStage:
@@ -231,7 +323,7 @@ class TestPackStage:
         for stem in ("good", "empty"):
             meshio.write_points_cells(model / "mesh" / f"{stem}.stl", verts,
                                       [("triangle", tris)])
-        (model / "config.toml").write_text("sr = 8000\nnbins = 5\n")
+        (model / "config.toml").write_text("[bem]\nsr = 8000\nnbins = 5\n")
 
         # good/: two real bins with scalar boundary + eval quantities
         for bi in (1, 2):

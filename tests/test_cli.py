@@ -45,7 +45,7 @@ def test_explicit_model_dir_with_no_command_still_parses(tmp_path):
 
 
 def test_model_dir_defaults_to_cwd_no_args(tmp_path, monkeypatch, capsys):
-    (tmp_path / "config.toml").write_text("sr = 32000\nnbins = 65\n")
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
     monkeypatch.chdir(tmp_path)
     main([])
     out = capsys.readouterr().out
@@ -53,7 +53,7 @@ def test_model_dir_defaults_to_cwd_no_args(tmp_path, monkeypatch, capsys):
 
 
 def test_model_dir_defaults_to_cwd_with_command(tmp_path, monkeypatch):
-    (tmp_path / "config.toml").write_text("sr = 32000\nnbins = 65\n")
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exc:
         main(["mesh", "--help"])
@@ -67,7 +67,7 @@ def test_model_dir_named_like_subcommand_needs_path_prefix(tmp_path, monkeypatch
     disambiguates and correctly targets the directory."""
     mesh_dir = tmp_path / "mesh"
     mesh_dir.mkdir()
-    (mesh_dir / "config.toml").write_text("sr = 32000\nnbins = 65\n")
+    (mesh_dir / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
     monkeypatch.chdir(tmp_path)
 
     # bare "mesh" is the subcommand, targeting cwd (tmp_path) -> no config.toml there

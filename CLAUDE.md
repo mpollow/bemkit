@@ -70,17 +70,21 @@ contract (blue=rigid, red=vibrating) is *read* in `bemkit/meshing/generate.py`.
 Without installing (e.g. externally-managed system Python), use `python -m bemkit.cli`
 — identical interface: `python -m bemkit.cli examples/sphcap export`.
 
-Model directory layout (unchanged):
+Model directory layout:
 ```
 examples/<name>/
-├── config.toml          # Configuration
-├── pre_*.py / pre_*.sh  # Model-local preprocessing scripts
-├── fieldpoints/       # .npy fieldpoint files
+├── config.toml        # Configuration (the only required file)
+├── *.py / *.sh        # Optional scripts, referenced via exec = ... in config.toml
+├── fieldpoints/       # Optional pre-made .npy fieldpoint files
 ├── geometry/          # remesh sources: CAD (.step) + scans (.ply/.stl/.obj)
 ├── mesh/              # Mesh files (.msh, .stl, .ply)
 ├── numcalc/<variant>/ # Per-variant: ObjectMesh/, EvalGrid/, NC.inp, NC.out, be.out/ (or be.npz), eval_offsets.json
 └── plots/             # Output figures
 ```
+
+Scripts are never discovered implicitly (no `pre_*` glob): `[geometry].exec`
+runs at `bem mesh`, `[fieldpoints].exec` at `bem export`, both with
+cwd = model dir and the repo root prepended to PYTHONPATH.
 
 ## Usage
 
@@ -190,10 +194,17 @@ sim.velocity_at(12, domain="eval")      # (N_total, 3) complex
 
 ## Configuration: config.toml
 
-Per-model config in `examples/<name>/config.toml`. `modelname` is optional (defaults to directory name).
+Per-model config in `examples/<name>/config.toml`. Solver settings live in the
+required `[bem]` section; `modelname` is optional top-level (defaults to
+directory name). Old configs with flat top-level solver keys fail with a
+migration error. Unknown keys in known sections are rejected (typo guard);
+extra user tables (e.g. `[cad]` data read by the model's own scripts) pass
+through untouched.
 
 ```toml
 modelname = "sphcap"      # optional
+
+[bem]
 sr = 48000
 nbins = 65                # n_frequencies = nbins - 1 (DC excluded)
 air_density = 1.2
@@ -202,9 +213,8 @@ bem_type = 4              # 0=TBEM O(N³), 1=SLFMBEM O(N^1.5), 4=DMLFMBEM O(N lo
 time_factor = -1.0
 is_internal = 0
 
-[cad]
-radius = 50               # mm
-aperture = 20             # degrees
+[geometry]                # optional: script that writes geometry/ sources
+exec = "./make_geometry.py"   # string or list; run by `bem mesh`
 
 [mesh]
 lc_min = 5.0              # mm — ~6 elements per wavelength at max freq
@@ -212,33 +222,30 @@ lc_max = 25.0
 dist_min = 50.0
 dist_max = 100.0
 
-[fieldpoints]
-onaxis = "fieldpoints/onaxis.npy"   # file path, relative to model dir (or absolute)
-polar = "fieldpoints/polar.npy"
-plane = "fieldpoints/plane.npy"
+[fieldpoints.onaxis]      # declarative set: type + make_fields_* kwargs
+type = "onaxis"           # onaxis | polar | plane
+dim = "z"
+radii = [0.1, 0.25, 0.5]  # meters
+
+[fieldpoints.custom]      # pre-made file set
+file = "fieldpoints/custom.npy"   # relative to model dir (or absolute)
 ```
 
-Fieldpoints config can also be a plain directory path: `fieldpoints = './fieldpoints'`
-(loads all `.npy` files in that directory, one set per file).
+### Fieldpoint sets
 
-Each entry must be a `.npy` file path (or the whole `[fieldpoints]` table replaced by a
-directory string) — there is no expression syntax.
+Each `[fieldpoints.<name>]` table is one set with exactly one of:
+- `type` — a generator (`onaxis`/`polar`/`plane`); remaining keys pass as
+  kwargs to `make_fields_<type>` and points are generated in-memory at export
+  (no `.npy`, no staleness)
+- `file` — an `.npy` path
 
-### Generating fieldpoint .npy files (bemkit.sim.fields)
+With no named sets, all `fieldpoints/*.npy` are loaded, one set per file. The
+reserved `exec` key (`[fieldpoints] exec = "./make_fieldpoints.py"`) names a
+script that runs at `bem export` before loading — the escape hatch for custom
+point clouds (it typically writes `fieldpoints/*.npy`).
 
-`make_fields_onaxis`, `make_fields_polar`, `make_fields_plane` are Python helpers (exported
-from the package root) for *generating* `.npy` files — they are not referenced from
-`config.toml` directly. Use them in a `pre_*.py` script and `np.save()` the result into
-`fieldpoints/`:
-
-```python
-from bemkit import make_fields_polar
-import numpy as np
-
-points = make_fields_polar(dims='xy', res=5, radius=1.0)  # (N, 3) meters
-np.save("examples/sphcap/fieldpoints/polar.npy", points)
-```
-
+Generator reference (`bemkit.sim.fields`, also exported from the package root
+for use in scripts):
 - `make_fields_onaxis(dim='x', radii=[...])` — points along one axis (meters)
 - `make_fields_polar(dims='xy', res=5, radius=1.0)` — circle in a plane (meters)
 - `make_fields_plane(dims='xy', res=5, limits=[-200, 200, -200, 200])` — grid on a plane
@@ -255,9 +262,16 @@ All NumCalc data lives under `numcalc/{variant}/` where variant = mesh file stem
 Fieldpoint offsets: `numcalc/{variant}/eval_offsets.json`. Results read directly from
 `be.out/` (or packed `be.npz`) via `BEMResult.from_numcalc()` / `SimulationData`.
 
-### BC-defined variants (same mesh, different boundary conditions)
+### Explicit variants — `[variants]` table
 
-Use a `[variants]` table to define variant names explicitly. Each entry can have an optional `mesh` key pointing to the mesh file stem (defaults to the variant name). This allows running the same mesh with different `[BOUNDARY]` sections.
+When `[variants]` is present, `bem` uses it instead of scanning `mesh/`. Each
+entry's `mesh` key is either a **string** (trusted mesh-file stem, used as-is,
+never remeshed — defaults to the variant name) or a **table** of `[mesh]`
+parameter overrides (the variant's mesh is then *generated* as
+`mesh/<variant>.msh` from a `geometry/` source: `source = "<stem>"`, else
+`geometry/<variant>.*`, else the sole source).
+
+Same mesh, different boundary conditions:
 
 ```toml
 [variants.left]
@@ -273,7 +287,23 @@ earopening = [17379, 17379, 1.0]
 earopening = [17387, 17387, 1.0]
 ```
 
-When `[variants]` is present, `bem` uses it instead of scanning `mesh/`.
+Same geometry, different mesh resolutions:
+
+```toml
+[mesh]                 # shared defaults
+lc_min = 5.0
+lc_max = 25.0
+
+[variants.fine]
+mesh = { lc_min = 2.5, lc_max = 12.0 }
+
+[variants.coarse]
+mesh = { lc_min = 10.0, lc_max = 50.0 }
+```
+
+Geometry sweeps: have the `[geometry]` exec script write several source files —
+without `[variants]`, every `geometry/` source becomes its own variant
+(mesh/<stem>.msh) automatically.
 
 ## Runner / Remote Execution
 

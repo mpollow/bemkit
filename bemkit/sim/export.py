@@ -38,7 +38,7 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
         ExportInfo
 
     Raises:
-        ValueError: no [fieldpoints] configured
+        ValueError: no fieldpoint sets configured or found
         FileNotFoundError: mesh file missing
     """
     model_dir = config.model_dir
@@ -49,10 +49,7 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     nc_dir.mkdir(parents=True, exist_ok=True)
 
     # -- fieldpoints --
-    fp_config = config.fieldpoints_cfg
-    if not fp_config:
-        raise ValueError("No [fieldpoints] in config.toml")
-    sets = load_fieldpoint_sets(fp_config, model_dir)
+    sets = load_fieldpoint_sets(config.fieldpoints_cfg, model_dir)
     valid_masks = {}
     for name, points in sets.items():
         mask = validate_points(points, mesh_file, is_internal=config.is_internal,

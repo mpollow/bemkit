@@ -3,6 +3,12 @@
 ModelConfig is the single configuration object of the toolkit. It also
 supports dict-style access (``config["sr"]``, ``config.get(...)``) so code
 paths that historically took the raw config.toml dict keep working.
+
+config.toml layout: solver settings live in the required ``[bem]`` section;
+``[geometry]``/``[fieldpoints]`` declare their stage inputs explicitly
+(``exec`` scripts, declarative generator sets, or files); ``[mesh]`` holds
+shared gmsh parameters; ``[variants]`` names variants with optional
+per-variant mesh overrides.
 """
 
 import tomllib
@@ -10,6 +16,127 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+
+# [bem] keys and their defaults (None = required).
+_BEM_KEYS = {
+    "sr": None,
+    "nbins": None,
+    "air_density": 1.2,
+    "speed_of_sound": 340.0,
+    "bem_type": 4,
+    "time_factor": -1.0,
+    "is_internal": 0,
+}
+
+_MESH_KEYS = ("lc_min", "lc_max", "dist_min", "dist_max")
+
+#: Declarative fieldpoint set types, dispatching to make_fields_<type>.
+FIELDPOINT_GENERATORS = ("onaxis", "polar", "plane")
+
+
+def _check_exec(value, where):
+    if isinstance(value, str):
+        return
+    if isinstance(value, list) and value and all(isinstance(s, str) for s in value):
+        return
+    raise ValueError(f"{where}: exec must be a script path or a list of "
+                     f"script paths, got {value!r}")
+
+
+def _check_mesh_params(tbl, where):
+    unknown = [k for k in tbl if k not in _MESH_KEYS]
+    if unknown:
+        raise ValueError(f"{where}: unknown mesh key(s): {', '.join(unknown)} "
+                         f"(known: {', '.join(_MESH_KEYS)})")
+
+
+def _validate(raw, path):
+    """Validate config.toml structure; raise ValueError with migration hints."""
+    old = [k for k in _BEM_KEYS if k in raw]
+    if old:
+        raise ValueError(
+            f"{path}: top-level key(s) {', '.join(old)} have moved into the "
+            f"[bem] section (config format change — see HOWTO.md)")
+    bem = raw.get("bem")
+    if not isinstance(bem, dict):
+        raise ValueError(f"{path} is missing the required [bem] section "
+                         f"(sr, nbins, and other solver settings)")
+    missing = [k for k in ("sr", "nbins") if k not in bem]
+    if missing:
+        raise ValueError(f"{path}: [bem] is missing required key(s): "
+                         f"{', '.join(missing)}")
+    unknown = [k for k in bem if k not in _BEM_KEYS]
+    if unknown:
+        raise ValueError(f"{path}: unknown [bem] key(s): {', '.join(unknown)} "
+                         f"(known: {', '.join(_BEM_KEYS)})")
+
+    geo = raw.get("geometry", {})
+    if not isinstance(geo, dict):
+        raise ValueError(f"{path}: [geometry] must be a table")
+    unknown = [k for k in geo if k != "exec"]
+    if unknown:
+        raise ValueError(f"{path}: unknown [geometry] key(s): "
+                         f"{', '.join(unknown)} (known: exec)")
+    if "exec" in geo:
+        _check_exec(geo["exec"], f"{path}: [geometry]")
+
+    mesh = raw.get("mesh", {})
+    if not isinstance(mesh, dict):
+        raise ValueError(f"{path}: [mesh] must be a table")
+    _check_mesh_params(mesh, f"{path}: [mesh]")
+
+    fp = raw.get("fieldpoints", {})
+    if isinstance(fp, str):
+        raise ValueError(
+            f"{path}: fieldpoints = \"{fp}\" is the old directory form — "
+            f"delete the line (fieldpoints/*.npy files are found "
+            f"automatically) or define [fieldpoints.<name>] set tables")
+    if not isinstance(fp, dict):
+        raise ValueError(f"{path}: [fieldpoints] must be a table")
+    for name, spec in fp.items():
+        where = f"{path}: [fieldpoints.{name}]"
+        if name == "exec":
+            _check_exec(spec, f"{path}: [fieldpoints]")
+            continue
+        if isinstance(spec, str):
+            raise ValueError(
+                f"{path}: fieldpoints entry {name} = \"{spec}\" is the old "
+                f"path form — use [fieldpoints.{name}] with file = \"{spec}\"")
+        if not isinstance(spec, dict):
+            raise ValueError(f"{where}: must be a table with type = ... or "
+                             f"file = ...")
+        keys = [k for k in ("type", "file") if k in spec]
+        if len(keys) != 1:
+            raise ValueError(f"{where}: needs exactly one of type/file, "
+                             f"got {keys or 'neither'}")
+        if "type" in spec and spec["type"] not in FIELDPOINT_GENERATORS:
+            raise ValueError(
+                f"{where}: unknown type {spec['type']!r} "
+                f"(known: {', '.join(FIELDPOINT_GENERATORS)})")
+        if "file" in spec and len(spec) > 1:
+            extra = [k for k in spec if k != "file"]
+            raise ValueError(f"{where}: file sets take no other keys "
+                             f"(got: {', '.join(extra)})")
+
+    variants = raw.get("variants", {})
+    if not isinstance(variants, dict):
+        raise ValueError(f"{path}: [variants] must be a table")
+    for name, v in variants.items():
+        where = f"{path}: [variants.{name}]"
+        if not isinstance(v, dict):
+            raise ValueError(f"{where}: must be a table")
+        unknown = [k for k in v if k not in ("mesh", "source")]
+        if unknown:
+            raise ValueError(f"{where}: unknown key(s): {', '.join(unknown)} "
+                             f"(known: mesh, source)")
+        m = v.get("mesh")
+        if m is not None and not isinstance(m, (str, dict)):
+            raise ValueError(f"{where}: mesh must be a mesh-file stem (string)"
+                             f" or a table of mesh-parameter overrides")
+        if isinstance(m, dict):
+            _check_mesh_params(m, f"{where}: mesh")
+        if "source" in v and not isinstance(v["source"], str):
+            raise ValueError(f"{where}: source must be a geometry/ file stem")
 
 
 @dataclass(frozen=True)
@@ -26,32 +153,32 @@ class ModelConfig:
     time_factor: float = -1.0
     is_internal: int = 0
     mesh_cfg: dict = field(default_factory=dict)
-    fieldpoints_cfg: dict | str = field(default_factory=dict)
+    geometry_cfg: dict = field(default_factory=dict)
+    fieldpoints_cfg: dict = field(default_factory=dict)
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_dir(cls, model_dir):
         """Load config.toml; modelname defaults to the directory name."""
         model_dir = Path(model_dir).resolve()
-        with open(model_dir / "config.toml", "rb") as f:
+        cfg_path = model_dir / "config.toml"
+        with open(cfg_path, "rb") as f:
             raw = tomllib.load(f)
-        missing = [k for k in ("sr", "nbins") if k not in raw]
-        if missing:
-            raise ValueError(
-                f"{model_dir / 'config.toml'} is missing required "
-                f"key(s): {', '.join(missing)}")
+        _validate(raw, cfg_path)
+        bem = raw["bem"]
         raw.setdefault("modelname", model_dir.name)
         return cls(
             model_dir=model_dir,
             modelname=raw["modelname"],
-            sr=raw["sr"],
-            nbins=raw["nbins"],
-            air_density=raw.get("air_density", 1.2),
-            speed_of_sound=raw.get("speed_of_sound", 340.0),
-            bem_type=raw.get("bem_type", 4),
-            time_factor=raw.get("time_factor", -1.0),
-            is_internal=raw.get("is_internal", 0),
+            sr=bem["sr"],
+            nbins=bem["nbins"],
+            air_density=bem.get("air_density", 1.2),
+            speed_of_sound=bem.get("speed_of_sound", 340.0),
+            bem_type=bem.get("bem_type", 4),
+            time_factor=bem.get("time_factor", -1.0),
+            is_internal=bem.get("is_internal", 0),
             mesh_cfg=raw.get("mesh", {}),
+            geometry_cfg=raw.get("geometry", {}),
             fieldpoints_cfg=raw.get("fieldpoints", {}),
             raw=raw,
         )
@@ -59,8 +186,9 @@ class ModelConfig:
     # -- dict-style access (backward compatible with raw-dict callers) --
     #
     # Lookups consult config.toml first, then fall back to the typed dataclass
-    # fields, so config.get("air_density") returns the default 1.2 even when
-    # config.toml omits it — dict access never diverges from attribute access.
+    # fields, so config.get("air_density") returns the effective value even
+    # though the toml key lives inside [bem] — dict access never diverges
+    # from attribute access.
 
     def __getitem__(self, key):
         if key in self.raw:
@@ -90,9 +218,36 @@ class ModelConfig:
         return discover_variants(self.model_dir, prefixes)
 
     def mesh_map(self):
-        """Return {variant: mesh_stem} from [variants] table, or {}."""
+        """Return {variant: mesh_stem} from [variants] table, or {}.
+
+        Generated variants (mesh overrides / source) map to their own name:
+        their mesh is written as mesh/<variant>.msh.
+        """
         tbl = self.raw.get("variants") or {}
-        return {n: v.get("mesh", n) for n, v in tbl.items()}
+        out = {}
+        for n, v in tbl.items():
+            m = v.get("mesh")
+            out[n] = m if isinstance(m, str) else n
+        return out
+
+    def variant_source(self, variant):
+        """Explicit geometry/ source stem for a variant, or None."""
+        v = (self.raw.get("variants") or {}).get(variant, {})
+        return v.get("source")
+
+    def variant_mesh_params(self, variant):
+        """Merged [mesh] + per-variant overrides for a generated variant.
+
+        Returns None when the variant uses a trusted mesh/ file as-is
+        (mesh key is a string, or absent without a source).
+        """
+        v = (self.raw.get("variants") or {}).get(variant, {})
+        m = v.get("mesh")
+        if isinstance(m, dict):
+            return {**self.mesh_cfg, **m}
+        if m is None and "source" in v:
+            return dict(self.mesh_cfg)
+        return None
 
 
 def freq_bin(freq_hz, sr, nbins):

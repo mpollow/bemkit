@@ -10,7 +10,7 @@ from bemkit.config import freq_bin, ModelConfig
 
 class TestFreqArray:
     def _mc(self, tmp_path, sr, nbins):
-        (tmp_path / "config.toml").write_text(f"sr = {sr}\nnbins = {nbins}\n")
+        (tmp_path / "config.toml").write_text(f"[bem]\nsr = {sr}\nnbins = {nbins}\n")
         return ModelConfig.from_dir(tmp_path)
 
     def test_basic(self, tmp_path):
@@ -45,9 +45,67 @@ class TestModelConfigValidation:
             ModelConfig.from_dir(tmp_path)
 
     def test_missing_nbins_only(self, tmp_path):
-        (tmp_path / "config.toml").write_text("sr = 48000\n")
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 48000\n")
         with pytest.raises(ValueError, match="nbins"):
             ModelConfig.from_dir(tmp_path)
+
+    def test_old_flat_keys_raise_migration_error(self, tmp_path):
+        (tmp_path / "config.toml").write_text("sr = 48000\nnbins = 65\n")
+        with pytest.raises(ValueError, match=r"moved into the.*\[bem\]"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_unknown_bem_key_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 48000\nnbins = 65\nsamplerate = 1\n")
+        with pytest.raises(ValueError, match="samplerate"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_old_fieldpoints_string_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            'fieldpoints = "fieldpoints"\n'
+            '[bem]\nsr = 48000\nnbins = 65\n')
+        with pytest.raises(ValueError, match="old directory form"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_old_fieldpoints_path_value_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n'
+            '[fieldpoints]\nonaxis = "fieldpoints/onaxis.npy"\n')
+        with pytest.raises(ValueError, match=r'file = "fieldpoints/onaxis\.npy"'):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_fieldpoints_set_needs_type_or_file(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n'
+            '[fieldpoints.onaxis]\ndim = "z"\n')
+        with pytest.raises(ValueError, match="exactly one of type/file"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_fieldpoints_unknown_type_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n'
+            '[fieldpoints.onaxis]\ntype = "spiral"\n')
+        with pytest.raises(ValueError, match="spiral"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_unknown_mesh_key_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 48000\nnbins = 65\n[mesh]\nlc_mni = 5.0\n")
+        with pytest.raises(ValueError, match="lc_mni"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_variant_unknown_key_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n'
+            '[variants.fine]\nmeshh = "x"\n')
+        with pytest.raises(ValueError, match="meshh"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_unknown_user_table_is_allowed(self, tmp_path):
+        # Free-form tables (e.g. [cad] read by the model's own scripts) pass.
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 48000\nnbins = 65\n[cad]\nradius = 50\n")
+        assert ModelConfig.from_dir(tmp_path)["cad"] == {"radius": 50}
 
 
 # ── freq_bin ─────────────────────────────────────────────────────────────────
@@ -83,7 +141,7 @@ class TestFreqBin:
 class TestModelConfigFromDir:
     def test_loads_vars_toml(self, tmp_path):
         (tmp_path / "config.toml").write_text(
-            'sr = 48000\nnbins = 65\n'
+            '[bem]\nsr = 48000\nnbins = 65\n'
         )
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg["sr"] == 48000
@@ -92,14 +150,14 @@ class TestModelConfigFromDir:
     def test_modelname_defaults_to_dirname(self, tmp_path):
         d = tmp_path / "my_model"
         d.mkdir()
-        (d / "config.toml").write_text('sr = 48000\nnbins = 65\n')
+        (d / "config.toml").write_text('[bem]\nsr = 48000\nnbins = 65\n')
         cfg = ModelConfig.from_dir(d)
         assert cfg["modelname"] == "my_model"
         assert cfg.modelname == "my_model"
 
     def test_explicit_modelname(self, tmp_path):
         (tmp_path / "config.toml").write_text(
-            'modelname = "custom"\nsr = 48000\nnbins = 65\n'
+            'modelname = "custom"\n[bem]\nsr = 48000\nnbins = 65\n'
         )
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg["modelname"] == "custom"
@@ -110,7 +168,7 @@ class TestModelConfigFromDir:
             ModelConfig.from_dir(tmp_path / "nonexistent")
 
     def test_dict_style_get_and_contains(self, tmp_path):
-        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('[bem]\nsr = 48000\nnbins = 65\n')
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("missing", 42) == 42
         assert cfg.get("sr") == 48000
@@ -126,7 +184,7 @@ class TestModelConfig:
         d = tmp_path / "test_model"
         d.mkdir()
         (d / "config.toml").write_text(
-            'sr = 32000\nnbins = 33\nair_density = 1.25\n'
+            '[bem]\nsr = 32000\nnbins = 33\nair_density = 1.25\n'
             'speed_of_sound = 343.0\nbem_type = 1\n'
         )
         return d
@@ -141,7 +199,7 @@ class TestModelConfig:
         assert mc.modelname == "test_model"
 
     def test_defaults(self, tmp_path):
-        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('[bem]\nsr = 48000\nnbins = 65\n')
         mc = ModelConfig.from_dir(tmp_path)
         assert mc.air_density == 1.2
         assert mc.speed_of_sound == 340.0
@@ -156,13 +214,13 @@ class TestModelConfig:
         assert freqs[-1] == pytest.approx(16000)
 
     def test_mesh_map_empty(self, tmp_path):
-        (tmp_path / "config.toml").write_text('sr = 48000\nnbins = 65\n')
+        (tmp_path / "config.toml").write_text('[bem]\nsr = 48000\nnbins = 65\n')
         mc = ModelConfig.from_dir(tmp_path)
         assert mc.mesh_map() == {}
 
     def test_mesh_map_with_variants(self, tmp_path):
         (tmp_path / "config.toml").write_text(
-            'sr = 48000\nnbins = 65\n'
+            '[bem]\nsr = 48000\nnbins = 65\n'
             '[variants.left]\nmesh = "shared"\n'
             '[variants.right]\n'
         )
@@ -170,19 +228,37 @@ class TestModelConfig:
         m = mc.mesh_map()
         assert m == {"left": "shared", "right": "right"}
 
+    def test_variant_mesh_overrides(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n'
+            '[mesh]\nlc_min = 1.5\nlc_max = 3.5\n'
+            '[variants.fine]\nsource = "box"\nmesh = { lc_min = 1.0 }\n'
+            '[variants.coarse]\nsource = "box"\n'
+            '[variants.left]\nmesh = "shared"\n'
+        )
+        mc = ModelConfig.from_dir(tmp_path)
+        # generated variants mesh to their own name; trusted keeps the stem
+        assert mc.mesh_map() == {"fine": "fine", "coarse": "coarse",
+                                 "left": "shared"}
+        assert mc.variant_mesh_params("fine") == {"lc_min": 1.0, "lc_max": 3.5}
+        assert mc.variant_mesh_params("coarse") == {"lc_min": 1.5, "lc_max": 3.5}
+        assert mc.variant_mesh_params("left") is None  # trusted mesh file
+        assert mc.variant_source("fine") == "box"
+        assert mc.variant_source("left") is None
+
 
 class TestDictAccessFallback:
     """Dict-style access falls back to typed defaults (no raw/attribute divergence)."""
 
     def test_get_falls_back_to_dataclass_default(self, tmp_path):
-        (tmp_path / "config.toml").write_text("sr = 48000\nnbins = 65\n")
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 48000\nnbins = 65\n")
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("air_density") == cfg.air_density == 1.2
         assert cfg["speed_of_sound"] == 340.0
         assert "bem_type" in cfg
 
     def test_unknown_key_still_raises(self, tmp_path):
-        (tmp_path / "config.toml").write_text("sr = 48000\nnbins = 65\n")
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 48000\nnbins = 65\n")
         cfg = ModelConfig.from_dir(tmp_path)
         assert cfg.get("no_such_key", 7) == 7
         with pytest.raises(KeyError):

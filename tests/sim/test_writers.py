@@ -210,7 +210,7 @@ class TestWriteNcInp:
         self._counts(tmp_path)
         model = tmp_path / "model"
         model.mkdir()
-        (model / "config.toml").write_text("sr = 8000\nnbins = 5\n")  # sparse
+        (model / "config.toml").write_text("[bem]\nsr = 8000\nnbins = 5\n")  # sparse
         config = ModelConfig.from_dir(model)
         write_nc_inp(config, "tiny", tmp_path, verbose=False)
         text = (tmp_path / "NC.inp").read_text()

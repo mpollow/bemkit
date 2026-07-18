@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from bemkit.config import ModelConfig
-from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo
+from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
 from bemkit.sim.export import export_variant
 from bemkit.sim.packing import clear_pack, has_results, is_packed, pack_variant
 from bemkit.sim.runner import plan_jobs, run_jobs
@@ -31,28 +31,68 @@ class PipelineStage(ABC):
         """Check if stage output already exists for a variant."""
 
 
-def _generate_mesh(config, input_file):
-    """Generate mesh/{stem}.msh from one geometry/ source (CAD or scan)."""
+def _run_exec_scripts(model_dir, exec_spec):
+    """Run a section's exec script(s) with cwd=model_dir."""
+    if not exec_spec:
+        return
+    scripts = [exec_spec] if isinstance(exec_spec, str) else exec_spec
+    # Scripts run with cwd=model_dir, so a repo-checkout bemkit (not pip-
+    # installed) would not be importable — put its root on PYTHONPATH.
+    env = os.environ.copy()
+    pkg_root = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = (pkg_root + os.pathsep + env["PYTHONPATH"]
+                         if env.get("PYTHONPATH") else pkg_root)
+    for s in scripts:
+        script = Path(model_dir) / s
+        if not script.exists():
+            raise FileNotFoundError(f"exec script not found: {script}")
+        cmd = ([sys.executable, str(script)] if script.suffix == ".py"
+               else ["bash", str(script)])
+        print(f"\n{'=' * 60}\n  {' '.join(cmd)}\n{'=' * 60}")
+        r = subprocess.run(cmd, cwd=str(model_dir), env=env)
+        if r.returncode:
+            raise RuntimeError(f"exec script failed (exit {r.returncode}): {s}")
+
+
+def _generate_mesh(input_file, output_file, mesh_cfg):
+    """Generate output_file from one geometry/ source (CAD or scan)."""
     from bemkit.meshing.generate import mesh_from_step, mesh_from_surface  # lazy gmsh
 
     input_file = Path(input_file)
-    mesh_dir = config.model_dir / "mesh"
-    mesh_dir.mkdir(exist_ok=True)
-    output_file = mesh_dir / f"{input_file.stem}.msh"
+    output_file = Path(output_file)
+    output_file.parent.mkdir(exist_ok=True)
     is_step = input_file.suffix == ".step"
     defaults = (5.0, 25.0, 50.0, 100.0) if is_step else (2.0, 4.0, 20.0, 80.0)
-    lc_min = config.mesh_cfg.get("lc_min", defaults[0])
-    lc_max = config.mesh_cfg.get("lc_max", defaults[1])
-    dist_min = config.mesh_cfg.get("dist_min", defaults[2])
-    dist_max = config.mesh_cfg.get("dist_max", defaults[3])
+    params = {k: mesh_cfg.get(k, d) for k, d in
+              zip(("lc_min", "lc_max", "dist_min", "dist_max"), defaults)}
     fn = mesh_from_step if is_step else mesh_from_surface
 
-    print(f"Generating surface mesh from {input_file}")
-    print(f"  Mesh size: lc_min={lc_min} mm, lc_max={lc_max} mm")
-    print(f"  Distance field: dist_min={dist_min} mm, dist_max={dist_max} mm")
-    fn(input_file, output_file, lc_min=lc_min, lc_max=lc_max,
-       dist_min=dist_min, dist_max=dist_max)
+    print(f"Generating surface mesh from {input_file} → {output_file.name}")
+    print(f"  Mesh size: lc_min={params['lc_min']} mm, lc_max={params['lc_max']} mm")
+    print(f"  Distance field: dist_min={params['dist_min']} mm, "
+          f"dist_max={params['dist_max']} mm")
+    fn(input_file, output_file, **params)
     return output_file
+
+
+def _resolve_source(sources, variant, source_stem):
+    """Pick the geometry/ source a generated variant is meshed from."""
+    available = ", ".join(f.stem for f in sources) or "none"
+    if source_stem:
+        match = [f for f in sources if f.stem == source_stem]
+        if not match:
+            raise FileNotFoundError(
+                f"variant '{variant}': geometry source '{source_stem}' not "
+                f"found in geometry/ (available: {available})")
+        return match[0]
+    match = [f for f in sources if f.stem == variant]
+    if match:
+        return match[0]
+    if len(sources) == 1:
+        return sources[0]
+    raise ValueError(
+        f"variant '{variant}': cannot determine geometry source — set "
+        f"source = \"<stem>\" in [variants.{variant}] (available: {available})")
 
 
 class MeshStage(PipelineStage):
@@ -62,49 +102,42 @@ class MeshStage(PipelineStage):
             f.suffix in MESH_EXTENSIONS for f in mesh_dir.iterdir())
 
     def run(self, config, **kwargs):
+        from bemkit.meshing.generate import SURFACE_EXTENSIONS
+
         model_dir = config.model_dir
-        # Scripts run with cwd=model_dir, so a repo-checkout bemkit (not pip-
-        # installed) would not be importable — put its root on PYTHONPATH.
-        env = os.environ.copy()
-        pkg_root = str(Path(__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = (pkg_root + os.pathsep + env["PYTHONPATH"]
-                             if env.get("PYTHONPATH") else pkg_root)
-        for s in sorted(model_dir.glob("pre_*.[ps][yh]")):
-            if s.name.startswith("__"):
-                continue
-            cmd = [sys.executable if s.suffix == ".py" else "bash", str(s)]
-            print(f"\n{'=' * 60}\n  {' '.join(cmd)}\n{'=' * 60}")
-            r = subprocess.run(cmd, cwd=str(model_dir), env=env)
-            if r.returncode:
-                raise RuntimeError(f"pre-script failed (exit {r.returncode}): {s.name}")
+        leftovers = sorted(s.name for s in model_dir.glob("pre_*.[ps][yh]")
+                           if not s.name.startswith("__"))
+        if leftovers:
+            print(f"  Note: pre_* scripts are no longer run automatically "
+                  f"({', '.join(leftovers)}) — reference them via "
+                  f"[geometry].exec or [fieldpoints].exec in config.toml.")
+        _run_exec_scripts(model_dir, config.geometry_cfg.get("exec"))
 
         # geometry/ holds remesh sources (CAD .step + tessellated scans);
         # everything in mesh/ is a trusted, ready-to-use mesh, never remeshed.
-        from bemkit.meshing.generate import SURFACE_EXTENSIONS
         geom_dir = model_dir / "geometry"
         mesh_dir = model_dir / "mesh"
         sources = sorted(
             (f for f in (geom_dir.iterdir() if geom_dir.is_dir() else [])
              if f.suffix in ['.step'] + SURFACE_EXTENSIONS), key=lambda f: f.name)
 
+        variants_tbl = config.raw.get("variants") or {}
+        if variants_tbl:
+            return self._run_variants(config, mesh_dir, sources, variants_tbl)
+
         results = []
         if sources:
             mesh_files = sorted(f for f in (mesh_dir.iterdir() if mesh_dir.is_dir()
                                             else []) if f.suffix in MESH_EXTENSIONS)
             for src in sources:
-                # A pre_* script may have meshed this source under
-                # recipe-suffixed names (stem.recipe.msh) — those count too.
-                # Match on the full source stem so a dotted source name
-                # (head.v2.step) is not confused with head.step recipes.
-                derived = [f for f in mesh_files
-                           if f.stem == src.stem
-                           or f.stem.startswith(src.stem + '.')]
+                derived = [f for f in mesh_files if f.stem == src.stem]
                 if derived:
                     print(f"  Mesh exists, skipping {src.name}: "
                           f"{', '.join(f.name for f in derived)}")
                     results += [MeshInfo.from_file(f) for f in derived]
                 else:
-                    results.append(MeshInfo.from_file(_generate_mesh(config, src)))
+                    results.append(MeshInfo.from_file(_generate_mesh(
+                        src, mesh_dir / f"{src.stem}.msh", config.mesh_cfg)))
         else:
             existing = sorted(
                 (f for f in (mesh_dir.iterdir() if mesh_dir.is_dir() else [])
@@ -117,12 +150,39 @@ class MeshStage(PipelineStage):
                       "(nothing in geometry/, no mesh files in mesh/)")
         return results
 
+    def _run_variants(self, config, mesh_dir, sources, variants_tbl):
+        """Mesh [variants] entries: generated ones get mesh/<variant>.msh."""
+        results = []
+        for name in variants_tbl:
+            params = config.variant_mesh_params(name)
+            if params is None:
+                # Trusted mesh/ file (e.g. BC-defined variant); never remeshed.
+                stem = config.mesh_map()[name]
+                try:
+                    f = find_mesh_file(mesh_dir, stem)
+                except FileNotFoundError:
+                    print(f"  {name}: trusted mesh mesh/{stem}.* not found "
+                          f"(export will fail until it exists)")
+                    continue
+                print(f"  {name}: trusted mesh {f.name}")
+                results.append(MeshInfo.from_file(f))
+                continue
+            output = mesh_dir / f"{name}.msh"
+            if output.exists():
+                print(f"  Mesh exists, skipping {name}: {output.name}")
+                results.append(MeshInfo.from_file(output))
+                continue
+            src = _resolve_source(sources, name, config.variant_source(name))
+            results.append(MeshInfo.from_file(_generate_mesh(src, output, params)))
+        return results
+
 
 class ExportStage(PipelineStage):
     def check(self, config, variant):
         return (config.model_dir / "numcalc" / variant / "NC.inp").exists()
 
     def run(self, config, *, prefixes=None, **kwargs):
+        _run_exec_scripts(config.model_dir, config.fieldpoints_cfg.get("exec"))
         variants = config.variants(prefixes)
         if not variants:
             all_v = config.variants(None)

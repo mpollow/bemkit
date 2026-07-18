@@ -46,8 +46,8 @@ examples/sphcap/
 ├── config.toml         # ← the only thing you must write by hand
 ├── geometry/           # remesh sources: CAD (*.step) + scans (*.ply, *.stl, *.obj)
 ├── mesh/                # trusted meshes, used as-is (*.msh, *.stl, *.ply, *.mesh)
-├── fieldpoints/          # where you want to evaluate pressure (*.npy, METERS)
-├── pre_*.py|.sh          # optional local preprocessing (run automatically by `mesh`)
+├── fieldpoints/          # optional pre-made eval points (*.npy, METERS)
+├── *.py|.sh              # optional scripts, referenced explicitly via exec = ... in config.toml
 ├── numcalc/<variant>/    # generated: NumCalc job bundles + results
 │                         #   (snapshot.json records the config that produced them)
 └── plots/                # generated: figures
@@ -56,6 +56,7 @@ examples/sphcap/
 ### `config.toml` — minimal but complete
 
 ```toml
+[bem]
 sr = 32000            # sample rate (Hz) → sets the frequency grid
 nbins = 65            # n_frequencies = nbins - 1  (DC bin excluded)
                       # freqs = linspace(0, sr/2, nbins)[1:]
@@ -73,12 +74,11 @@ lc_max = 25.0         # coarsest element edge (far from the source)
 dist_min = 50.0       # size ramps from lc_min→lc_max between these distances
 dist_max = 100.0
 
-# Where to evaluate the field. Point to a directory (loads every *.npy as a set)
-fieldpoints = "fieldpoints"
-# ...or name sets explicitly:
-# [fieldpoints]
-# onaxis  = "fieldpoints/onaxis.npy"
-# polar   = "fieldpoints/polar.npy"
+# Where to evaluate the field: declarative generator sets (see step 3).
+[fieldpoints.onaxis]
+type = "onaxis"
+dim = "z"
+radii = [0.1, 0.25, 0.5, 1.0, 2.0]   # meters
 ```
 
 > **Units matter.** Fieldpoint `.npy` files are in **meters**. `.msh` meshes are
@@ -89,12 +89,17 @@ fieldpoints = "fieldpoints"
 
 ## 2. Provide geometry — pick ONE of three entry points
 
-`bem MODEL mesh` first runs any `pre_*.py` / `pre_*.sh` scripts in the model dir,
-then meshes every source it finds in `geometry/` into a surface `.msh` in `mesh/`.
-The split is strict: `geometry/` holds things that still need meshing; anything
-in `mesh/` is trusted and used as-is, never remeshed. A source is skipped when a
-mesh derived from it already exists (including recipe-suffixed ones like
-`name.lc5-25.msh` from a `pre_` script).
+`bem MODEL mesh` first runs the `[geometry]` exec script if one is configured
+(e.g. a `bemgeo` script that writes STEP files), then meshes every source it
+finds in `geometry/` into a surface `.msh` in `mesh/`. The split is strict:
+`geometry/` holds things that still need meshing; anything in `mesh/` is
+trusted and used as-is, never remeshed. A source is skipped when its mesh
+already exists.
+
+```toml
+[geometry]
+exec = "./geometry_box_speaker.py"   # runs with cwd = model dir; writes geometry/*.step
+```
 
 ### (A) CAD solid — `geometry/*.step`
 Drop a STEP file in `geometry/`. GMSH generates a size-graded triangle mesh.
@@ -131,42 +136,62 @@ bem examples/hutubs export                       # uses them as-is
 > variants meshed/exported/run/packed independently. (You can also define
 > BC-only variants that share a mesh via a `[variants]` table — see CLAUDE.md.)
 
-### Multi-variant meshing via a `pre_` script (the `sphcap` pattern)
-To sweep several CAD files × several mesh resolutions, script it. `mesh` runs it
-for you (files prefixed `__` are skipped):
+### Multi-variant meshing — per-variant `[mesh]` overrides
+To run the same geometry at several mesh resolutions, name the variants in a
+`[variants]` table; each entry may override `[mesh]` parameters. The mesh is
+generated as `mesh/<variant>.msh` from the `geometry/` source (the sole source
+by default; pick one with `source = "<stem>"` when there are several):
 
-```python
-# examples/sphcap/pre_2_make_mesh_from_step.py
-from pathlib import Path
-from bemkit.meshing.generate import mesh_from_step
+```toml
+[mesh]              # shared defaults
+lc_min = 5.0
+lc_max = 25.0
 
-mesh_dir = Path.cwd() / "mesh"; mesh_dir.mkdir(exist_ok=True)
-for step in sorted((Path.cwd() / "geometry").glob("*.step")):
-    for lc_min, lc_max in [(5, 25), (10, 10)]:
-        out = mesh_dir / f"{step.stem}.lc{lc_min}-{lc_max}.msh"
-        mesh_from_step(step, out, lc_min=lc_min, lc_max=lc_max,
-                       dist_min=50, dist_max=100)
+[variants.fine]
+mesh = { lc_min = 2.5, lc_max = 12.0 }
+
+[variants.coarse]
+mesh = { lc_min = 10.0, lc_max = 50.0 }
 ```
+
+Geometry sweeps work the other way around: have the `[geometry]` exec script
+write several `.step` files — every source becomes its own variant.
 
 ---
 
 ## 3. Define where to measure — fieldpoints
 
 Fieldpoints are the coordinates (in **meters**) where you want the radiated
-pressure. Generate `.npy` files, typically from a `pre_*.py` script so they
-regenerate with the mesh:
+pressure. The common shapes are declared directly in `config.toml` — each
+`[fieldpoints.<name>]` table is one named set, and the keys after `type` are
+the generator's arguments (`make_fields_onaxis` / `polar` / `plane`):
 
-```python
-# examples/sphcap/pre_fieldpoints.py
-from pathlib import Path
-import numpy as np
-from bemkit import make_fields_onaxis, make_fields_polar, make_fields_plane
+```toml
+[fieldpoints.onaxis]
+type = "onaxis"
+dim = "z"
+radii = [0.1, 0.25, 0.5, 1.0, 2.0]   # meters
 
-fp = Path(__file__).parent / "fieldpoints"; fp.mkdir(exist_ok=True)
-np.save(fp / "onaxis.npy",  make_fields_onaxis(dim='z', radii=[0.1, 0.25, 0.5, 1.0, 2.0]))
-np.save(fp / "polar.npy",   make_fields_polar(dims='zx', res=5))            # circle
-np.save(fp / "planeXZ.npy", make_fields_plane(dims='xz',
-                                              limits=[-500, 500, -500, 500], res=10))
+[fieldpoints.polar]
+type = "polar"
+dims = "zx"
+res = 5                              # degrees
+
+[fieldpoints.planeXZ]
+type = "plane"
+dims = "xz"
+limits = [-500, 500, -500, 500]      # mm
+res = 10                             # mm
+```
+
+Pre-made point clouds work too — either name them
+(`[fieldpoints.custom]` with `file = "fieldpoints/custom.npy"`), or define no
+sets at all and every `fieldpoints/*.npy` is loaded as one set per file. For
+anything custom, an escape hatch script can generate the files at export time:
+
+```toml
+[fieldpoints]
+exec = "./make_fieldpoints.py"   # runs before export; writes fieldpoints/*.npy
 ```
 
 Points inside the mesh (for exterior problems) or too close to the surface are
@@ -357,8 +382,8 @@ result = sim.result("onaxis")   # BEMResult bridge for the viz functions
 ## The whole thing, end to end
 
 ```bash
-# 1. author examples/sphcap/config.toml, drop geometry in geometry/ or mesh/,
-#    add pre_fieldpoints.py (+ BC in config.toml or STEP colors)
+# 1. author examples/sphcap/config.toml (fieldpoint sets + BC or STEP colors),
+#    drop geometry in geometry/ or mesh/ — or point [geometry].exec at a script
 
 bem examples/sphcap geometry          # 2. eyeball mesh + BCs + eval grid (3D)
 bem examples/sphcap all               # 3. mesh → export → run → plot

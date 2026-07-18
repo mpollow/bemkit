@@ -251,50 +251,67 @@ def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
     return valid
 
 
-def load_fieldpoint_sets(fieldpoints_config, model_dir):
-    """Load all fieldpoint sets from config.
+def _as_points(array, name):
+    array = np.asarray(array, dtype=float)
+    if array.ndim != 2 or array.shape[1] != 3:
+        raise ValueError(
+            f"fieldpoint set '{name}': expected an (N, 3) array, "
+            f"got shape {array.shape}")
+    return array
 
-    Supports two formats:
-    - Plain string: path to a directory containing .npy files
-    - Dict mapping set names to .npy file paths
+
+def load_fieldpoint_sets(fieldpoints_config, model_dir):
+    """Load all fieldpoint sets from the [fieldpoints] config table.
+
+    Each named subtable is one set, defined either declaratively
+    (``type = "onaxis" | "polar" | "plane"`` plus generator kwargs — points
+    are generated in-memory via make_fields_<type>) or from a file
+    (``file = "path.npy"``, relative to model_dir). When no subtables are
+    given, all ``fieldpoints/*.npy`` in the model directory are loaded, one
+    set per file (a configured ``exec`` script, run by the pipeline before
+    loading, typically writes them).
 
     Args:
-        fieldpoints_config: Dict or string (directory path)
+        fieldpoints_config: [fieldpoints] table from config.toml (dict; the
+            reserved ``exec`` key is ignored here — the pipeline runs it)
         model_dir: Model directory (paths resolved relative to this)
 
     Returns:
         Dict of {name: ndarray} with shape (N, 3) per set
     """
+    from bemkit.sim import fields
+
     model_dir = Path(model_dir)
+    specs = {name: spec for name, spec in (fieldpoints_config or {}).items()
+             if name != "exec"}
     sets = {}
-
-    # Handle directory path: discover all .npy files
-    if isinstance(fieldpoints_config, str):
-        fp_dir = Path(fieldpoints_config)
-        if not fp_dir.is_absolute():
-            fp_dir = model_dir / fp_dir
-        if not fp_dir.is_dir():
-            raise FileNotFoundError(
-                f"Fieldpoints directory does not exist: {fp_dir} "
-                f"(configured as '{fieldpoints_config}' relative to {model_dir})")
-        for npy_file in sorted(fp_dir.glob("*.npy")):
-            sets[npy_file.stem] = np.load(npy_file)
-            print(f"  Loaded '{npy_file.stem}': {len(sets[npy_file.stem])} points from {npy_file}")
-        if not sets:
-            raise FileNotFoundError(f"No .npy fieldpoint files in {fp_dir}")
-        return sets
-
-    for name, source in fieldpoints_config.items():
-        if not isinstance(source, str):
-            continue
-        path = Path(source)
-        if not path.is_absolute():
-            path = model_dir / path
-        sets[name] = np.load(path)
-        print(f"  Loaded '{name}': {len(sets[name])} points from {source}")
+    for name, spec in specs.items():
+        if "type" in spec:
+            fn = getattr(fields, f"make_fields_{spec['type']}")
+            kwargs = {k: v for k, v in spec.items() if k != "type"}
+            try:
+                points = fn(**kwargs)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"[fieldpoints.{name}]: {e}") from e
+            print(f"  Generated '{name}': {len(points)} points "
+                  f"({spec['type']})")
+        else:
+            path = Path(spec["file"])
+            if not path.is_absolute():
+                path = model_dir / path
+            points = _as_points(np.load(path), name)
+            print(f"  Loaded '{name}': {len(points)} points from {spec['file']}")
+        sets[name] = points
+    if not specs:
+        fp_dir = model_dir / "fieldpoints"
+        for npy_file in (sorted(fp_dir.glob("*.npy")) if fp_dir.is_dir() else []):
+            sets[npy_file.stem] = _as_points(np.load(npy_file), npy_file.stem)
+            print(f"  Loaded '{npy_file.stem}': {len(sets[npy_file.stem])} "
+                  f"points from {npy_file}")
     if not sets:
         raise ValueError(
-            f"No fieldpoint sets loaded from config: {fieldpoints_config!r}")
+            f"No fieldpoint sets: define [fieldpoints.<name>] tables in "
+            f"config.toml or put .npy files in {model_dir / 'fieldpoints'}")
     return sets
 
 

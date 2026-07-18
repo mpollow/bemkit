@@ -17,9 +17,9 @@ def _make_model(tmp_path):
     meshio.write_points_cells(model / "mesh" / "tiny.stl", vertices, [("triangle", tris)])
     np.save(model / "fieldpoints" / "onaxis.npy", np.array([[3, 0, 0], [4, 0, 0]], float))
     (model / "config.toml").write_text(
-        'sr = 8000\nnbins = 5\nbem_type = 4\nair_density = 1.2\n'
+        '[bem]\nsr = 8000\nnbins = 5\nbem_type = 4\nair_density = 1.2\n'
         'speed_of_sound = 340.0\ntime_factor = -1.0\nis_internal = 0\n'
-        '[fieldpoints]\nonaxis = "fieldpoints/onaxis.npy"\n'
+        '[fieldpoints.onaxis]\nfile = "fieldpoints/onaxis.npy"\n'
         '[BOUNDARY]\ncap = [0, 0, 1.0]\n')
     return model
 
@@ -52,9 +52,9 @@ def _make_geometric_model(tmp_path):
     # Anchor near element 2's centroid.
     centroid2 = vertices[tris[2]].mean(axis=0)
     (model / "config.toml").write_text(
-        'sr = 8000\nnbins = 5\nbem_type = 4\nair_density = 1.2\n'
+        '[bem]\nsr = 8000\nnbins = 5\nbem_type = 4\nair_density = 1.2\n'
         'speed_of_sound = 340.0\ntime_factor = -1.0\nis_internal = 0\n'
-        '[fieldpoints]\nonaxis = "fieldpoints/onaxis.npy"\n'
+        '[fieldpoints.onaxis]\nfile = "fieldpoints/onaxis.npy"\n'
         f'[BOUNDARY.geo]\ndrv = {{ near = [{centroid2[0]}, {centroid2[1]}, {centroid2[2]}] }}\n')
     return model, 2
 

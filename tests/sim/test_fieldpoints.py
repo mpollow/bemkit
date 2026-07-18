@@ -168,25 +168,65 @@ class TestSaveLoadOffsets:
 
 
 class TestLoadFieldpointSets:
-    def test_missing_directory_raises(self, tmp_path):
-        # A configured fieldpoints dir that does not exist must raise, not
-        # silently return {} (which would corrupt the EvalGrid downstream).
-        with pytest.raises(FileNotFoundError):
-            load_fieldpoint_sets("does_not_exist", tmp_path)
-
     def test_empty_directory_raises(self, tmp_path):
+        # No named sets and no .npy files must raise, not silently return
+        # {} (which would corrupt the EvalGrid downstream).
         (tmp_path / "fieldpoints").mkdir()
-        with pytest.raises(FileNotFoundError):
-            load_fieldpoint_sets("fieldpoints", tmp_path)
-
-    def test_empty_dict_raises(self, tmp_path):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="No fieldpoint sets"):
             load_fieldpoint_sets({}, tmp_path)
 
-    def test_loads_directory(self, tmp_path):
+    def test_empty_config_no_directory_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="No fieldpoint sets"):
+            load_fieldpoint_sets({}, tmp_path)
+
+    def test_dir_fallback_loads_all_npy(self, tmp_path):
         fp = tmp_path / "fieldpoints"
         fp.mkdir()
         np.save(fp / "onaxis.npy", np.zeros((5, 3)))
-        sets = load_fieldpoint_sets("fieldpoints", tmp_path)
-        assert list(sets) == ["onaxis"]
+        np.save(fp / "polar.npy", np.zeros((7, 3)))
+        sets = load_fieldpoint_sets({}, tmp_path)
+        assert list(sets) == ["onaxis", "polar"]
         assert sets["onaxis"].shape == (5, 3)
+
+    def test_exec_key_is_ignored(self, tmp_path):
+        fp = tmp_path / "fieldpoints"
+        fp.mkdir()
+        np.save(fp / "onaxis.npy", np.zeros((5, 3)))
+        sets = load_fieldpoint_sets({"exec": "./make.py"}, tmp_path)
+        assert list(sets) == ["onaxis"]
+
+    def test_file_set(self, tmp_path):
+        np.save(tmp_path / "pts.npy", np.zeros((4, 3)))
+        sets = load_fieldpoint_sets({"custom": {"file": "pts.npy"}}, tmp_path)
+        assert list(sets) == ["custom"]
+        assert sets["custom"].shape == (4, 3)
+
+    def test_file_set_bad_shape_raises(self, tmp_path):
+        np.save(tmp_path / "pts.npy", np.zeros((4, 2)))
+        with pytest.raises(ValueError, match=r"\(N, 3\)"):
+            load_fieldpoint_sets({"custom": {"file": "pts.npy"}}, tmp_path)
+
+    def test_generator_set_onaxis(self, tmp_path):
+        sets = load_fieldpoint_sets(
+            {"onaxis": {"type": "onaxis", "dim": "z", "radii": [0.5, 1.0]}},
+            tmp_path)
+        np.testing.assert_allclose(
+            sets["onaxis"], [[0, 0, 0.5], [0, 0, 1.0]])
+
+    def test_generator_set_polar(self, tmp_path):
+        sets = load_fieldpoint_sets(
+            {"polar": {"type": "polar", "dims": "zx", "res": 90}}, tmp_path)
+        assert sets["polar"].shape == (4, 3)
+
+    def test_generator_bad_kwarg_names_the_set(self, tmp_path):
+        with pytest.raises(ValueError, match=r"\[fieldpoints\.onaxis\]"):
+            load_fieldpoint_sets(
+                {"onaxis": {"type": "onaxis", "radius": 1.0}}, tmp_path)
+
+    def test_named_sets_win_over_directory(self, tmp_path):
+        fp = tmp_path / "fieldpoints"
+        fp.mkdir()
+        np.save(fp / "ignored.npy", np.zeros((5, 3)))
+        sets = load_fieldpoint_sets(
+            {"onaxis": {"type": "onaxis", "radii": [1.0]}}, tmp_path)
+        assert list(sets) == ["onaxis"]

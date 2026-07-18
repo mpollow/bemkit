@@ -1,3 +1,4 @@
+[bem]
 sr = 8000
 nbins = 5
 bem_type = 4
@@ -6,8 +7,8 @@ speed_of_sound = 340.0
 time_factor = -1.0
 is_internal = 0
 
-[fieldpoints]
-onaxis = "fieldpoints/onaxis.npy"
+[fieldpoints.onaxis]
+file = "fieldpoints/onaxis.npy"
 
 [BOUNDARY]
 cap = [0, 0, 1.0]

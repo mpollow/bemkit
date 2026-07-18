@@ -102,13 +102,15 @@ def show_status(model_dir):
     config = load_model_config(model_dir)
     variants = config.variants(None)
     if not variants:
-        pre_scripts = sorted(model_dir.glob("pre_*.[ps][yh]"))
-        if pre_scripts:
+        from bemkit.meshing.generate import SURFACE_EXTENSIONS
+        geom_dir = model_dir / "geometry"
+        has_sources = geom_dir.is_dir() and any(
+            f.suffix in ['.step'] + SURFACE_EXTENSIONS for f in geom_dir.iterdir())
+        if has_sources or config.geometry_cfg.get("exec"):
             print(f"\n{model_dir}  (no mesh files yet)\n")
-            print(f"  Found pre_* scripts: {', '.join(s.name for s in pre_scripts)}")
-            print(f"\n  Next: bem {model_dir} mesh")
+            print(f"  Next: bem {model_dir} mesh")
         else:
-            print(f"\n{model_dir}  (no mesh files and no pre_* scripts)\n")
+            print(f"\n{model_dir}  (no mesh files and no geometry sources)\n")
         return
 
     print(f"\n{model_dir}  (variants: {', '.join(variants)})\n")
@@ -143,17 +145,15 @@ def show_status(model_dir):
 
     geom_dir = model_dir / "geometry"
     mesh_dir = model_dir / "mesh"
-    if geom_dir.is_dir() and mesh_dir.is_dir():
+    # With [variants], meshes are named per variant, not per source — the
+    # source/mesh stem comparison below would be meaningless.
+    if geom_dir.is_dir() and mesh_dir.is_dir() and not config.raw.get("variants"):
         mesh_files = sorted(f for f in mesh_dir.iterdir()
                             if f.suffix in MESH_EXTENSIONS)
         from bemkit.meshing.generate import SURFACE_EXTENSIONS
-        # Full-stem match (same rule as MeshStage), so a dotted source name
-        # (head.v2.step) is not claimed by meshes of head.step.
         unmeshed = sorted(g.stem for g in geom_dir.iterdir()
                           if g.suffix in ['.step'] + SURFACE_EXTENSIONS
-                          and not any(f.stem == g.stem
-                                      or f.stem.startswith(g.stem + '.')
-                                      for f in mesh_files))
+                          and not any(f.stem == g.stem for f in mesh_files))
         if unmeshed:
             print(f"  Geometries without meshes: {', '.join(unmeshed)}\n")
 

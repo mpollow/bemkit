@@ -1,15 +1,19 @@
+modelname = "sphcap"
+
+[bem]
 sr = 32000
 nbins = 65
 
 air_density = 1.2
 speed_of_sound = 340.0
 
-bem_type = 4
-time_factor = -1.0  # 1.0 or -1.0 depending on application
+bem_type = 4       # 0=TBEM, 1=SLFMBEM, 4=DMLFMBEM (default)
+time_factor = -1.0 # 1.0 or -1.0 depending on application
 is_internal = 0    # 0 for external problem, other values for internal
 
-fieldpoints="fieldpoints"
-
+# Geometry data for reference (rigid sphere, vibrating cap): the STEP file in
+# geometry/ was authored with bemgeo from these values. bemkit does not read
+# this table — a [geometry] exec script could.
 [cad]
 radius = 50        # mm
 aperture = 20      # degrees
@@ -20,12 +24,28 @@ lc_max = 25.0      # mm - max element size
 dist_min = 50.0    # mm - distance field min
 dist_max = 100.0   # mm - distance field max
 
-#[fieldpoints]
-## min_surface_distance_factor = 0.1  # × avg edge length (default: 0.1)
-#onaxis = "fieldpoints/onaxis.npy"
-#polar = "fieldpoints/polar.npy"
-#planeXZ = "fieldpoints/planeXZ.npy"
+[fieldpoints.onaxis]
+type = "onaxis"
+dim = "z"
+radii = [0.1, 0.25, 0.5, 1.0, 2.0, 4.0]  # meters
 
+[fieldpoints.polar]
+type = "polar"
+dims = "zx"
+res = 5            # degrees
+
+[fieldpoints.planeXZ]
+type = "plane"
+dims = "xz"
+limits = [-500, 500, -500, 500]  # mm
+res = 10           # mm
+
+# Same geometry at several mesh resolutions (per-variant [mesh] overrides;
+# each is generated as mesh/<variant>.msh from the geometry/ source):
+# [variants.fine]
+# mesh = { lc_min = 2.5, lc_max = 12.0 }
+# [variants.coarse]
+# mesh = { lc_min = 10.0, lc_max = 50.0 }
 
 # Uncomment to enable symmetry (num_planes calculated automatically from planes list)
 # [SYMMETRY]
