@@ -127,9 +127,14 @@ class ResultsViewer:
         self.A_vib = None
         self.share_colorbar = False
 
-        # Cached mesh data (loaded once per variant)
+        # Cached per-variant data (see _load_variant)
         self._nodes = None
         self._elements = None
+        self._has_data = False
+        self._v_show_surface = False
+        self._v_show_points = False
+        self._clim_cache = None
+        self._pb_cache = None
 
         # Clim state
         self.db_actors = []
@@ -170,13 +175,24 @@ class ResultsViewer:
             return pressure.imag
 
     def _read_pBoundary(self, be_index):
-        """Read pBoundary for a frequency bin, or return None."""
-        try:
-            return self.sim.pressure_at(be_index, domain="boundary", norm="raw")
-        except FileNotFoundError:
-            return None
+        """Read pBoundary for a frequency bin, or return None.
 
-    def _compute_surface_data(self, be_index, freq, A_vib):
+        Cached for the duration of one frame only (`_rebuild` clears it):
+        both `_joint_db_ref` and `_compute_surface_data` want the same bin,
+        and parsing it is ~18 ms on a 36k-element mesh. Deliberately not
+        cached across frames -- a bin that NumCalc is still computing must
+        be re-read, or it would stay grey for the rest of the session.
+        """
+        if self._pb_cache is not None and self._pb_cache[0] == be_index:
+            return self._pb_cache[1]
+        try:
+            p = self.sim.pressure_at(be_index, domain="boundary", norm="raw")
+        except FileNotFoundError:
+            p = None
+        self._pb_cache = (be_index, p)
+        return p
+
+    def _compute_surface_data(self, be_index, freq, A_vib, db_ref=None):
         """Compute surface scalars or RGBA for the given frequency bin.
 
         Returns (scalars, rgba_flag) or (None, False) if data missing.
@@ -189,47 +205,95 @@ class ResultsViewer:
         if self.surface_rgba:
             if self.args.norm == "acc" and A_vib is not None:
                 p_surf = p_surf / (1j * self.rho0 * 2.0 * np.pi * freq * A_vib)
-            return _phase_rgba(p_surf), True
+            return _phase_rgba(p_surf, db_ref=db_ref), True
         else:
             scalars = self._surface_scalars(
                 p_surf, self.surface_quantity, self.args.norm, freq, A_vib)
             return scalars, False
 
+    def _surface_placeholder(self, n_cells):
+        """Neutral surface coloring for a bin that isn't computed yet."""
+        if self.surface_rgba:
+            scalars = np.full((n_cells, 4), 128, dtype=np.uint8)
+            scalars[:, 3] = 255
+            return scalars, True
+        return np.full(n_cells, np.nan), False
+
+    def _joint_db_ref(self, be_index, freq, A_vib, result):
+        """Shared dB reference for the phase fade when surface and eval points
+        are both drawn as RGBA phase, so one fade scale spans both.
+
+        Returns None when that doesn't apply (``result`` is None, either side
+        isn't in RGBA phase mode, or the bin has no surface data yet), which
+        makes each actor fall back to its own max.
+        """
+        if result is None or not (self.surface_rgba and self.points_rgba):
+            return None
+        p_surf = self._read_pBoundary(be_index)
+        if p_surf is None:
+            return None
+        if self.args.norm == "acc" and A_vib is not None:
+            p_surf = p_surf / (1j * self.rho0 * 2.0 * np.pi * freq * A_vib)
+        p_pts = result.data("pressure", self.args.norm)[:, result.at_freq(freq)]
+        return max(
+            20.0 * np.log10(np.maximum(np.abs(p_surf), 1e-12)).max(),
+            20.0 * np.log10(np.maximum(np.abs(p_pts[result.valid_mask]), 1e-12)).max(),
+        )
+
+    def _load_variant(self, variant):
+        """Load everything that depends on the variant but not the frequency:
+        the boundary mesh, the eval-point result, and the vibrating area.
+
+        Kept apart from actor building because a frequency step reuses all of
+        it. Reloading it per frame (SimulationData drops its caches, so
+        `result` re-reads every bin) is what made stepping frequency cost
+        ~0.5 s instead of ~0.05 s.
+        """
+        from bemkit.sim.packing import has_results
+
+        nc_dir = numcalc_dir(self.model_dir, variant)
+        self.variant = variant
+        self.nc_dir = nc_dir
+        self.sim = SimulationData(nc_dir, self.config)
+        self._has_data = has_results(nc_dir)
+        self._v_show_surface = self.show_surface and self._has_data
+        self._v_show_points = self.show_points and self._has_data
+
+        self.result = (self.sim.result(self.args.set_name)
+                       if self._v_show_points else None)
+        if self._v_show_surface or self._has_data:
+            self._nodes = self.sim.boundary_nodes
+            self._elements = self.sim.boundary_elements
+
+        self.A_vib = None
+        if self._v_show_surface:
+            self.A_vib = self.sim.A_vib
+            if self.A_vib is not None:
+                print(f"Vibrating area: {self.A_vib:.6g} m²")
+
+        # Clim spans all bins of this variant, so it changes only here.
+        self._clim_cache = None
+
     def build_variant(self, variant, bin_idx):
-        """Build actors for a variant at a given freq bin."""
+        """Build actors for a variant at a given freq bin.
+
+        Per-variant data is loaded only when the variant actually changes --
+        stepping the frequency reuses it (see `_load_variant`).
+        """
         args = self.args
         scene = self.scene
         freqs = self.freqs
 
-        from bemkit.sim.packing import has_results
-
-        nc_dir = numcalc_dir(self.model_dir, variant)
-        has_data = has_results(nc_dir)
+        if variant != self.variant or self.sim is None:
+            self._load_variant(variant)
+        self.bin_idx = bin_idx
         be_index = bin_idx + 1
 
-        # Update instance state early (needed by helper methods)
-        self.variant = variant
-        self.bin_idx = bin_idx
-        self.nc_dir = nc_dir
-        self.sim = SimulationData(nc_dir, self.config)
-
-        v_show_surface = self.show_surface and has_data
-        v_show_points = self.show_points and has_data
-
-        result = None
-        if v_show_points:
-            result = self.sim.result(args.set_name)
-
-        # Cache mesh data from SimulationData
-        if v_show_surface or has_data:
-            self._nodes = self.sim.boundary_nodes
-            self._elements = self.sim.boundary_elements
-
-        A_vib = None
-        if v_show_surface:
-            A_vib = self.sim.A_vib
-            if A_vib is not None:
-                print(f"Vibrating area: {A_vib:.6g} m²")
+        has_data = self._has_data
+        v_show_surface = self._v_show_surface
+        v_show_points = self._v_show_points
+        result = self.result
+        A_vib = self.A_vib
 
         # Share colorbar when both visible with same scalar quantity
         share_colorbar = (v_show_surface and v_show_points
@@ -238,36 +302,21 @@ class ResultsViewer:
 
         # Joint dB reference for phase fade
         actual_freq = freqs[bin_idx]
-        phase_alpha_surf = PHASE_DB_RANGE if self.surface_rgba else None
+        db_ref = self._joint_db_ref(
+            be_index, actual_freq, A_vib,
+            result if (v_show_surface and v_show_points) else None)
         phase_alpha_pts = PHASE_DB_RANGE if self.points_rgba else None
-        if self.surface_rgba and v_show_surface and self.points_rgba and v_show_points:
-            p_surf = self._read_pBoundary(be_index)
-            if p_surf is not None:
-                if args.norm == "acc" and A_vib is not None:
-                    p_surf = p_surf / (1j * self.rho0 * 2.0 * np.pi * actual_freq * A_vib)
-                db_surf = 20.0 * np.log10(np.maximum(np.abs(p_surf), 1e-12)).max()
-                fi = result.at_freq(actual_freq)
-                p_p = result.data("pressure", args.norm)[:, fi][result.valid_mask]
-                db_pts = 20.0 * np.log10(np.maximum(np.abs(p_p), 1e-12)).max()
-                db_ref = max(db_surf, db_pts)
-                phase_alpha_surf = (db_ref, PHASE_DB_RANGE)
-                phase_alpha_pts = (db_ref, PHASE_DB_RANGE)
+        if db_ref is not None:
+            phase_alpha_pts = (db_ref, PHASE_DB_RANGE)
 
         # Add surface
         surface_actor = None
         mesh_actor = None
         if v_show_surface:
-            scalars, is_rgba = self._compute_surface_data(be_index, actual_freq, A_vib)
+            scalars, is_rgba = self._compute_surface_data(
+                be_index, actual_freq, A_vib, db_ref=db_ref)
             if scalars is None:
-                # No data yet — fill with placeholder
-                n = len(self._elements)
-                if self.surface_rgba:
-                    scalars = np.full((n, 4), 128, dtype=np.uint8)
-                    scalars[:, 3] = 255
-                    is_rgba = True
-                else:
-                    scalars = np.full(n, np.nan)
-                    is_rgba = False
+                scalars, is_rgba = self._surface_placeholder(len(self._elements))
 
             surface_actor = scene.add_surface_pressure(
                 self._nodes, self._elements, scalars,
@@ -361,8 +410,7 @@ class ResultsViewer:
         self.points_actor = points_actor
         self.intensity_actor = intensity_actor
         self.impedance_actor = impedance_actor
-        self.result = result
-        self.A_vib = A_vib
+        # result/A_vib already live on self, set by _load_variant
         self.share_colorbar = share_colorbar
 
     def _global_range(self, actor):
@@ -388,10 +436,12 @@ class ResultsViewer:
         if self.points_actor is not None and self.points_quantity in _CLIM_QUANTITIES:
             self.db_actors.append(self.points_actor)
             self.db_symmetric.append(self.points_quantity in _SYMMETRIC_QUANTITIES)
-        # Recomputed every call (not just `first`) so switching variants also
-        # picks up that variant's own global range, rather than reusing the
-        # first variant's.
-        self.initial_clims = [self._global_range(a) for a in self.db_actors]
+        # Spans every bin of the variant, so it survives a frequency step but
+        # must be recomputed per variant (_load_variant clears the cache) --
+        # otherwise a second variant would reuse the first one's range.
+        if self._clim_cache is None:
+            self._clim_cache = [self._global_range(a) for a in self.db_actors]
+        self.initial_clims = self._clim_cache
         if first:
             self.clim_state = [0.0, 0.0]
 
@@ -419,27 +469,40 @@ class ResultsViewer:
     def _rebuild(self, variant, bin_idx):
         """Remove all actors/scalar bars and rebuild them fresh.
 
-        Shared by frequency and variant switching. Mutating the surface
-        actor's cell-scalar data in place (and just calling Modified())
-        used to be the fast path here, but VTK caches the per-cell GPU
-        color buffer separately from point-data and doesn't reliably
-        invalidate it from an incremental render() on a live window --
-        point-data updates repaint fine the same way, cell-data ones
-        silently don't. A full rebuild costs more per frame but is the
-        only approach confirmed to actually repaint.
+        Shared by the frequency and variant sliders. `build_variant` only
+        reloads per-variant data when the variant actually changed, so a
+        frequency step here rebuilds actors from cached arrays rather than
+        re-reading every bin off disk.
         """
-        for actor in (self.surface_actor, self.mesh_actor, self.points_actor,
-                      self.intensity_actor, self.impedance_actor):
-            if actor is not None:
-                self.scene._plotter.remove_actor(actor)
-        for title in list(self.scene._plotter.scalar_bars.keys()):
-            self.scene._plotter.remove_scalar_bar(title, render=False)
-        self.build_variant(variant, bin_idx)
-        self._update_db_actors()
+        plotter = self.scene._plotter
+        self._pb_cache = None
+        # Every remove_actor/add_mesh/add_scalar_bar renders on its own,
+        # which cost ~9 full render passes per frequency step. Draw once,
+        # at the end (_apply_clim renders).
+        plotter.suppress_rendering = True
+        try:
+            for actor in (self.surface_actor, self.mesh_actor, self.points_actor,
+                          self.intensity_actor, self.impedance_actor):
+                if actor is not None:
+                    plotter.remove_actor(actor)
+            for title in list(plotter.scalar_bars.keys()):
+                plotter.remove_scalar_bar(title, render=False)
+            self.build_variant(variant, bin_idx)
+            self._update_db_actors()
+        finally:
+            plotter.suppress_rendering = False
         self._apply_clim()
 
     def update_freq(self, freq_hz):
-        """Frequency slider callback."""
+        """Frequency slider callback.
+
+        Goes through the same remove-and-re-add path as the variant slider.
+        Updating the actors' scalar arrays in place is faster still, but it
+        does not reliably repaint under every pyvista/VTK build (notably
+        RGBA phase colors under pyvista 0.48), so this uses the path that is
+        known to work everywhere. The per-variant data is cached, which is
+        what keeps it affordable per frame.
+        """
         new_bin = int(np.argmin(np.abs(self.freqs - freq_hz)))
         if new_bin == self.bin_idx:
             return
