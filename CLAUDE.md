@@ -324,7 +324,8 @@ needed — outputs just land in the same `be.out/`).
 - `Job(name, nc_dir, steps=(istart, iend) | None)` — one NumCalc invocation, optionally
   scoped to a 1-based inclusive bin range.
 - `bem MODEL run --split N` fans each variant out into N bin-range jobs (`-istart`/`-iend`),
-  via `plan_jobs`/`split_steps`.
+  via `plan_jobs`/`split_bins`. On a resume (the default) the split applies to the *missing*
+  bins and never spans a bin that already has results, so a gap yields more than N jobs.
 - `bem MODEL run` only computes frequency bins absent from `be.out/`/`be.npz` (the
   default) — it uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so
   partial/failed runs resume without redoing completed bins, and a complete run is a

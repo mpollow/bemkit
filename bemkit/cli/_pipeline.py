@@ -22,7 +22,8 @@ def register(sub):
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
                    help="Max parallel NumCalc instances (default: all)")
     p.add_argument("--split", type=int, default=None, metavar="N",
-                   help="Fan each variant out as N bin-range processes (-istart/-iend)")
+                   help="Fan each variant out as N bin-range processes "
+                        "(-istart/-iend); on a resume, splits the missing bins")
     p.add_argument("--force", action="store_true",
                    help="Recompute all bins from scratch, discarding existing "
                         "results (needed after re-exporting a changed mesh/config)")

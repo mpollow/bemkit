@@ -4,7 +4,8 @@ import stat
 import pytest
 
 from bemkit.sim.runner import (
-    Job, LocalRunner, missing_ranges, plan_jobs, run_jobs, split_steps,
+    Job, LocalRunner, missing_ranges, plan_jobs, run_jobs, split_bins,
+    split_steps,
 )
 
 
@@ -51,6 +52,16 @@ class TestSplitting:
             _write_bin(be, i)
         assert missing_ranges(tmp_path, 6) == [(3, 4), (6, 6)]
 
+    def test_split_bins_contiguous(self):
+        assert split_bins(list(range(1, 11)), 3) == [(1, 3), (4, 7), (8, 10)]
+
+    def test_split_bins_never_covers_gaps(self):
+        # bin 5 already has results — no job may include it
+        ranges = split_bins([1, 2, 3, 4, 6, 7, 8, 9], 2)
+        covered = [b for s, e in ranges for b in range(s, e + 1)]
+        assert 5 not in covered
+        assert covered == [1, 2, 3, 4, 6, 7, 8, 9]
+
 
 class TestPlanJobs:
     def test_default_one_job_per_variant(self, tmp_path):
@@ -65,6 +76,17 @@ class TestPlanJobs:
         for i in range(1, 5):
             _write_bin(tmp_path / "be.out", i)
         assert plan_jobs([("a", tmp_path)], nf=4, missing_only=True) == []
+
+    def test_split_applies_on_resume(self, tmp_path):
+        # Nothing computed yet: --split must still fan out, not emit one job
+        jobs = plan_jobs([("a", tmp_path)], nf=6, split=3, missing_only=True)
+        assert [j.steps for j in jobs] == [(1, 2), (3, 4), (5, 6)]
+
+    def test_split_on_partial_resume(self, tmp_path):
+        for i in (1, 2):
+            _write_bin(tmp_path / "be.out", i)
+        jobs = plan_jobs([("a", tmp_path)], nf=6, split=2, missing_only=True)
+        assert [j.steps for j in jobs] == [(3, 4), (5, 6)]
 
 
 class TestRunJobs:

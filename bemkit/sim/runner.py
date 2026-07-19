@@ -87,24 +87,45 @@ class LocalRunner(Runner):
             handle.wait()
 
 
-def split_steps(nf, n_parts):
-    """Split bins 1..nf into n_parts contiguous (istart, iend) ranges."""
-    if nf <= 0:
-        return []
-    n_parts = max(1, min(n_parts, nf))
-    bounds = [round(i * nf / n_parts) for i in range(n_parts + 1)]
-    return [(bounds[i] + 1, bounds[i + 1]) for i in range(n_parts)]
-
-
-def missing_ranges(nc_dir, nf):
-    """Contiguous (istart, iend) ranges covering bins without results."""
+def _contiguous(bins):
+    """Collapse a sorted bin list into contiguous (istart, iend) ranges."""
     ranges = []
-    for b in missing_bins(nc_dir, nf):
+    for b in bins:
         if ranges and b == ranges[-1][1] + 1:
             ranges[-1][1] = b
         else:
             ranges.append([b, b])
     return [tuple(r) for r in ranges]
+
+
+def split_bins(bins, n_parts):
+    """Split a bin list into n_parts near-equal groups of (istart, iend).
+
+    Groups are split at gaps in ``bins``, so a job never spans a bin that
+    already has results — a resume fans out without recomputing anything.
+    That means len(result) >= n_parts when the missing bins aren't contiguous.
+    """
+    bins = list(bins)
+    if not bins:
+        return []
+    n_parts = max(1, min(n_parts, len(bins)))
+    bounds = [round(i * len(bins) / n_parts) for i in range(n_parts + 1)]
+    ranges = []
+    for i in range(n_parts):
+        ranges += _contiguous(bins[bounds[i]:bounds[i + 1]])
+    return ranges
+
+
+def split_steps(nf, n_parts):
+    """Split bins 1..nf into n_parts contiguous (istart, iend) ranges."""
+    if nf <= 0:
+        return []
+    return split_bins(range(1, nf + 1), n_parts)
+
+
+def missing_ranges(nc_dir, nf):
+    """Contiguous (istart, iend) ranges covering bins without results."""
+    return _contiguous(missing_bins(nc_dir, nf))
 
 
 def plan_jobs(variants, nf, *, split=None, missing_only=False):
@@ -113,14 +134,16 @@ def plan_jobs(variants, nf, *, split=None, missing_only=False):
     Args:
         variants: list of (name, nc_dir) pairs
         nf: number of frequency bins
-        split: fan each variant out into this many bin-range jobs
+        split: fan each variant out into this many bin-range jobs (applies to
+            the missing bins when missing_only, so resumes fan out too)
         missing_only: only schedule bins absent from be.out/ (resume)
     """
     jobs = []
     for name, nc_dir in variants:
         nc_dir = Path(nc_dir)
         if missing_only:
-            jobs += [Job(name, nc_dir, steps) for steps in missing_ranges(nc_dir, nf)]
+            steps = split_bins(missing_bins(nc_dir, nf), split or 1)
+            jobs += [Job(name, nc_dir, s) for s in steps]
         elif split and split > 1:
             jobs += [Job(name, nc_dir, steps) for steps in split_steps(nf, split)]
         else:
