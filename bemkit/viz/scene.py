@@ -552,17 +552,34 @@ class BEMScene:
         Parameters
         ----------
         position : str or tuple
-            Presets: "xz", "xy", "yz", "iso".
-            Or a PyVista camera position tuple.
+            Presets: "xz", "xy", "yz", "iso" — unit view directions, scaled
+            to the current scene's actual bounds (so a 5 cm mesh and a 4 m
+            eval-point cloud both frame sensibly, instead of assuming
+            everything in the scene is ~1 unit across).
+            Or a PyVista camera position tuple, used as-is.
         """
         presets = {
-            "xz": [(0, -1, 0), (0, 0, 0), (0, 0, 1)],
-            "xy": [(0, 0, 1), (0, 0, 0), (0, 1, 0)],
-            "yz": [(1, 0, 0), (0, 0, 0), (0, 0, 1)],
-            "iso": [(1, -1, 1), (0, 0, 0), (0, 0, 1)],
+            "xz": (0, -1, 0),
+            "xy": (0, 0, 1),
+            "yz": (1, 0, 0),
+            "iso": (1, -1, 1),
+        }
+        up = {
+            "xz": (0, 0, 1), "xy": (0, 1, 0), "yz": (0, 0, 1), "iso": (0, 0, 1),
         }
         if isinstance(position, str):
-            position = presets[position]
+            preset = position
+            direction = np.array(presets[preset], dtype=float)
+            direction /= np.linalg.norm(direction)
+            bounds = self._plotter.bounds
+            center = np.array([(bounds[0] + bounds[1]) / 2,
+                               (bounds[2] + bounds[3]) / 2,
+                               (bounds[4] + bounds[5]) / 2])
+            diag = np.linalg.norm([bounds[1] - bounds[0],
+                                   bounds[3] - bounds[2],
+                                   bounds[5] - bounds[4]])
+            distance = diag if diag > 0 else 1.0
+            position = (tuple(center + direction * distance), tuple(center), up[preset])
         self._plotter.camera_position = position
 
     def show(self, **kwargs):

@@ -69,6 +69,18 @@ _LABELS = {
 }
 
 
+def _quantity_values(pressure, quantity):
+    """Elementwise real-valued transform of complex pressure for a
+    clim-eligible quantity (magnitude_db/real/imag — the members of
+    _CLIM_QUANTITIES)."""
+    if quantity == "magnitude_db":
+        return 20.0 * np.log10(np.maximum(np.abs(pressure), 1e-12))
+    elif quantity == "real":
+        return pressure.real
+    else:  # imag
+        return pressure.imag
+
+
 class ResultsViewer:
     """Interactive 3D viewer for BEM simulation results.
 
@@ -171,6 +183,7 @@ class ResultsViewer:
         """
         p_surf = self._read_pBoundary(be_index)
         if p_surf is None:
+            print(f"  bin {be_index} ({freq:.1f} Hz): pBoundary not yet computed")
             return None, False
 
         if self.surface_rgba:
@@ -352,6 +365,19 @@ class ResultsViewer:
         self.A_vib = A_vib
         self.share_colorbar = share_colorbar
 
+    def _global_range(self, actor):
+        """(min, max) of an actor's clim quantity across ALL frequency bins
+        of the current variant — not just whichever bin is on screen, so the
+        color scale doesn't clip to near-constant color as the frequency
+        slider moves away from wherever it started."""
+        if actor is self.surface_actor:
+            pressure = self.sim.boundary_pressure(norm=self.args.norm)
+            values = _quantity_values(pressure, self.surface_quantity)
+        else:
+            pressure = self.result.data("pressure", self.args.norm)[self.result.valid_mask]
+            values = _quantity_values(pressure, self.points_quantity)
+        return float(np.nanmin(values)), float(np.nanmax(values))
+
     def _update_db_actors(self, first=False):
         """Collect scalar actors eligible for clim key events."""
         self.db_actors = []
@@ -362,8 +388,11 @@ class ResultsViewer:
         if self.points_actor is not None and self.points_quantity in _CLIM_QUANTITIES:
             self.db_actors.append(self.points_actor)
             self.db_symmetric.append(self.points_quantity in _SYMMETRIC_QUANTITIES)
+        # Recomputed every call (not just `first`) so switching variants also
+        # picks up that variant's own global range, rather than reusing the
+        # first variant's.
+        self.initial_clims = [self._global_range(a) for a in self.db_actors]
         if first:
-            self.initial_clims = [tuple(a.mapper.scalar_range) for a in self.db_actors]
             self.clim_state = [0.0, 0.0]
 
     def _apply_clim(self):
@@ -387,127 +416,40 @@ class ResultsViewer:
                 print(f"  clim: [{v0 + shift - half_exp:.3g}, "
                       f"{v1 + shift + half_exp:.3g}]")
 
+    def _rebuild(self, variant, bin_idx):
+        """Remove all actors/scalar bars and rebuild them fresh.
+
+        Shared by frequency and variant switching. Mutating the surface
+        actor's cell-scalar data in place (and just calling Modified())
+        used to be the fast path here, but VTK caches the per-cell GPU
+        color buffer separately from point-data and doesn't reliably
+        invalidate it from an incremental render() on a live window --
+        point-data updates repaint fine the same way, cell-data ones
+        silently don't. A full rebuild costs more per frame but is the
+        only approach confirmed to actually repaint.
+        """
+        for actor in (self.surface_actor, self.mesh_actor, self.points_actor,
+                      self.intensity_actor, self.impedance_actor):
+            if actor is not None:
+                self.scene._plotter.remove_actor(actor)
+        for title in list(self.scene._plotter.scalar_bars.keys()):
+            self.scene._plotter.remove_scalar_bar(title, render=False)
+        self.build_variant(variant, bin_idx)
+        self._update_db_actors()
+        self._apply_clim()
+
     def update_freq(self, freq_hz):
         """Frequency slider callback."""
         new_bin = int(np.argmin(np.abs(self.freqs - freq_hz)))
         if new_bin == self.bin_idx:
             return
-        self.bin_idx = new_bin
-        freq = self.freqs[new_bin]
-        be_index = new_bin + 1
-        args = self.args
-
-        # Read surface pressure once
-        p_surf = None
-        surf_missing = False
-        if self.surface_actor is not None:
-            p_surf = self._read_pBoundary(be_index)
-            if p_surf is not None:
-                if self.surface_rgba and args.norm == "acc" and self.A_vib is not None:
-                    p_surf = p_surf / (1j * self.rho0 * 2.0 * np.pi * freq * self.A_vib)
-            else:
-                surf_missing = True
-                print(f"  bin {be_index} ({freq:.1f} Hz): pBoundary not yet computed")
-
-        # Joint dB reference for phase
-        _db_ref = None
-        if self.surface_rgba and p_surf is not None and self.points_actor is not None and self.points_rgba:
-            fi = self.result.at_freq(freq)
-            p_p = self.result.data("pressure", args.norm)[:, fi][self.result.valid_mask]
-            _db_ref = max(
-                20.0 * np.log10(np.maximum(np.abs(p_surf), 1e-12)).max(),
-                20.0 * np.log10(np.maximum(np.abs(p_p), 1e-12)).max(),
-            )
-
-        if self.surface_actor is not None:
-            cell_data = self.surface_actor.mapper.dataset.cell_data
-            n_cells = len(cell_data["surface_pressure"])
-            if surf_missing:
-                if self.surface_rgba:
-                    cell_data["surface_pressure"] = np.full((n_cells, 4), 128, dtype=np.uint8)
-                else:
-                    cell_data["surface_pressure"] = np.full(n_cells, np.nan)
-            elif self.surface_rgba:
-                cell_data["surface_pressure"] = _phase_rgba(p_surf, db_ref=_db_ref)
-            else:
-                cell_data["surface_pressure"] = (
-                    self._surface_scalars(p_surf, self.surface_quantity, args.norm, freq, self.A_vib)
-                )
-            self.surface_actor.mapper.dataset.Modified()
-
-        if self.points_actor is not None:
-            result = self.result
-            if self.points_rgba:
-                fi = result.at_freq(freq)
-                p = result.data("pressure", args.norm)[:, fi]
-                self.points_actor.mapper.dataset.point_data["values"] = (
-                    _phase_rgba(p[result.valid_mask], db_ref=_db_ref)
-                )
-            else:
-                from bemkit.viz.field import _get_values
-                vals = _get_values(result, freq, self.points_quantity, "pressure", args.norm)
-                self.points_actor.mapper.dataset.point_data["values"] = vals[result.valid_mask]
-            self.points_actor.mapper.dataset.Modified()
-
-        if args.intensity:
-            if self.intensity_actor is not None:
-                self.scene._plotter.remove_actor(self.intensity_actor)
-                for t in list(self.scene._plotter.scalar_bars.keys()):
-                    if "Intensity" in t:
-                        self.scene._plotter.remove_scalar_bar(t, render=False)
-            pts, p, v = self._get_eval_field(new_bin, args.set_name)
-            if pts is not None:
-                self.intensity_actor = self.scene.add_intensity_arrows(
-                    pts, p, v,
-                    actual_freq=freq,
-                    scale=args.intensity_scale,
-                    length_mode=args.intensity_length,
-                    length_clim=args.intensity_clim,
-                )
-
-        if args.impedance:
-            if self.impedance_actor is not None:
-                self.scene._plotter.remove_actor(self.impedance_actor)
-                for t in list(self.scene._plotter.scalar_bars.keys()):
-                    if "Impedance" in t:
-                        self.scene._plotter.remove_scalar_bar(t, render=False)
-            pts, p, v = self._get_eval_field(new_bin, args.set_name)
-            if pts is not None:
-                imp_scalars = _compute_impedance_scalars(
-                    pts, p, v, self.rho0, self.c0, args.impedance_quantity)
-                self.impedance_actor = self.scene.add_impedance_points(
-                    pts, imp_scalars,
-                    actual_freq=freq,
-                    quantity=args.impedance_quantity,
-                    point_size=args.point_size,
-                    as_surface=args.plane,
-                )
-
-        self._apply_clim()
-
-        # Update scalar bar titles with new frequency
-        freq_label = f"@ {freq:.1f} Hz"
-        for title, actor in list(self.scene._plotter.scalar_bars.items()):
-            if "@ " in title and title.rstrip().endswith("Hz"):
-                actor.SetTitle(title.rsplit("@ ", 1)[0] + freq_label)
-        self.scene._plotter.render()
+        self._rebuild(self.variant, new_bin)
 
     def update_variant(self, v):
         """Variant slider callback."""
         if v == self.variant:
             return
-        # Remove old actors
-        for actor in (self.surface_actor, self.mesh_actor, self.points_actor,
-                      self.intensity_actor, self.impedance_actor):
-            if actor is not None:
-                self.scene._plotter.remove_actor(actor)
-        # Remove stale scalar bars
-        for title in list(self.scene._plotter.scalar_bars.keys()):
-            self.scene._plotter.remove_scalar_bar(title, render=False)
-        # Build new actors at current freq bin
-        self.build_variant(v, self.bin_idx)
-        self._update_db_actors()
-        self._apply_clim()
+        self._rebuild(v, self.bin_idx)
         print(f"  → variant: {v}")
 
     def setup_interactivity(self, variants):
@@ -515,8 +457,11 @@ class ResultsViewer:
         args = self.args
         scene = self.scene
 
-        # Initialize clim tracking
+        # Initialize clim tracking — apply immediately so the very first
+        # frame (including --screenshot) already uses the global range,
+        # not just whichever bin happened to be built first.
         self._update_db_actors(first=True)
+        self._apply_clim()
 
         # Clim key events
         if not args.screenshot:

@@ -63,9 +63,54 @@ def read_object_mesh_elements(mesh_dir: str | Path) -> np.ndarray:
     return np.array(triangles, dtype=np.int32)
 
 
+def _load_numcalc_rows(filepath: Path) -> np.ndarray:
+    """np.loadtxt past the 3-line header, raising FileNotFoundError if the
+    file isn't completely written yet.
+
+    NumCalc writes rows incrementally, so a bin actively being computed can
+    have a file that is nonempty but short a few (or most) rows -- reading
+    it mid-write would silently return a truncated array instead of failing
+    loudly, and callers that expect one row per mesh element/eval point
+    would then either crash on a length mismatch or misalign data. The
+    third header line declares the row count NumCalc intends to write
+    (confirmed against this project's own output: e.g. ``0 35778`` for a
+    35778-element ObjectMesh, ``1  1730`` for 1730 eval points), so compare
+    against that instead of guessing from file size. Callers already treat
+    FileNotFoundError as "not computed yet" (see e.g. results_viewer's
+    frequency slider), so raise that instead of letting a crash or a
+    silently-truncated read surface.
+    """
+    with open(filepath) as f:
+        f.readline()  # "Mesh2HRTF 1.0.0"
+        f.readline()  # column-count line
+        header3 = f.readline()
+    try:
+        expected_rows = int(header3.split()[-1])
+    except (IndexError, ValueError):
+        expected_rows = None
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # "input contained no data"
+        data = np.loadtxt(filepath, skiprows=3)
+    # loadtxt collapses a single data row to 1-D (ncols,) instead of
+    # (1, ncols) -- normalize so a genuinely-complete one-row file isn't
+    # miscounted as empty, and downstream column-indexing doesn't break.
+    if data.size:
+        data = np.atleast_2d(data)
+
+    n_rows = data.shape[0] if data.ndim == 2 else 0
+    if n_rows == 0 or (expected_rows is not None and n_rows < expected_rows):
+        raise FileNotFoundError(
+            f"{filepath}: incomplete ({n_rows}/"
+            f"{expected_rows if expected_rows is not None else '?'} rows "
+            f"-- still being written?)")
+    return data
+
+
 def _read_numcalc_data(filepath: Path) -> np.ndarray:
     """Read complex data from a numcalc output file (pEvalGrid, vEvalGrid, pBoundary, etc.)."""
-    data = np.loadtxt(filepath, skiprows=3)
+    data = _load_numcalc_rows(filepath)
     return data[:, 1] + 1j * data[:, 2]
 
 
@@ -79,7 +124,7 @@ def _read_numcalc_velocity_data(filepath: Path) -> np.ndarray:
     -------
     (N, 3) complex128 array, columns = [vx, vy, vz].
     """
-    data = np.loadtxt(filepath, skiprows=3)
+    data = _load_numcalc_rows(filepath)
     return np.stack([
         data[:, 1] + 1j * data[:, 2],
         data[:, 3] + 1j * data[:, 4],
@@ -215,18 +260,26 @@ def load_bins_ascii(be_out, quantity, nf, bins=None):
     if bins is None:
         bins = list_bins(be_out)
 
-    available = [i for i in bins if _bin_file_ok(be_out / f"be.{i}" / quantity)]
-    if not available:
+    candidates = [i for i in bins if _bin_file_ok(be_out / f"be.{i}" / quantity)]
+    if not candidates:
         return None
 
-    first = reader(be_out / f"be.{available[0]}" / quantity)
-    N = first.shape[0]
-    shape = (N, nf, 3) if vector else (N, nf)
-    arr = np.full(shape, np.nan + 0j, dtype=np.complex128)
-    for i in available:
+    arr = None
+    for i in candidates:
         if not 1 <= i <= nf:
             continue
-        data = first if i == available[0] else reader(be_out / f"be.{i}" / quantity)
+        try:
+            data = reader(be_out / f"be.{i}" / quantity)
+        except FileNotFoundError:
+            # Passed the cheap size check but still has no data rows --
+            # e.g. the currently-computing bin, whose header NumCalc
+            # flushes before any result rows. Treat as missing, same as a
+            # bin that failed the size check outright.
+            continue
+        if arr is None:
+            N = data.shape[0]
+            shape = (N, nf, 3) if vector else (N, nf)
+            arr = np.full(shape, np.nan + 0j, dtype=np.complex128)
         if vector:
             arr[:, i - 1, :] = data
         else:

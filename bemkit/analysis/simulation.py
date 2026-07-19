@@ -377,9 +377,17 @@ class SimulationData:
         if self._npz_path is not None:
             p = self._packed(filename)[:, bin_idx - 1]
         else:
-            from bemkit.sim.readers import _read_numcalc_data
-            p = _read_numcalc_data(
-                self._nc_dir / "be.out" / f"be.{bin_idx}" / filename)
+            from bemkit.sim.readers import _bin_file_ok, _read_numcalc_data
+            path = self._nc_dir / "be.out" / f"be.{bin_idx}" / filename
+            if not _bin_file_ok(path):
+                # Empty/header-only stub -- bin not yet computed, or (for the
+                # currently-running bin) still being written: NumCalc writes
+                # boundary files before eval files, so this file can lag
+                # behind a sibling that already looks complete. Treat it the
+                # same as a missing bin rather than let np.loadtxt choke on
+                # a truncated file.
+                raise FileNotFoundError(f"{path} not yet written")
+            p = _read_numcalc_data(path)
         if domain == "eval" and set_name is not None:
             p = self._split_set(p, set_name)
         if norm == "acc" and self.A_vib is not None:
@@ -409,14 +417,18 @@ class SimulationData:
             arr = self._packed(filename)
             v = arr[:, bin_idx - 1, :] if domain == "eval" else arr[:, bin_idx - 1]
         else:
-            from bemkit.sim.readers import _read_numcalc_velocity_data, _read_numcalc_data
+            from bemkit.sim.readers import (
+                _bin_file_ok, _read_numcalc_data, _read_numcalc_velocity_data,
+            )
+            path = self._nc_dir / "be.out" / f"be.{bin_idx}" / filename
+            if not _bin_file_ok(path):
+                raise FileNotFoundError(f"{path} not yet written")
             if domain == "eval":
-                v = _read_numcalc_velocity_data(
-                    self._nc_dir / "be.out" / f"be.{bin_idx}" / "vEvalGrid")
+                # vEvalGrid is a 3D vector, same stub check as the scalar case
+                v = _read_numcalc_velocity_data(path)
             else:
                 # vBoundary is scalar normal velocity, same format as pBoundary
-                v = _read_numcalc_data(
-                    self._nc_dir / "be.out" / f"be.{bin_idx}" / "vBoundary")
+                v = _read_numcalc_data(path)
         if domain == "eval" and set_name is not None:
             v = self._split_set(v, set_name)
         if norm == "acc" and self.A_vib is not None:
