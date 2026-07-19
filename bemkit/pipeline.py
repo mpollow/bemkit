@@ -292,7 +292,8 @@ class PackStage(PipelineStage):
                 print(f"  {v}: be.out/ has no bin results — skipping")
                 continue
             print(f"\n--- Pack: {v} ---")
-            pack_variant(nc_dir, delete_original=delete_original)
+            pack_variant(nc_dir, nf=config.nbins - 1,
+                         delete_original=delete_original)
             packed.append(v)
         return packed
 

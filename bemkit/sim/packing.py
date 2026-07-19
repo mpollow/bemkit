@@ -48,7 +48,7 @@ def has_results(nc_dir) -> bool:
     return (nc_dir / "be.npz").exists() or (nc_dir / "be.out").is_dir()
 
 
-def pack_variant(nc_dir, *, dtype=np.complex64,
+def pack_variant(nc_dir, *, nf: int | None = None, dtype=np.complex64,
                  delete_original: bool = False, verbose: bool = True) -> Path:
     """Pack ``nc_dir/be.out/`` into ``nc_dir/be.npz``.
 
@@ -56,6 +56,14 @@ def pack_variant(nc_dir, *, dtype=np.complex64,
     ----------
     nc_dir : Path or str
         Variant directory containing ``be.out/``.
+    nf : int, optional
+        Expected number of frequency bins (``config.nbins - 1``). Bin
+        directories numbered outside ``1..nf`` are not real results and are
+        skipped — NumCalc has been observed to leave a stray ``be.{i}/`` with
+        an out-of-range index behind after an aborted run. Without this the
+        array width would be taken from the stray index (a single ``be.999/``
+        widens every array to 999 mostly-NaN columns). Defaults to the highest
+        bin present, which is correct whenever no stray directory exists.
     dtype : numpy dtype
         Storage dtype. Default ``complex64`` (~5e-8 rel. error vs ASCII).
     delete_original : bool
@@ -76,7 +84,17 @@ def pack_variant(nc_dir, *, dtype=np.complex64,
     bins = list_bins(be_out)
     if not bins:
         raise FileNotFoundError(f"No be.{{i}}/ subdirs in {be_out}")
-    nf = max(bins)
+    if nf is not None:
+        stray = [b for b in bins if b < 1 or b > nf]
+        if stray:
+            print(f"  ignoring out-of-range bin dirs (nf={nf}): "
+                  f"{', '.join(f'be.{b}' for b in stray)}")
+            bins = [b for b in bins if 1 <= b <= nf]
+            if not bins:
+                raise FileNotFoundError(
+                    f"No in-range be.{{i}}/ subdirs (1..{nf}) in {be_out}")
+    else:
+        nf = max(bins)
 
     if verbose:
         print(f"Packing {nc_dir} ({len(bins)} bins, nf={nf})")
@@ -97,7 +115,17 @@ def pack_variant(nc_dir, *, dtype=np.complex64,
 
     # Claim only fully-written bins: a half-written bin (killed mid-write)
     # is packed as NaN columns but stays "missing" so a resume recomputes it.
-    arrays["bin_indices"] = np.asarray(complete_bins(nc_dir), dtype=np.int32)
+    # complete_bins() judges that from file sizes, which a *truncated* file
+    # can pass while the reader still rejects it -- so intersect with what
+    # actually landed in the arrays. Claiming an all-NaN bin would be worse
+    # than dropping a good one: a resume would consider it done for good.
+    in_range = set(bins)
+    claimed = [
+        b for b in complete_bins(nc_dir)
+        if b in in_range
+        and not any(np.all(np.isnan(a[:, b - 1])) for a in arrays.values())
+    ]
+    arrays["bin_indices"] = np.asarray(claimed, dtype=np.int32)
 
     npz_path = nc_dir / "be.npz"
     tmp = nc_dir / "_be.partial.npz"  # np.savez requires .npz extension
@@ -128,6 +156,14 @@ def _verify_round_trip(be_out: Path, npz_path: Path, bins: list[int], dtype,
     ``SimulationData`` will, and checks it matches the corresponding slice in
     ``be.npz``. Bins/quantities with no ASCII source must be NaN in the packed
     array. Raises (keeping ``be.out/``) on any mismatch.
+
+    A source file that is present but truncated (NumCalc killed mid-write)
+    counts as "no ASCII source" rather than an error: the reader signals that
+    by raising FileNotFoundError, and ``pack_variant`` keeps such a bin out of
+    ``bin_indices``, so it is packed as NaN and stays missing for a later
+    resume. Letting the reader's exception escape here would abort the whole
+    pack and leave ``be.out/`` in place — a truncated bin says nothing about
+    the fidelity of the bins that did pack.
     """
     n_checked = 0
     with np.load(npz_path) as nz:
@@ -137,6 +173,12 @@ def _verify_round_trip(be_out: Path, npz_path: Path, bins: list[int], dtype,
             for bi in bins:
                 f = be_out / f"be.{bi}" / name
                 has_ascii = f.exists() and f.stat().st_size > 10
+                if has_ascii:
+                    try:
+                        ascii_data = reader(f).astype(dtype)
+                    except FileNotFoundError as e:
+                        print(f"  skipping incomplete {name} bin {bi}: {e}")
+                        has_ascii = False
                 packed = (nz[name][:, bi - 1, :] if vector else nz[name][:, bi - 1]) \
                     if present else None
 
@@ -154,7 +196,6 @@ def _verify_round_trip(be_out: Path, npz_path: Path, bins: list[int], dtype,
                         f"Round-trip check failed: {name} present in be.out/ but missing "
                         f"from {npz_path.name}; keeping be.out/")
 
-                ascii_data = reader(f).astype(dtype)
                 if not np.allclose(ascii_data, packed, rtol=1e-5, atol=1e-30,
                                    equal_nan=True):
                     raise RuntimeError(

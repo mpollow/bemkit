@@ -84,6 +84,39 @@ class TestPackVariant:
         with pytest.raises(FileNotFoundError):
             pack_variant(tmp_path, verbose=False)
 
+    def _stray_bin(self, numcalc_dir, index=999):
+        """Leave a truncated be.{index}/pBoundary behind, as an aborted NumCalc does."""
+        d = numcalc_dir / "be.out" / f"be.{index}"
+        d.mkdir()
+        rows = (numcalc_dir / "be.out" / "be.1" / "pBoundary").read_text().splitlines()
+        # header claims 4 rows (see conftest), body stops after one
+        (d / "pBoundary").write_text("\n".join(rows[:4]) + "\n")
+        return d
+
+    def test_stray_bin_does_not_widen_arrays(self, numcalc_dir):
+        """An out-of-range be.{i}/ must not set the packed array width."""
+        self._stray_bin(numcalc_dir)
+        pack_variant(numcalc_dir, nf=2, verbose=False)
+        with np.load(numcalc_dir / "be.npz") as nz:
+            assert nz["pBoundary"].shape == (4, 2)
+            np.testing.assert_array_equal(nz["bin_indices"], [1, 2])
+
+    def test_stray_bin_does_not_block_delete_original(self, numcalc_dir):
+        """A truncated stray bin must not abort the pack and strand be.out/."""
+        self._stray_bin(numcalc_dir)
+        pack_variant(numcalc_dir, nf=2, delete_original=True, verbose=False)
+        assert not (numcalc_dir / "be.out").exists()
+
+    def test_truncated_in_range_bin_does_not_block_delete_original(self, numcalc_dir):
+        """Same tolerance for a truncated bin with a legitimate index."""
+        (numcalc_dir / "be.out" / "be.2" / "pBoundary").write_text(
+            "Mesh2HRTF 1.0.0\n    1\n    1 4\n     0  1.0E+00  0.0E+00\n")
+        pack_variant(numcalc_dir, nf=2, delete_original=True, verbose=False)
+        assert not (numcalc_dir / "be.out").exists()
+        with np.load(numcalc_dir / "be.npz") as nz:
+            assert np.all(np.isnan(nz["pBoundary"][:, 1]))
+            assert 2 not in nz["bin_indices"]
+
     def test_verify_round_trip_catches_corruption(self, numcalc_dir):
         """The pre-delete gate must reject a be.out/ that diverges from be.npz."""
         from bemkit.sim.packing import _verify_round_trip, _write_ascii_quantity
