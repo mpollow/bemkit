@@ -116,7 +116,7 @@ bem examples/sphcap plot phase
 bem examples/sphcap plot etc
 bem examples/sphcap plot sphere --freq 1000
 bem examples/sphcap plot contour --freq 1000
-bem examples/sphcap all                # mesh -> export -> run -> plot
+bem examples/sphcap all                # mesh -> export -> run
 # --variant goes AFTER the subcommand:
 bem examples/sphcap export --variant foo
 bem examples/sphcap run --variant foo

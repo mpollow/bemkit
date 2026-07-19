@@ -29,14 +29,6 @@ def cmd_plot(model_dir, args):
     _plot_sets(model_dir, args.plot_type, args.set_name, args, prefixes=args.variant)
 
 
-def run_default_plots(model_dir, prefixes=None):
-    """freq + ir for every set — used by `bem MODEL all`."""
-    import argparse
-    args = argparse.Namespace(freq=None, freqs=None,
-                              value_func="magnitude_db", filled=False)
-    _plot_sets(model_dir, None, None, args, prefixes=prefixes)
-
-
 def _plot_sets(model_dir, plot_type, set_name, args, prefixes=None):
     """Per-set plot loop (transplanted from process.py PlotStage.run)."""
     from bemkit.sim.discovery import discover_variants

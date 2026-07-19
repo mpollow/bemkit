@@ -34,7 +34,7 @@ def register(sub):
                    help="Remove be.out/ after a verified round-trip")
     p.set_defaults(func=cmd_pack)
 
-    p = sub.add_parser("all", help="mesh -> export -> run -> plot")
+    p = sub.add_parser("all", help="mesh -> export -> run")
     _add_variant(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N")
     p.add_argument("--split", type=int, default=None, metavar="N")
@@ -87,7 +87,6 @@ def cmd_pack(model_dir, args):
 
 def cmd_all(model_dir, args):
     from bemkit.cli import load_model_config
-    from bemkit.cli._plot import run_default_plots
     config = load_model_config(model_dir)
     _run_stage("mesh", config)
     _run_stage("export", config, prefixes=args.variant)
@@ -96,7 +95,6 @@ def cmd_all(model_dir, args):
         split=args.split, force=args.force)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
-    run_default_plots(model_dir, prefixes=args.variant)
     print("\nDone.")
 
 
@@ -152,9 +150,6 @@ def show_status(model_dir):
             print(f"    {name:<7} {'✓' if done else '✗'}{extra}")
             if not done:
                 needs[name].append(v)
-        plots = model_dir / "plots"
-        has_plots = plots.is_dir() and any(plots.glob(f"{v}_*"))
-        print(f"    {'plot':<7} {'✓' if has_plots else '✗'}")
         print()
 
     from bemkit.meshing.io import MESH_EXTENSIONS
