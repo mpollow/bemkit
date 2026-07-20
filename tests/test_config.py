@@ -94,6 +94,20 @@ class TestModelConfigValidation:
         with pytest.raises(ValueError, match="lc_mni"):
             ModelConfig.from_dir(tmp_path)
 
+    def test_unknown_distance_mode_raises(self, tmp_path):
+        # A key-only whitelist would let a typo through and silently fall back
+        # to euclidean sizing.
+        (tmp_path / "config.toml").write_text(
+            '[bem]\nsr = 48000\nnbins = 65\n[mesh]\ndistance = "geodeisc"\n')
+        with pytest.raises(ValueError, match="geodeisc"):
+            ModelConfig.from_dir(tmp_path)
+
+    def test_known_distance_modes_accepted(self, tmp_path):
+        for mode in ("euclidean", "geodesic"):
+            (tmp_path / "config.toml").write_text(
+                f'[bem]\nsr = 48000\nnbins = 65\n[mesh]\ndistance = "{mode}"\n')
+            assert ModelConfig.from_dir(tmp_path).mesh_cfg["distance"] == mode
+
     def test_variant_unknown_key_raises(self, tmp_path):
         (tmp_path / "config.toml").write_text(
             '[bem]\nsr = 48000\nnbins = 65\n'
@@ -231,8 +245,9 @@ class TestModelConfig:
     def test_variant_mesh_overrides(self, tmp_path):
         (tmp_path / "config.toml").write_text(
             '[bem]\nsr = 48000\nnbins = 65\n'
-            '[mesh]\nlc_min = 1.5\nlc_max = 3.5\n'
-            '[variants.fine]\nsource = "box"\nmesh = { lc_min = 1.0 }\n'
+            '[mesh]\nlc_min = 1.5\nlc_max = 3.5\ndistance = "euclidean"\n'
+            '[variants.fine]\nsource = "box"\n'
+            'mesh = { lc_min = 1.0, distance = "geodesic" }\n'
             '[variants.coarse]\nsource = "box"\n'
             '[variants.left]\nmesh = "shared"\n'
         )
@@ -240,8 +255,10 @@ class TestModelConfig:
         # generated variants mesh to their own name; trusted keeps the stem
         assert mc.mesh_map() == {"fine": "fine", "coarse": "coarse",
                                  "left": "shared"}
-        assert mc.variant_mesh_params("fine") == {"lc_min": 1.0, "lc_max": 3.5}
-        assert mc.variant_mesh_params("coarse") == {"lc_min": 1.5, "lc_max": 3.5}
+        assert mc.variant_mesh_params("fine") == {
+            "lc_min": 1.0, "lc_max": 3.5, "distance": "geodesic"}
+        assert mc.variant_mesh_params("coarse") == {
+            "lc_min": 1.5, "lc_max": 3.5, "distance": "euclidean"}
         assert mc.variant_mesh_params("left") is None  # trusted mesh file
         assert mc.variant_source("fine") == "box"
         assert mc.variant_source("left") is None

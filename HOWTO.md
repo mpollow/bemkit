@@ -73,6 +73,7 @@ lc_min = 5.0          # finest element edge
 lc_max = 25.0         # coarsest element edge (far from the source)
 dist_min = 50.0       # size ramps from lc_min→lc_max between these distances
 dist_max = 100.0
+distance = "euclidean"   # or "geodesic" — see below (STEP/CAD sources only)
 
 # Where to evaluate the field: declarative generator sets (see step 3).
 [fieldpoints.onaxis]
@@ -135,6 +136,54 @@ bem examples/hutubs export                       # uses them as-is
 > its own `numcalc/<stem>/` bundle. One file → one variant; many files → many
 > variants meshed/exported/run/packed independently. (You can also define
 > BC-only variants that share a mesh via a `[variants]` table — see CLAUDE.md.)
+
+### Geodesic sizing — `distance = "geodesic"`
+
+By default the size ramp measures straight-line distance from the vibrating
+surface. That is wrong wherever the geometry folds back on itself. On a horn
+loudspeaker, a point on the *outer* wall sits a few mm from the piston through
+the air, but the surface path runs all the way around the horn mouth — so the
+whole outer shell gets refined as if it were radiating, inflating element count
+and solve time for no accuracy gain.
+
+```toml
+[mesh]
+lc_min = 5.0
+lc_max = 25.0
+dist_min = 50.0
+dist_max = 100.0
+distance = "geodesic"   # measure over the surface, not through the air
+```
+
+Two worked examples ship with the repo, both built as two variants that differ
+only in this key:
+
+| example | geometry | effect |
+|---|---|---|
+| `examples/horn` | free-standing horn | 6600 → 4472 elements (−32%) |
+| `examples/hornbox` | horn recessed in a cabinet | 17180 → 8370 elements (−51%), with BEM results for both |
+
+`examples/hornbox` is the one to read: it shows *why* the metric matters rather
+than just that it does. Resolving a 280 mm flare needs `dist_max ≈ 350`, and a
+euclidean 350 mm reaches straight through the cabinet wall to the back face
+70 mm behind the diaphragm — so you cannot ask for a well-resolved horn without
+also refining the entire box.
+
+The four size knobs keep their exact meaning; only the metric changes. Notes:
+
+- **STEP/CAD sources only.** Scan surfaces (`.ply`/`.stl`/`.obj`) carry no
+  vibrating region to measure from, so `bem mesh` raises rather than silently
+  meshing as euclidean.
+- **Costs an extra meshing pass.** A coarse pilot mesh is generated first to
+  carry the distance computation, then discarded. On a model where the
+  euclidean and geodesic distances agree (anything convex — a sphere, a flat
+  baffle) it buys nothing; the gain is entirely in folded, occluded, or
+  re-entrant geometry.
+- **Needs a watertight model.** Distances travel over the surface, so a region
+  on a disconnected shell can't be reached at all. Those regions are sized at
+  `lc_max` and `bem mesh` prints how many nodes were affected — a large
+  percentage means the STEP is broken, not that the mesh is coarse.
+- Requires scipy (`pip install -e ".[meshing]"`).
 
 ### Multi-variant meshing — per-variant `[mesh]` overrides
 To run the same geometry at several mesh resolutions, name the variants in a

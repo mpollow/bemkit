@@ -67,9 +67,21 @@ def _generate_mesh(input_file, output_file, mesh_cfg):
               zip(("lc_min", "lc_max", "dist_min", "dist_max"), defaults)}
     fn = mesh_from_step if is_step else mesh_from_surface
 
+    # Kept out of the zip above: unlike the four numeric knobs, `distance` is
+    # not shared with mesh_from_surface. Only passed through when it is not the
+    # default, so the euclidean path stays byte-identical.
+    distance = mesh_cfg.get("distance", "euclidean")
+    if distance == "geodesic":
+        if not is_step:
+            raise ValueError(
+                f'distance = "geodesic" is only supported for STEP/CAD '
+                f'sources; {input_file.name} is a scan surface. Remove the '
+                f'key or set distance = "euclidean".')
+        params["distance"] = distance
+
     print(f"Generating surface mesh from {input_file} → {output_file.name}")
     print(f"  Mesh size: lc_min={params['lc_min']} mm, lc_max={params['lc_max']} mm")
-    print(f"  Distance field: dist_min={params['dist_min']} mm, "
+    print(f"  Distance field: {distance}, dist_min={params['dist_min']} mm, "
           f"dist_max={params['dist_max']} mm")
     fn(input_file, output_file, **params)
     return output_file

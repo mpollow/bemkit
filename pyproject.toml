@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 viz = ["matplotlib"]
 viz3d = ["matplotlib", "pyvista"]
-meshing = ["gmsh"]
+meshing = ["gmsh", "scipy"]
 analytic = ["scipy"]
 all = ["matplotlib", "pyvista", "gmsh", "scipy"]
 

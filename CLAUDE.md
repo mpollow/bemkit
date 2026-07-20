@@ -14,6 +14,8 @@ bemkit/
 │   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
 │   │                      # generate.py — gmsh STEP/scan meshing (lazy gmsh):
 │   │                      #   mesh_from_step, mesh_from_surface (.ply/.stl/.obj)
+│   │                      # geodesic.py — over-surface distance for sizing
+│   │                      #   (pure numpy/scipy, no gmsh; STEP path only)
 │   ├── sim/              # NumCalc layer (no analysis/viz deps)
 │   │                      # fields.py      — make_fields_onaxis/polar/plane generators
 │   │                      # fieldpoints.py — validation, loading, offsets
@@ -225,6 +227,7 @@ lc_min = 5.0              # mm — ~6 elements per wavelength at max freq
 lc_max = 25.0
 dist_min = 50.0
 dist_max = 100.0
+distance = "euclidean"    # euclidean [default] | geodesic (STEP/CAD only)
 
 [fieldpoints.onaxis]      # declarative set: type + make_fields_* kwargs
 type = "onaxis"           # onaxis | polar | plane
@@ -234,6 +237,30 @@ radii = [0.1, 0.25, 0.5]  # meters
 [fieldpoints.custom]      # pre-made file set
 file = "fieldpoints/custom.npy"   # relative to model dir (or absolute)
 ```
+
+### Mesh sizing distance metric
+
+`distance` selects how the `lc_min`→`lc_max` ramp measures distance from the
+vibrating surface; the four size knobs are unchanged by it.
+
+- `euclidean` (default) — gmsh's own `Distance` field: straight line through
+  space. Over-refines geometry that folds back on itself (the outer wall of a
+  horn is Euclidean-near the piston but acoustically far).
+- `geodesic` — distance measured *along* the surface
+  (`bemkit/meshing/geodesic.py`: multi-source Dijkstra on the mesh edge graph).
+  Gmsh has no geodesic field, so this runs a **two-pass** mesh inside
+  `_mesh_from_step`: a coarse uniform pilot mesh carries the distance
+  computation, is pushed back as a background view (`addListData` with `"ST"`
+  scalar triangles — list data survives the `mesh.clear()` between passes,
+  node-tagged model data would not), then the real graded mesh is generated.
+  **STEP/CAD only** — `pipeline._generate_mesh` raises for scan sources, which
+  have no vibrating group to measure from. Unreachable nodes (non-watertight
+  model) are sized at `lc_max` with a loud warning. Needs scipy.
+
+Do not suppress `Mesh.MeshSizeExtendFromBoundary`/`MeshSizeFromPoints` in the
+geodesic pass: measured on `examples/sphcap`, doing so makes the far field
+overshoot `lc_max` by ~50% (25 mm cap → 38 mm edges), because boundary-extended
+sizes are what hold element growth in check across a curved face.
 
 ### Fieldpoint sets
 

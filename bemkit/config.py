@@ -28,7 +28,11 @@ _BEM_KEYS = {
     "is_internal": 0,
 }
 
-_MESH_KEYS = ("lc_min", "lc_max", "dist_min", "dist_max")
+_MESH_KEYS = ("lc_min", "lc_max", "dist_min", "dist_max", "distance")
+
+#: How the size ramp measures distance from the vibrating surface.
+#: "geodesic" travels over the surface and is STEP/CAD only.
+_DISTANCE_MODES = ("euclidean", "geodesic")
 
 #: Declarative fieldpoint set types, dispatching to make_fields_<type>.
 FIELDPOINT_GENERATORS = ("onaxis", "polar", "plane")
@@ -48,6 +52,10 @@ def _check_mesh_params(tbl, where):
     if unknown:
         raise ValueError(f"{where}: unknown mesh key(s): {', '.join(unknown)} "
                          f"(known: {', '.join(_MESH_KEYS)})")
+    mode = tbl.get("distance")
+    if mode is not None and mode not in _DISTANCE_MODES:
+        raise ValueError(f"{where}: distance must be one of "
+                         f"{', '.join(_DISTANCE_MODES)}, got {mode!r}")
 
 
 def _validate(raw, path):
