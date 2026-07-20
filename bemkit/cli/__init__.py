@@ -20,6 +20,22 @@ def require(module, extra):
                  f"Install it with: pip install bemkit[{extra}]")
 
 
+class VariantAction(argparse.Action):
+    """--variant filter that accumulates across both forms.
+
+    ``--variant a b`` and ``--variant a --variant b`` both yield ``['a', 'b']``.
+    A plain ``nargs='+'`` lets the last flag win (``--variant a --variant b`` →
+    ``['b']``); a plain ``action='append'`` rejects the space-separated form.
+    Use with ``nargs='+'`` so each occurrence contributes a list, which is then
+    flattened into one accumulator.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = list(getattr(namespace, self.dest, None) or [])
+        items.extend(values)
+        setattr(namespace, self.dest, items)
+
+
 def load_model_config(model_dir):
     """ModelConfig.from_dir with CLI-friendly errors."""
     from bemkit.config import ModelConfig

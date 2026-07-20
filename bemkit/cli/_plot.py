@@ -12,7 +12,9 @@ def register(sub):
                    help="Plot type (default: freq + ir)")
     p.add_argument("set_name", nargs="?", default=None,
                    help="Fieldpoint set (default: all sets)")
-    p.add_argument("--variant", nargs="+", metavar="PREFIX", default=None)
+    from bemkit.cli import VariantAction
+    p.add_argument("--variant", nargs="+", metavar="PREFIX", default=None,
+                   action=VariantAction)
     p.add_argument("--freq", type=float, metavar="HZ",
                    help="Frequency in Hz (required for plane/sphere/contour)")
     p.add_argument("--freqs", metavar="F1,F2,...",

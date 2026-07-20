@@ -3,7 +3,8 @@
 
 def register(sub):
     p = sub.add_parser("geometry", help="3D pre-run inspection: mesh + BC + eval grid")
-    p.add_argument("--variant", action="append", default=None,
+    from bemkit.cli import VariantAction
+    p.add_argument("--variant", nargs="+", default=None, action=VariantAction,
                    help="Variant prefix filter, repeatable (e.g., --variant sphcap-50-10)")
     p.add_argument("--no-mesh", action="store_true", help="Don't show ObjectMesh")
     p.add_argument("--no-grid", action="store_true", help="Don't show EvalGrid")
@@ -26,7 +27,8 @@ def register(sub):
     p.add_argument("set_name", nargs="?", default=None,
                    help="Fieldpoint set to show (e.g., 'onaxis'; "
                         "default: all sets)")
-    p.add_argument("--variant", action="append", default=None,
+    from bemkit.cli import VariantAction
+    p.add_argument("--variant", nargs="+", default=None, action=VariantAction,
                    help="Variant prefix filter, repeatable (e.g., --variant sphcap-50-10)")
     p.add_argument("--freq", type=float, default=1000.0,
                    help="Target frequency in Hz (default: 1000)")

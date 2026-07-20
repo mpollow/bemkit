@@ -1,6 +1,30 @@
+import argparse
+
 import pytest
 
 from bemkit.cli import main
+
+
+def _variant_of(argv):
+    """Parse argv through a parser built like the real CLI, return .variant."""
+    from bemkit.cli import _pipeline, _plot, _viz3d, _web
+    parser = argparse.ArgumentParser()
+    parser.add_argument("model_dir", nargs="?")
+    sub = parser.add_subparsers(dest="command")
+    for mod in (_pipeline, _plot, _viz3d, _web):
+        mod.register(sub)
+    return parser.parse_args(argv).variant
+
+
+@pytest.mark.parametrize("command", ["run", "export", "pack", "all",
+                                     "plot", "geometry", "results", "export-web"])
+def test_variant_flag_accumulates_across_repeats_and_spaces(command):
+    # The bug: `--variant a --variant b` used to keep only ['b'] (last wins).
+    base = [command] if command != "export-web" else [command, "--out", "d"]
+    assert _variant_of(base + ["--variant", "a", "--variant", "b"]) == ["a", "b"]
+    assert _variant_of(base + ["--variant", "a", "b"]) == ["a", "b"]
+    assert _variant_of(base + ["--variant", "a"]) == ["a"]
+    assert _variant_of(base) is None
 
 
 @pytest.mark.parametrize("argv", [

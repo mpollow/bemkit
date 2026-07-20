@@ -44,8 +44,11 @@ def register(sub):
 
 
 def _add_variant(p):
+    from bemkit.cli import VariantAction
     p.add_argument("--variant", nargs="+", metavar="PREFIX", default=None,
-                   help="Only process variants matching these prefixes")
+                   action=VariantAction,
+                   help="Only process variants matching these prefixes "
+                        "(repeatable, and space-separated)")
 
 
 def _run_stage(name, config, **kwargs):

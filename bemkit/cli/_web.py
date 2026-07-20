@@ -7,7 +7,9 @@ def register(sub):
         help="Export solved variants as a web auralizer bundle")
     p.add_argument("--out", required=True, metavar="DIR",
                    help="Output bundle directory")
+    from bemkit.cli import VariantAction
     p.add_argument("--variant", nargs="+", metavar="NAME", default=None,
+                   action=VariantAction,
                    help="Variants to export (default: all with results)")
     p.add_argument("--directions", default="g30_1m", metavar="SET",
                    help="Spherical fieldpoint set for auralization")
