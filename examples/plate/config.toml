@@ -1,0 +1,38 @@
+modelname = "plate"
+
+# A finite plate, 5 mm thick, with a vibrating membrane (piston) in the center.
+# The plainest demonstration of geodesic sizing: the back-face center is 5 mm
+# from the membrane straight through the plate, but ~100 mm over the surface
+# (out to an edge, around, back). Euclidean sizing refines a shadow disc on the
+# back face; geodesic leaves the whole back face at lc_max.
+#
+#   bem examples/plate mesh
+#   python examples/plate/compare_meshes.py
+
+[bem]
+sr = 8000
+nbins = 17
+air_density = 1.2
+speed_of_sound = 340.0
+bem_type = 4
+time_factor = -1.0
+is_internal = 0
+
+[mesh]
+lc_min = 3.0
+lc_max = 15.0
+dist_min = 10.0
+dist_max = 100.0
+
+[variants.euclidean]
+source = "plate"
+mesh = { distance = "euclidean" }
+
+[variants.geodesic]
+source = "plate"
+mesh = { distance = "geodesic" }
+
+[fieldpoints.onaxis]
+type = "onaxis"
+dim = "z"
+radii = [0.1, 0.25, 0.5]
