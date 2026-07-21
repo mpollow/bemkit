@@ -57,33 +57,31 @@ def _run_exec_scripts(model_dir, exec_spec):
 def _generate_mesh(input_file, output_file, mesh_cfg):
     """Generate output_file from one geometry/ source (CAD or scan)."""
     from bemkit.meshing.generate import mesh_from_step, mesh_from_surface  # lazy gmsh
+    from bemkit.meshing.sizing import sizing_from_config
 
     input_file = Path(input_file)
     output_file = Path(output_file)
     output_file.parent.mkdir(exist_ok=True)
     is_step = input_file.suffix == ".step"
     defaults = (5.0, 25.0, 50.0, 100.0) if is_step else (2.0, 4.0, 20.0, 80.0)
-    params = {k: mesh_cfg.get(k, d) for k, d in
-              zip(("lc_min", "lc_max", "dist_min", "dist_max"), defaults)}
+    cfg = {k: mesh_cfg.get(k, d) for k, d in
+           zip(("lc_min", "lc_max", "dist_min", "dist_max"), defaults)}
+    cfg["distance"] = mesh_cfg.get("distance", "euclidean")
+
+    if cfg["distance"] == "geodesic" and not is_step:
+        raise ValueError(
+            f'distance = "geodesic" is only supported for STEP/CAD sources; '
+            f'{input_file.name} is a scan surface. Remove the key or set '
+            f'distance = "euclidean".')
+
+    sizing = sizing_from_config(cfg)
     fn = mesh_from_step if is_step else mesh_from_surface
 
-    # Kept out of the zip above: unlike the four numeric knobs, `distance` is
-    # not shared with mesh_from_surface. Only passed through when it is not the
-    # default, so the euclidean path stays byte-identical.
-    distance = mesh_cfg.get("distance", "euclidean")
-    if distance == "geodesic":
-        if not is_step:
-            raise ValueError(
-                f'distance = "geodesic" is only supported for STEP/CAD '
-                f'sources; {input_file.name} is a scan surface. Remove the '
-                f'key or set distance = "euclidean".')
-        params["distance"] = distance
-
     print(f"Generating surface mesh from {input_file} → {output_file.name}")
-    print(f"  Mesh size: lc_min={params['lc_min']} mm, lc_max={params['lc_max']} mm")
-    print(f"  Distance field: {distance}, dist_min={params['dist_min']} mm, "
-          f"dist_max={params['dist_max']} mm")
-    fn(input_file, output_file, **params)
+    print(f"  Mesh size: lc_min={cfg['lc_min']} mm, lc_max={cfg['lc_max']} mm")
+    print(f"  Distance field: {cfg['distance']}, dist_min={cfg['dist_min']} mm, "
+          f"dist_max={cfg['dist_max']} mm")
+    fn(input_file, output_file, sizing=sizing)
     return output_file
 
 
