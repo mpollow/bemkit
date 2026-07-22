@@ -98,57 +98,137 @@ def _contiguous(bins):
     return [tuple(r) for r in ranges]
 
 
-def split_bins(bins, n_parts):
-    """Split a bin list into n_parts near-equal groups of (istart, iend).
-
-    Groups are split at gaps in ``bins``, so a job never spans a bin that
-    already has results — a resume fans out without recomputing anything.
-    That means len(result) >= n_parts when the missing bins aren't contiguous.
-    """
-    bins = list(bins)
-    if not bins:
-        return []
-    n_parts = max(1, min(n_parts, len(bins)))
-    bounds = [round(i * len(bins) / n_parts) for i in range(n_parts + 1)]
-    ranges = []
-    for i in range(n_parts):
-        ranges += _contiguous(bins[bounds[i]:bounds[i + 1]])
-    return ranges
-
-
-def split_steps(nf, n_parts):
-    """Split bins 1..nf into n_parts contiguous (istart, iend) ranges."""
-    if nf <= 0:
-        return []
-    return split_bins(range(1, nf + 1), n_parts)
-
-
 def missing_ranges(nc_dir, nf):
     """Contiguous (istart, iend) ranges covering bins without results."""
     return _contiguous(missing_bins(nc_dir, nf))
 
 
-def plan_jobs(variants, nf, *, split=None, missing_only=False):
+# -- Job planning ---------------------------------------------------------
+#
+# The caller says how many NumCalc processes may run at once (-j); how the
+# work is cut up to fill them is decided here. Both cuts and queue order use
+# a crude cost model: a bin costs its own index (NumCalc's per-bin time and
+# memory grow with frequency — deeper FMM octree, more multipole terms per
+# box), a variant costs its element count. Only ratios matter, and only for
+# scheduling — no result ever depends on how the bins were partitioned.
+
+
+def _element_count(nc_dir):
+    """Boundary elements of a variant, or 1 if not exported (yet)."""
+    try:
+        with open(Path(nc_dir) / "ObjectMesh" / "Elements.txt") as f:
+            return max(1, int(f.readline().strip()))
+    except (OSError, ValueError):
+        return 1
+
+
+def _cost(rng):
+    """Cost of an inclusive bin range: sum of its bin indices."""
+    a, b = rng
+    return (a + b) * (b - a + 1) / 2
+
+
+def _bisect(rng):
+    """Cut one range in two at its cost midpoint (not its midpoint bin)."""
+    a, b = rng
+    total, left, best = _cost(rng), 0, None
+    for m in range(a, b):
+        left += m
+        gap = abs(left * 2 - total)
+        if best is None or gap < best[0]:
+            best = (gap, m)
+    return (a, best[1]), (best[1] + 1, b)
+
+
+def _split_ranges(ranges, n_parts):
+    """Cut ranges into n_parts pieces of ~equal cost, never across a gap.
+
+    Fewer pieces come back when the bins run out (a range of one bin is
+    indivisible), so a resume with holes in be.out/ keeps its holes.
+    """
+    parts = list(ranges)
+    while len(parts) < n_parts:
+        divisible = [p for p in parts if p[1] > p[0]]
+        if not divisible:
+            break
+        worst = max(divisible, key=_cost)
+        parts.remove(worst)
+        parts.extend(_bisect(worst))
+    return sorted(parts)
+
+
+def _allocate(costs, n_slots, caps):
+    """Hand out n_slots among variants by cost, ≥1 and ≤cap each."""
+    slots = [1] * len(costs)
+    for _ in range(n_slots - len(costs)):
+        free = [i for i in range(len(costs)) if slots[i] < caps[i]]
+        if not free:
+            break
+        slots[max(free, key=lambda i: costs[i] / slots[i])] += 1
+    return slots
+
+
+def _queue_order(weighted):
+    """Order (cost, job) pairs heaviest-first, alternating heavy and light.
+
+    The heaviest job starts first so it is not left running alone at the end,
+    but each pair of adjacent slots mixes a big job with a small one — with
+    -j 2, the 40k-element variant runs next to the 8k one and the top-octave
+    bin range next to the bottom one, which keeps peak memory flatter than
+    two heavyweights side by side.
+    """
+    ranked = [job for _, job in sorted(weighted, key=lambda p: -p[0])]
+    out = []
+    lo, hi = 0, len(ranked) - 1
+    while lo <= hi:
+        out.append(ranked[lo])
+        lo += 1
+        if lo <= hi:
+            out.append(ranked[hi])
+            hi -= 1
+    return out
+
+
+def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False):
     """Build the job list for a run.
+
+    One job per variant, except that fewer variants than ``max_jobs`` would
+    leave processes idle — then variants are fanned out into bin ranges
+    (``-istart``/``-iend``) until the slots are filled, the busiest variant
+    first. Ranges are cut for equal cost, so the expensive top of the band
+    gets narrower slices than the cheap bottom.
 
     Args:
         variants: list of (name, nc_dir) pairs
         nf: number of frequency bins
-        split: fan each variant out into this many bin-range jobs (applies to
-            the missing bins when missing_only, so resumes fan out too)
+        max_jobs: NumCalc processes that may run at once (None: no fan-out)
         missing_only: only schedule bins absent from be.out/ (resume)
     """
-    jobs = []
+    todo = []
     for name, nc_dir in variants:
         nc_dir = Path(nc_dir)
-        if missing_only:
-            steps = split_bins(missing_bins(nc_dir, nf), split or 1)
-            jobs += [Job(name, nc_dir, s) for s in steps]
-        elif split and split > 1:
-            jobs += [Job(name, nc_dir, steps) for steps in split_steps(nf, split)]
-        else:
-            jobs.append(Job(name, nc_dir))
-    return jobs
+        ranges = (missing_ranges(nc_dir, nf) if missing_only
+                  else [(1, nf)] if nf > 0 else [])
+        if ranges:
+            todo.append((name, nc_dir, ranges, _element_count(nc_dir)))
+    if not todo:
+        return []
+
+    costs = [elem * sum(map(_cost, rng)) for _, _, rng, elem in todo]
+    if max_jobs and max_jobs > len(todo):
+        caps = [sum(b - a + 1 for a, b in rng) for _, _, rng, _ in todo]
+        slots = _allocate(costs, max_jobs, caps)
+    else:
+        slots = [1] * len(todo)
+
+    weighted = []
+    for (name, nc_dir, ranges, elem), n in zip(todo, slots):
+        for rng in _split_ranges(ranges, n):
+            # A lone full-band range keeps NumCalc's plain invocation (and its
+            # NC.out log); a resume always states its range explicitly.
+            steps = None if rng == (1, nf) and not missing_only else rng
+            weighted.append((elem * _cost(rng), Job(name, nc_dir, steps)))
+    return _queue_order(weighted)
 
 
 def run_jobs(jobs, *, runner=None, max_jobs=None, poll_interval=0.5, verbose=True):

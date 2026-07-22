@@ -4,8 +4,7 @@ import stat
 import pytest
 
 from bemkit.sim.runner import (
-    Job, LocalRunner, missing_ranges, plan_jobs, run_jobs, split_bins,
-    split_steps,
+    Job, LocalRunner, missing_ranges, plan_jobs, run_jobs,
 )
 
 
@@ -14,6 +13,23 @@ def _write_bin(be_out, i):
     d = be_out / f"be.{i}"
     d.mkdir(parents=True)
     (d / "pBoundary").write_text("header1\nheader2\nheader3\n0 1.0 2.0\n")
+
+
+def _variant(tmp_path, name, n_elements=None):
+    """A (name, nc_dir) pair, optionally with an ObjectMesh element count."""
+    nc_dir = tmp_path / name
+    nc_dir.mkdir(parents=True, exist_ok=True)
+    if n_elements is not None:
+        obj = nc_dir / "ObjectMesh"
+        obj.mkdir(exist_ok=True)
+        (obj / "Elements.txt").write_text(f"{n_elements}\n0 1 2 3 0 0 0\n")
+    return name, nc_dir
+
+
+def _bins(job, nf):
+    """The 1-based bins a job covers."""
+    return list(range(1, nf + 1)) if job.steps is None \
+        else list(range(job.steps[0], job.steps[1] + 1))
 
 
 @pytest.fixture()
@@ -37,56 +53,98 @@ class TestJob:
 
 
 class TestSplitting:
-    def test_split_steps_covers_all_bins(self):
-        ranges = split_steps(10, 3)
-        assert ranges[0][0] == 1 and ranges[-1][1] == 10
-        covered = [b for s, e in ranges for b in range(s, e + 1)]
-        assert covered == list(range(1, 11))
-
-    def test_split_more_parts_than_bins(self):
-        assert split_steps(2, 5) == [(1, 1), (2, 2)]
-
     def test_missing_ranges(self, tmp_path):
         be = tmp_path / "be.out"
         for i in (1, 2, 5):
             _write_bin(be, i)
         assert missing_ranges(tmp_path, 6) == [(3, 4), (6, 6)]
 
-    def test_split_bins_contiguous(self):
-        assert split_bins(list(range(1, 11)), 3) == [(1, 3), (4, 7), (8, 10)]
-
-    def test_split_bins_never_covers_gaps(self):
-        # bin 5 already has results — no job may include it
-        ranges = split_bins([1, 2, 3, 4, 6, 7, 8, 9], 2)
-        covered = [b for s, e in ranges for b in range(s, e + 1)]
-        assert 5 not in covered
-        assert covered == [1, 2, 3, 4, 6, 7, 8, 9]
-
 
 class TestPlanJobs:
     def test_default_one_job_per_variant(self, tmp_path):
-        jobs = plan_jobs([("a", tmp_path)], nf=4)
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=4)
         assert len(jobs) == 1 and jobs[0].steps is None
 
-    def test_split(self, tmp_path):
-        jobs = plan_jobs([("a", tmp_path)], nf=4, split=2)
-        assert [j.steps for j in jobs] == [(1, 2), (3, 4)]
+    def test_no_split_when_variants_already_fill_the_slots(self, tmp_path):
+        pairs = [_variant(tmp_path, n) for n in ("a", "b", "c")]
+        jobs = plan_jobs(pairs, nf=8, max_jobs=2)
+        # 3 variants, 2 slots: splitting would only add setup overhead.
+        assert len(jobs) == 3 and all(j.steps is None for j in jobs)
+
+    def test_splits_one_variant_to_fill_the_slots(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=8, max_jobs=4)
+        assert len(jobs) == 4
+        covered = sorted(b for j in jobs for b in _bins(j, 8))
+        assert covered == list(range(1, 9))       # contiguous, disjoint, complete
+
+    def test_high_frequency_chunks_are_narrower(self, tmp_path):
+        # Cost per bin grows with frequency, so equal-cost chunks must not be
+        # equal-width: the top of the band carries fewer bins than the bottom.
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=16, max_jobs=4)
+        widths = [len(_bins(j, 16)) for j in sorted(jobs, key=lambda j: j.steps)]
+        assert widths == sorted(widths, reverse=True) and widths[0] > widths[-1]
+
+    def test_split_capped_by_available_bins(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=2, max_jobs=5)
+        assert sorted(j.steps for j in jobs) == [(1, 1), (2, 2)]
+
+    def test_slots_shared_across_variants(self, tmp_path):
+        pairs = [_variant(tmp_path, "a"), _variant(tmp_path, "b")]
+        jobs = plan_jobs(pairs, nf=8, max_jobs=4)
+        assert len(jobs) == 4
+        assert sorted(j.name for j in jobs) == ["a", "a", "b", "b"]
+
+    def test_bigger_mesh_gets_more_slots(self, tmp_path):
+        pairs = [_variant(tmp_path, "big", n_elements=40000),
+                 _variant(tmp_path, "small", n_elements=1000)]
+        jobs = plan_jobs(pairs, nf=16, max_jobs=4)
+        assert len(jobs) == 4
+        assert sum(j.name == "big" for j in jobs) == 3
 
     def test_missing_only_skips_complete(self, tmp_path):
+        name, nc_dir = _variant(tmp_path, "a")
         for i in range(1, 5):
-            _write_bin(tmp_path / "be.out", i)
-        assert plan_jobs([("a", tmp_path)], nf=4, missing_only=True) == []
+            _write_bin(nc_dir / "be.out", i)
+        assert plan_jobs([(name, nc_dir)], nf=4, missing_only=True) == []
 
-    def test_split_applies_on_resume(self, tmp_path):
-        # Nothing computed yet: --split must still fan out, not emit one job
-        jobs = plan_jobs([("a", tmp_path)], nf=6, split=3, missing_only=True)
-        assert [j.steps for j in jobs] == [(1, 2), (3, 4), (5, 6)]
+    def test_missing_only_never_spans_a_gap(self, tmp_path):
+        name, nc_dir = _variant(tmp_path, "a")
+        for i in (1, 2, 5):
+            _write_bin(nc_dir / "be.out", i)
+        jobs = plan_jobs([(name, nc_dir)], nf=6, max_jobs=4, missing_only=True)
+        covered = sorted(b for j in jobs for b in _bins(j, 6))
+        assert covered == [3, 4, 6]               # bin 5 is done, never re-run
 
-    def test_split_on_partial_resume(self, tmp_path):
+    def test_fan_out_applies_on_a_fresh_resume(self, tmp_path):
+        # Nothing computed yet: the resume path must still fill the slots
+        # rather than emit one whole-band job.
+        name, nc_dir = _variant(tmp_path, "a")
+        jobs = plan_jobs([(name, nc_dir)], nf=6, max_jobs=3, missing_only=True)
+        assert len(jobs) == 3 and all(j.steps is not None for j in jobs)
+        assert sorted(b for j in jobs for b in _bins(j, 6)) == list(range(1, 7))
+
+    def test_fan_out_on_a_partial_resume(self, tmp_path):
+        name, nc_dir = _variant(tmp_path, "a")
         for i in (1, 2):
-            _write_bin(tmp_path / "be.out", i)
-        jobs = plan_jobs([("a", tmp_path)], nf=6, split=2, missing_only=True)
-        assert [j.steps for j in jobs] == [(3, 4), (5, 6)]
+            _write_bin(nc_dir / "be.out", i)
+        jobs = plan_jobs([(name, nc_dir)], nf=6, max_jobs=2, missing_only=True)
+        assert sorted(j.steps for j in jobs) == [(3, 4), (5, 6)]
+
+
+class TestJobOrder:
+    def test_heavy_and_light_variants_are_interleaved(self, tmp_path):
+        # -j 2 runs two jobs side by side; pairing the biggest mesh with the
+        # smallest keeps peak memory flatter than running the two biggest.
+        pairs = [_variant(tmp_path, n, n_elements=e) for n, e in
+                 (("a", 40000), ("b", 30000), ("c", 20000), ("d", 10000))]
+        jobs = plan_jobs(pairs, nf=8, max_jobs=2)
+        assert [j.name for j in jobs] == ["a", "d", "b", "c"]
+
+    def test_biggest_job_starts_first(self, tmp_path):
+        pairs = [_variant(tmp_path, "small", n_elements=1000),
+                 _variant(tmp_path, "big", n_elements=40000)]
+        jobs = plan_jobs(pairs, nf=8, max_jobs=1)
+        assert jobs[0].name == "big"
 
 
 class TestRunJobs:

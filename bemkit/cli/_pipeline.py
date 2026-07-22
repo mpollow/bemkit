@@ -20,10 +20,9 @@ def register(sub):
                                    "bins only — resumes interrupted runs)")
     _add_variant(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
-                   help="Max parallel NumCalc instances (default: all)")
-    p.add_argument("--split", type=int, default=None, metavar="N",
-                   help="Fan each variant out as N bin-range processes "
-                        "(-istart/-iend); on a resume, splits the missing bins")
+                   help="Max NumCalc processes at once (default: one per "
+                        "variant). Variants are fanned out over bin ranges "
+                        "automatically to fill N processes")
     p.add_argument("--force", action="store_true",
                    help="Recompute all bins from scratch, discarding existing "
                         "results (needed after re-exporting a changed mesh/config)")
@@ -38,7 +37,6 @@ def register(sub):
     p = sub.add_parser("all", help="mesh -> export -> run")
     _add_variant(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N")
-    p.add_argument("--split", type=int, default=None, metavar="N")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_all)
 
@@ -78,7 +76,7 @@ def cmd_run(model_dir, args):
     config = load_model_config(model_dir)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        split=args.split, force=args.force)
+        force=args.force)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
 
@@ -96,7 +94,7 @@ def cmd_all(model_dir, args):
     _run_stage("export", config, prefixes=args.variant)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        split=args.split, force=args.force)
+        force=args.force)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
     print("\nDone.")

@@ -215,8 +215,10 @@ class RunStage(PipelineStage):
     def check(self, config, variant):
         return has_results(config.model_dir / "numcalc" / variant)
 
-    def run(self, config, *, prefixes=None, max_jobs=None, split=None,
-            force=False, **kwargs):
+    def run(self, config, *, prefixes=None, max_jobs=None, force=False,
+            **kwargs):
+        if max_jobs is not None and max_jobs < 1:
+            raise ValueError(f"-j must be at least 1, got {max_jobs}")
         # Default is resume: only bins absent from be.out//be.npz are
         # computed, so interrupted runs continue and complete runs are
         # no-ops. --force recomputes everything (discarding old results) —
@@ -242,7 +244,7 @@ class RunStage(PipelineStage):
                 continue
             pairs.append((v, nc_dir))
         nf = config.nbins - 1
-        jobs = plan_jobs(pairs, nf, split=split, missing_only=missing_only)
+        jobs = plan_jobs(pairs, nf, max_jobs=max_jobs, missing_only=missing_only)
         if not jobs:
             print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
@@ -260,9 +262,12 @@ class RunStage(PipelineStage):
                 # whose warnings would otherwise stay in `bem status` forever.
                 for log in nc_dir.glob("NC*.out"):
                     log.unlink()
-        n_at_once = max_jobs or len(jobs)
+        n_at_once = min(max_jobs or len(jobs), len(jobs))
+        fanned = sorted({j.name for j in jobs
+                         if sum(k.name == j.name for k in jobs) > 1})
+        note = f", {len(fanned)} variant(s) split into bin ranges" if fanned else ""
         print(f"\n{'=' * 60}\n  Running NumCalc ({len(jobs)} job(s), "
-              f"{n_at_once} at a time)\n{'=' * 60}")
+              f"{n_at_once} at a time{note})\n{'=' * 60}")
         completed, failed = run_jobs(jobs, max_jobs=max_jobs)
         for v, nc_dir in pairs:
             logs = [j.log_name for j in jobs if j.nc_dir == nc_dir]

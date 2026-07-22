@@ -342,15 +342,23 @@ parallelize and resume trivially.
 
 ```bash
 bem examples/sphcap run                       # all variants, parallel
-bem examples/sphcap run -j 4                  # cap at 4 concurrent NumCalc procs
-bem examples/sphcap run --split 4             # fan each variant into 4 bin-range jobs
+bem examples/sphcap run -j 4                  # at most 4 concurrent NumCalc procs
 bem examples/sphcap run --force               # recompute all bins from scratch
 ```
 
+`-j N` is the only load knob: N is the number of NumCalc processes allowed to
+run at once, whatever the model contains. With fewer variants than slots, the
+planner fans variants out over frequency ranges (`-istart`/`-iend`) until the
+slots are full — the busiest variant gets the most, and because cost grows with
+frequency the top-octave slices come out narrower than the bottom ones. Job
+order alternates big and small so that a heavyweight and a lightweight run side
+by side rather than two memory hogs at once.
+
 `run` computes only the bins missing from `be.out/`/`be.npz`, so a killed run
 continues where it stopped — no bookkeeping file needed — and running against
-complete results is a no-op. Use `--force` to recompute everything, e.g. after
-re-exporting a changed mesh or config.
+complete results is a no-op. The fan-out follows suit: ranges are cut from the
+*missing* bins and never span one that already has results. Use `--force` to
+recompute everything, e.g. after re-exporting a changed mesh or config.
 
 > **Convergence ≠ completion.** A bin can finish but not converge. `bem run` and
 > `bem status` scan `NC*.out` and surface warnings

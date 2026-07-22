@@ -300,6 +300,25 @@ class TestRunStage:
         assert (nc / "be.npz.bak").exists()          # backup kept
         assert (nc / "args.txt").exists()            # NumCalc ran
 
+    def test_jobs_flag_fans_one_variant_over_bin_ranges(self, model_dir):
+        # One variant, four slots: -j must not leave three processes idle.
+        nc = model_dir / "numcalc" / "tetra"
+
+        completed, failed = _stage_run(model_dir, max_jobs=4)
+
+        assert len(completed) == 4 and failed == []
+        assert sorted((nc / "args.txt").read_text().split("\n")[:-1]) == [
+            "-istart 1 -iend 1", "-istart 2 -iend 2",
+            "-istart 3 -iend 3", "-istart 4 -iend 4"]
+        assert sorted(p.name for p in (nc / "be.out").iterdir()) == \
+            ["be.1", "be.2", "be.3", "be.4"]
+
+    def test_zero_jobs_rejected(self, model_dir):
+        # -j 0 would otherwise read as "no limit" and start everything at once.
+        with pytest.raises(ValueError, match="-j"):
+            _stage_run(model_dir, max_jobs=0)
+        assert not (model_dir / "numcalc" / "tetra" / "args.txt").exists()
+
     def test_reports_solver_warnings_after_run(self, model_dir, capsys):
         nc = model_dir / "numcalc" / "tetra"
         (nc / "warnplease").touch()

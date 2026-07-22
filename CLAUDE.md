@@ -24,8 +24,8 @@ bemkit/
 │   │                      #                  templates/NC.inp package data)
 │   │                      # export.py      — export_variant, ExportInfo
 │   │                      # readers.py     — raw NumCalc output parsers, load_bins
-│   │                      # runner.py      — Runner ABC, LocalRunner, plan_jobs, run_jobs,
-│   │                      #                  split_steps, missing_ranges
+│   │                      # runner.py      — Runner ABC, LocalRunner, plan_jobs (auto
+│   │                      #                  fan-out/ordering), run_jobs, missing_ranges
 │   │                      # status.py      — available_bins/missing_bins/is_complete,
 │   │                      #                  solver_warnings (NC*.out health scan)
 │   │                      # packing.py     — be.out/ <-> be.npz, clear_pack
@@ -104,8 +104,7 @@ bem examples/sphcap                    # show status (default; `bem MODEL status
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc (parallel)
-bem examples/sphcap run -j 4           # cap parallel NumCalc instances
-bem examples/sphcap run --split 4     # fan out into 4 bin-range jobs (see below)
+bem examples/sphcap run -j 4           # at most 4 NumCalc processes (auto bin fan-out)
 bem examples/sphcap run --force        # recompute all bins (default only runs missing ones)
 bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink, complex64)
 bem examples/sphcap pack --delete-original   # also remove be.out/ after verify
@@ -350,14 +349,20 @@ needed — outputs just land in the same `be.out/`).
   NumCalc, report status, bring `be.out/` back.
 - `Job(name, nc_dir, steps=(istart, iend) | None)` — one NumCalc invocation, optionally
   scoped to a 1-based inclusive bin range.
-- `bem MODEL run --split N` fans each variant out into N bin-range jobs (`-istart`/`-iend`),
-  via `plan_jobs`/`split_bins`. On a resume (the default) the split applies to the *missing*
-  bins and never spans a bin that already has results, so a gap yields more than N jobs.
 - `bem MODEL run` only computes frequency bins absent from `be.out/`/`be.npz` (the
   default) — it uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so
   partial/failed runs resume without redoing completed bins, and a complete run is a
   no-op. `--force` recomputes everything from scratch — required after re-exporting a
   changed mesh or config, since bin presence says nothing about which export produced it.
+- `bem MODEL run -j N` is the single load knob: N = max concurrent NumCalc processes.
+  `plan_jobs(pairs, nf, max_jobs=N)` decides the rest — one job per variant, and when
+  variants would leave slots idle, variants are fanned out into bin ranges
+  (`-istart`/`-iend`) until N jobs exist. Slots go to the costliest variants, ranges are
+  cut for equal cost (bin cost ∝ frequency index, variant cost ∝ element count), and the
+  queue alternates heavy/light so concurrent jobs mix big and small rather than stacking
+  memory peaks. On a resume (the default) the cuts apply to the *missing* bins and never
+  span a bin that already has results, so a gap can yield more than N jobs. The cost model
+  is a scheduling heuristic only — results never depend on it.
 - `bemkit.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
