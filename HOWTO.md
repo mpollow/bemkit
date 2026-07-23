@@ -365,23 +365,32 @@ planes = [1, 1, 0]              # per axis, one plane each — see table below
 coordinates = [0.0, 0.0, 0.0]   # metres — where each plane cuts its axis
 ```
 
-| code | meaning | field about the plane |
-|------|---------|-----------------------|
-| 0 | no plane on this axis | — |
-| 1 | symmetric plane | even (sound-hard) |
-| 2 | antisymmetric plane | odd (sound-soft) |
-| 3 | hard reflecting plane | even (sound-hard) |
-| 4 | soft reflecting plane | odd (sound-soft) |
+| code | meaning | you mesh | the images are | field about the plane |
+|------|---------|----------|----------------|-----------------------|
+| 0 | no plane on this axis | — | — | — |
+| 1 | symmetric plane | half the object | its other half | even (sound-hard) |
+| 2 | antisymmetric plane | half the object | its other half | odd (sound-soft) |
+| 3 | hard reflecting plane | the whole object | fictitious | even (sound-hard) |
+| 4 | soft reflecting plane | the whole object | fictitious | odd (sound-soft) |
 
 `num_symmetric_planes` in `NC.inp` is derived from the nonzero entries; you
 never set it yourself.
 
-**Codes 3/4 behave identically to 1/2 inside the solver.** NumCalc keeps only
-the sign — every read of the plane code tests `== 0`, `!= 0` or `< 0`, never
-the magnitude (`NC_3dFunctions.cpp`, `NC_Addresses.cpp`). That is correct
-rather than sloppy: mirror symmetry and the method of images are the same
-operation. Pick the code that documents your intent; 1 and 3 compute the same
-thing, as do 2 and 4. (Code 5, an impedance ground plane, is described in
+**The magnitude says what the images mean, not whether they exist.** The
+boundary elements are mirrored in all four cases, identically: NumCalc builds
+`2**k` reflected clusters from the same element list regardless of the code
+(`NC_Addresses.cpp:558`). What the magnitude records is whether the reflected
+copy is *real surface* — the other half of a symmetric object (1/2) — or a
+*virtual image* standing in for an infinite plane (3/4). In the second case the
+object you meshed is the entire physical object; nothing of it lies beyond the
+plane.
+
+**So codes 3/4 compute exactly what 1/2 do.** Only the sign reaches the solver:
+every read of the plane code tests `== 0`, `!= 0` or `< 0`, never the magnitude
+(`NC_3dFunctions.cpp:239`, `NC_Addresses.cpp:581`). That is correct rather than
+sloppy — mirror symmetry and the method of images are the same operation, so
+the solver can forget which one you meant once it has the sign. Pick the code
+that documents your intent. (Code 5, an impedance ground plane, is described in
 `NC_Arrays.h` but rejected by the parser — it does not exist.)
 
 **At most three planes, one per coordinate axis.** `planes` is indexed by axis,
