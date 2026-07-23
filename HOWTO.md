@@ -346,21 +346,52 @@ Sanity-check the setup in 3D **before** running:
 bem examples/sphcap geometry          # mesh + driven (red) elements + eval grid
 ```
 
-### Exploiting symmetry — `[SYMMETRY]`
+### Mirror planes — `[SYMMETRY]`
 
-If the object *and* its excitation are mirror-symmetric, mesh only the
-symmetric fraction and let NumCalc reflect the elements. Half the surface
-means a quarter of the system matrix.
+NumCalc can reflect the boundary elements about coordinate-aligned planes.
+That buys you two different things depending on what your mesh represents:
+
+- **Symmetry** — the object *and* its excitation are mirror-symmetric, so you
+  mesh only the symmetric fraction and the images complete the object. Half
+  the surface means a quarter of the system matrix.
+- **A reflecting plane** — an infinite rigid or pressure-release plane (a
+  baffle, a floor). Here you mesh the *whole* object beside the plane and the
+  images are fictitious: this is the method of images building a half-space.
+  The object need not be symmetric about the plane at all.
 
 ```toml
 [SYMMETRY]
-planes = [1, 1, 0]              # per axis: 0 = none, 1 = symmetric (rigid
-                                # mirror), 2 = antisymmetric (pressure release)
+planes = [1, 1, 0]              # per axis, one plane each — see table below
 coordinates = [0.0, 0.0, 0.0]   # metres — where each plane cuts its axis
 ```
 
+| code | meaning | field about the plane |
+|------|---------|-----------------------|
+| 0 | no plane on this axis | — |
+| 1 | symmetric plane | even (sound-hard) |
+| 2 | antisymmetric plane | odd (sound-soft) |
+| 3 | hard reflecting plane | even (sound-hard) |
+| 4 | soft reflecting plane | odd (sound-soft) |
+
 `num_symmetric_planes` in `NC.inp` is derived from the nonzero entries; you
 never set it yourself.
+
+**Codes 3/4 behave identically to 1/2 inside the solver.** NumCalc keeps only
+the sign — every read of the plane code tests `== 0`, `!= 0` or `< 0`, never
+the magnitude (`NC_3dFunctions.cpp`, `NC_Addresses.cpp`). That is correct
+rather than sloppy: mirror symmetry and the method of images are the same
+operation. Pick the code that documents your intent; 1 and 3 compute the same
+thing, as do 2 and 4. (Code 5, an impedance ground plane, is described in
+`NC_Arrays.h` but rejected by the parser — it does not exist.)
+
+**At most three planes, one per coordinate axis.** `planes` is indexed by axis,
+so `[1, 1, 0]` is an x-plane and a y-plane and there is no way to express a
+second plane normal to the same axis. Two parallel planes would anyway need an
+infinite image series; NumCalc builds exactly `2**k` copies for `k` planes
+(`numReflectionsOfElements_ = pow(2, numSymmetricPlanes_)`, capped at 8), which
+cannot represent a periodic array. For a line array, use planes *perpendicular*
+to each other — one through the array axis, one across its midpoint — for the
+usual 4x reduction.
 
 The mesh must sit entirely on one side of every active plane and must have
 **no elements lying in a plane** — a cut face that got capped would be
@@ -372,6 +403,12 @@ throughout space. `export` validates them against the mirrored geometry, so
 a point that lands inside or on a mirrored surface is dropped exactly like
 one that hits the meshed surface. Without that, NumCalc dies mid-run with
 `nsbe must be < MSBE` while subdividing the element under the point.
+
+With a **reflecting** plane, though, only one side is physical. The solver
+evaluates the mirror-symmetric field everywhere and validation will accept a
+point behind the baffle, because it is outside the geometry — but the value
+there describes the fictitious image, not your model. Keep evaluation points on
+the object's side of a reflecting plane.
 
 ---
 
