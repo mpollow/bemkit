@@ -10,8 +10,8 @@ modelname = "plate"
 #   python examples/plate/compare_meshes.py
 
 [bem]
-sr = 8000
-nbins = 17
+sr = 32000                # max sim freq = sr/2 = 16 kHz
+nbins = 65                # 64 bins, 250 Hz spacing (250 Hz … 16 kHz)
 air_density = 1.2
 speed_of_sound = 340.0
 bem_type = 4
@@ -31,6 +31,21 @@ mesh = { distance = "euclidean" }
 [variants.geodesic]
 source = "plate"
 mesh = { distance = "geodesic" }
+
+# Uniform meshes (lc_min = lc_max): one element size everywhere, for a
+# resolution study. Sizes chosen against λ = 34 mm at 10 kHz:
+#   3 mm ≈ 11 el/λ, 5 mm ≈ 7 el/λ, 10 mm ≈ 3 el/λ.
+[variants.uniform3]
+source = "plate"
+mesh = { lc_min = 3.0, lc_max = 3.0 }
+
+[variants.uniform5]
+source = "plate"
+mesh = { lc_min = 5.0, lc_max = 5.0 }
+
+[variants.uniform10]
+source = "plate"
+mesh = { lc_min = 10.0, lc_max = 10.0 }
 
 [fieldpoints.onaxis]
 type = "onaxis"

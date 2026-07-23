@@ -26,3 +26,15 @@ but **~100 mm** over the surface (out to an edge, around, and back). So:
 the geodesic back face sits near `lc_max` while the euclidean back face is
 refined. This is the same effect the geodesic algorithm's unit tests check on a
 folded strip (`tests/meshing/test_geodesic.py`), shown end-to-end through gmsh.
+
+## Uniform variants — a resolution study
+
+Three extra variants mesh the plate at a single element size everywhere
+(`lc_min = lc_max`), for a convergence check independent of the sizing ramp:
+
+    [variants.uniform3]   mesh = { lc_min = 3.0,  lc_max = 3.0 }
+    [variants.uniform5]   mesh = { lc_min = 5.0,  lc_max = 5.0 }
+    [variants.uniform10]  mesh = { lc_min = 10.0, lc_max = 10.0 }
+
+Sizes are picked against λ = 34 mm at 10 kHz (≈ 11 / 7 / 3 elements per
+wavelength). The simulation runs to 16 kHz (`sr = 32000`, `nbins = 65`).
