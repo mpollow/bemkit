@@ -105,6 +105,60 @@ def read_mesh_triangles(mesh_file):
     return vertices, np.vstack(tri_list)
 
 
+def mirror_mesh(vertices, triangles, planes, coordinates):
+    """Reflect a symmetry-reduced mesh into the full geometry.
+
+    A model with [SYMMETRY] stores only one half/quarter/eighth of the
+    object; NumCalc reflects the elements internally and solves the whole
+    thing. Anything that has to reason about the geometry the solver
+    actually sees — evaluation-point validation, above all — needs the
+    expanded mesh, not the file on disk.
+
+    Reflection reverses orientation, so mirrored copies get their winding
+    flipped and keep pointing out of the surface.
+
+    Args:
+        vertices: (N, 3) node coordinates
+        triangles: (T, 3) triangle connectivity (0-indexed)
+        planes: NumCalc SYMMETRY plane codes for x, y, z. Any nonzero entry
+            is an active plane; the sign (symmetric vs antisymmetric) is a
+            boundary condition and does not change the geometry.
+        coordinates: where each plane cuts its axis, same units as vertices
+
+    Returns:
+        Tuple of (vertices, triangles) with 2**k copies for k active planes.
+        The original mesh comes first, so ``triangles[:T]`` still indexes the
+        input elements.
+    """
+    planes = list(planes)
+    coordinates = list(coordinates)
+    if len(planes) != 3 or len(coordinates) != 3:
+        raise ValueError(
+            f"mirror_mesh: planes and coordinates each need three entries "
+            f"(x, y, z), got {len(planes)} and {len(coordinates)}")
+
+    vertices = np.asarray(vertices, dtype=float)
+    triangles = np.asarray(triangles)
+    axes = [i for i, p in enumerate(planes) if p]
+    if not axes:
+        return vertices, triangles
+
+    verts, tris = [vertices], [triangles]
+    for axis in axes:
+        offset = 2.0 * float(coordinates[axis])
+        reflected = []
+        for v in verts:
+            w = v.copy()
+            w[:, axis] = offset - w[:, axis]
+            reflected.append(w)
+        tris = tris + [t[:, ::-1] for t in tris]
+        verts = verts + reflected
+
+    starts = np.cumsum([0] + [len(v) for v in verts[:-1]])
+    return (np.vstack(verts),
+            np.vstack([t + s for t, s in zip(tris, starts)]))
+
+
 def read_mesh_physical_groups(mesh_file: str | Path) -> dict:
     """Read physical group assignments from GMSH .msh file.
 

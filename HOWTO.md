@@ -312,6 +312,33 @@ Sanity-check the setup in 3D **before** running:
 bem examples/sphcap geometry          # mesh + driven (red) elements + eval grid
 ```
 
+### Exploiting symmetry — `[SYMMETRY]`
+
+If the object *and* its excitation are mirror-symmetric, mesh only the
+symmetric fraction and let NumCalc reflect the elements. Half the surface
+means a quarter of the system matrix.
+
+```toml
+[SYMMETRY]
+planes = [1, 1, 0]              # per axis: 0 = none, 1 = symmetric (rigid
+                                # mirror), 2 = antisymmetric (pressure release)
+coordinates = [0.0, 0.0, 0.0]   # metres — where each plane cuts its axis
+```
+
+`num_symmetric_planes` in `NC.inp` is derived from the nonzero entries; you
+never set it yourself.
+
+The mesh must sit entirely on one side of every active plane and must have
+**no elements lying in a plane** — a cut face that got capped would be
+reflected onto itself.
+
+Evaluation points may go anywhere, including into the mirrored region:
+NumCalc reflects the *elements*, so the field is evaluated correctly
+throughout space. `export` validates them against the mirrored geometry, so
+a point that lands inside or on a mirrored surface is dropped exactly like
+one that hits the meshed surface. Without that, NumCalc dies mid-run with
+`nsbe must be < MSBE` while subdividing the element under the point.
+
 ---
 
 ## 5. Export the NumCalc job bundle(s)

@@ -197,7 +197,8 @@ def min_distance_to_mesh(points, vertices, triangles):
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None, edge_length_factor=0.1):
+def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
+                    edge_length_factor=0.1, symmetry=None):
     """Check which points are valid (outside mesh for external, inside for internal).
 
     Uses ray-casting to determine inside/outside and distance checking for
@@ -209,12 +210,27 @@ def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
         is_internal: 0 for external problem, 1 for internal
         min_surface_distance: Minimum allowed distance to surface in meters.
             If None, auto-computed as edge_length_factor × average mesh edge length.
+        symmetry: config.toml [SYMMETRY] table ({"planes": [...],
+            "coordinates": [...]}) or None. When given, points are checked
+            against the mirrored geometry rather than the mesh on disk: a
+            symmetry-reduced mesh covers only part of the object NumCalc
+            solves, and a point on or inside a mirrored surface kills the
+            solver in post-processing ("nsbe must be < MSBE").
 
     Returns:
         Boolean mask (N,) — True where point is valid
     """
-    from bemkit.meshing.io import read_mesh_triangles
+    from bemkit.meshing.io import read_mesh_triangles, mirror_mesh
     vertices, triangles = read_mesh_triangles(mesh_file)
+
+    if symmetry:
+        planes = list(symmetry.get("planes", [0, 0, 0]))
+        vertices, triangles = mirror_mesh(
+            vertices, triangles, planes,
+            symmetry.get("coordinates", [0.0, 0.0, 0.0]))
+        if any(planes):
+            print(f"  Symmetry {planes}: validating against the mirrored mesh "
+                  f"({len(triangles)} elements)")
 
     # Auto-compute min_surface_distance from average edge length
     if min_surface_distance is None:

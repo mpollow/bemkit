@@ -60,7 +60,8 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     valid_masks = {}
     for name, points in sets.items():
         mask = validate_points(points, mesh_file, is_internal=config.is_internal,
-                               edge_length_factor=0.1)
+                               edge_length_factor=0.1,
+                               symmetry=config.get("SYMMETRY"))
         if verbose:
             n = f"{mask.sum()}/{len(mask)}" if not mask.all() else f"all {len(points)}"
             print(f"  '{name}': {n} points valid")

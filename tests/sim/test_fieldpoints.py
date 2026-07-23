@@ -11,6 +11,7 @@ from bemkit.sim.fieldpoints import (
     split_by_offsets,
     save_offsets,
     load_offsets,
+    validate_points,
 )
 
 
@@ -230,3 +231,68 @@ class TestLoadFieldpointSets:
         sets = load_fieldpoint_sets(
             {"onaxis": {"type": "onaxis", "radii": [1.0]}}, tmp_path)
         assert list(sets) == ["onaxis"]
+
+
+class TestValidatePointsWithSymmetry:
+    """A symmetry-reduced mesh only covers part of the object; eval points
+    must be checked against the geometry NumCalc actually solves.
+
+    Regression: with [SYMMETRY] planes = [1, 1, 0] and full-span field
+    planes, a point landing on the mirror image of the source patch passed
+    validation and NumCalc then died in post-processing subdividing the
+    element under it ("nsbe must be < MSBE").
+    """
+
+    @pytest.fixture()
+    def quarter_box_file(self, tmp_path):
+        """Quarter of the box [-1,1] x [-1,1] x [0,1], kept in x,y >= 0,
+        open at both cut planes. Written as .stl so it is read in metres."""
+        import meshio
+        v = np.array([
+            [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+            [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+        ], float)
+        t = np.array([
+            [0, 2, 1], [0, 3, 2],
+            [4, 5, 6], [4, 6, 7],
+            [1, 2, 6], [1, 6, 5],
+            [3, 7, 6], [3, 6, 2],
+        ])
+        path = tmp_path / "quarter.stl"
+        meshio.write_points_cells(path, v, [("triangle", t)])
+        return path
+
+    QUARTER_SYMMETRY = {"planes": [1, 1, 0], "coordinates": [0.0, 0.0, 0.0]}
+
+    def test_point_inside_the_mirrored_geometry_is_dropped(self, quarter_box_file):
+        inside_the_mirror = np.array([[-0.6, -0.3, 0.5]])
+        assert validate_points(inside_the_mirror, quarter_box_file).all()
+        assert not validate_points(inside_the_mirror, quarter_box_file,
+                                   symmetry=self.QUARTER_SYMMETRY).any()
+
+    def test_point_on_a_mirrored_surface_is_dropped(self, quarter_box_file):
+        on_the_mirrored_face = np.array([[-1.0, 0.5, 0.5]])
+        assert validate_points(on_the_mirrored_face, quarter_box_file).all()
+        assert not validate_points(on_the_mirrored_face, quarter_box_file,
+                                   symmetry=self.QUARTER_SYMMETRY).any()
+
+    def test_point_clear_of_the_whole_object_stays_valid(self, quarter_box_file):
+        outside = np.array([[-3.0, -3.0, 0.5]])
+        assert validate_points(outside, quarter_box_file,
+                               symmetry=self.QUARTER_SYMMETRY).all()
+
+    def test_without_symmetry_validation_is_unchanged(self, quarter_box_file):
+        inside_the_mirror = np.array([[-0.6, -0.3, 0.5]])
+        assert validate_points(inside_the_mirror, quarter_box_file,
+                               symmetry=None).all()
+
+    def test_inactive_planes_are_a_no_op(self, quarter_box_file):
+        inside_the_mirror = np.array([[-0.6, -0.3, 0.5]])
+        assert validate_points(inside_the_mirror, quarter_box_file,
+                               symmetry={"planes": [0, 0, 0]}).all()
+
+    def test_coordinates_default_to_the_origin(self, quarter_box_file):
+        """[SYMMETRY] may omit coordinates; NC.inp defaults them to 0."""
+        inside_the_mirror = np.array([[-0.6, -0.3, 0.5]])
+        assert not validate_points(inside_the_mirror, quarter_box_file,
+                                   symmetry={"planes": [1, 1, 0]}).any()
