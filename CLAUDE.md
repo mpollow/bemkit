@@ -135,12 +135,12 @@ bem examples/sphcap run --variant foo
 
 # 3D pre-run inspection (was viz_geometry.py)
 bem examples/sphcap geometry                              # mesh + BC + eval grid
-bem examples/sphcap geometry --variant sphcap-50-20        # prefix match, slider if >1
+bem examples/sphcap geometry --variant fine                # prefix match, slider if >1
 
 # 3D post-run inspection (was viz_results.py)
 bem examples/sphcap results --freq 1000                   # surface + all fieldpoint sets
 bem examples/sphcap results onaxis --freq 1000            # restrict to one set
-bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-20  # variant filter
+bem examples/sphcap results onaxis --freq 1000 --variant fine  # variant filter
 ```
 
 `bem MODEL export-web` writes an auralizer web bundle (consumed by the
@@ -169,7 +169,7 @@ read on first access, then cached).
 from bemkit import SimulationData
 
 sim = SimulationData.from_model("examples/sphcap")          # auto-discover variant
-sim = SimulationData.from_model("examples/sphcap", variant="sphcap-50-20.lc5-25")  # explicit variant
+sim = SimulationData.from_model("examples/sphcap", variant="fine")  # explicit variant
 
 sim.set_names             # ['onaxis', 'polar', 'planeXZ', ...]
 sim.frequencies           # (nf,) Hz array
