@@ -258,8 +258,13 @@ class RunStage(PipelineStage):
         for nc_dir in sorted(job_dirs):
             clear_pack(nc_dir, restore=missing_only)
             if not missing_only:
-                # Full recompute: NumCalc wipes be.out/ but not old logs,
-                # whose warnings would otherwise stay in `bem status` forever.
+                # Full recompute: drop every earlier result and log. NumCalc
+                # only wipes be.out/ when invoked without -istart/-iend, so
+                # relying on it would leave stale bins behind whenever --force
+                # fans out into bin ranges (-j above the variant count) — old
+                # results silently surviving into a run meant to replace them.
+                # Old logs go too, or their warnings stay in `bem status`.
+                shutil.rmtree(nc_dir / "be.out", ignore_errors=True)
                 for log in nc_dir.glob("NC*.out"):
                     log.unlink()
         n_at_once = min(max_jobs or len(jobs), len(jobs))

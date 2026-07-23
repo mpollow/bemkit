@@ -300,6 +300,20 @@ class TestRunStage:
         assert (nc / "be.npz.bak").exists()          # backup kept
         assert (nc / "args.txt").exists()            # NumCalc ran
 
+    def test_force_clears_be_out_even_when_fanned_out(self, model_dir):
+        # NumCalc only wipes be.out/ for an unranged invocation, so once -j
+        # exceeds the variant count and --force fans out into bin ranges,
+        # nothing would clear bins left by an earlier run over a different
+        # eval grid — they would silently mix into the new results.
+        nc = model_dir / "numcalc" / "tetra"
+        (nc / "be.out" / "be.9").mkdir(parents=True)
+
+        completed, failed = _stage_run(model_dir, force=True, max_jobs=4)
+
+        assert len(completed) == 4 and failed == []
+        assert sorted(p.name for p in (nc / "be.out").iterdir()) == \
+            ["be.1", "be.2", "be.3", "be.4"]  # stale be.9 gone
+
     def test_jobs_flag_fans_one_variant_over_bin_ranges(self, model_dir):
         # One variant, four slots: -j must not leave three processes idle.
         nc = model_dir / "numcalc" / "tetra"
