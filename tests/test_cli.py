@@ -5,15 +5,42 @@ import pytest
 from bemkit.cli import main
 
 
-def _variant_of(argv):
-    """Parse argv through a parser built like the real CLI, return .variant."""
+def _parse(argv):
+    """Parse argv through a parser built like the real CLI."""
     from bemkit.cli import _pipeline, _plot, _viz3d, _web
     parser = argparse.ArgumentParser()
     parser.add_argument("model_dir", nargs="?")
     sub = parser.add_subparsers(dest="command")
     for mod in (_pipeline, _plot, _viz3d, _web):
         mod.register(sub)
-    return parser.parse_args(argv).variant
+    return parser.parse_args(argv)
+
+
+def _variant_of(argv):
+    """Parse argv through a parser built like the real CLI, return .variant."""
+    return _parse(argv).variant
+
+
+@pytest.mark.parametrize("command", ["geometry", "results"])
+def test_symmetry_mirroring_is_on_by_default_in_both_viewers(command):
+    """A [SYMMETRY] model shows a partial surface next to a full-space eval
+    grid unless the ghosts are drawn, so mirroring is opt-out, not opt-in."""
+    assert _parse([command]).no_mirror is False
+    assert _parse([command, "--no-mirror"]).no_mirror is True
+
+
+@pytest.mark.parametrize("command", ["geometry", "results"])
+def test_mesh_edges_are_drawn_by_default_in_both_viewers(command):
+    """Edges mark which elements were actually simulated — the only cue left
+    once ghosts are drawn at full opacity, so they are opt-out."""
+    assert _parse([command]).no_edges is False
+    assert _parse([command, "--no-edges"]).no_edges is True
+
+
+def test_geometry_still_accepts_the_superseded_show_edges_flag():
+    """--show-edges is what edges used to need; it is the default now, so the
+    flag stays valid and does nothing rather than breaking old invocations."""
+    assert _parse(["geometry", "--show-edges"]).no_edges is False
 
 
 @pytest.mark.parametrize("command", ["run", "export", "pack", "all",

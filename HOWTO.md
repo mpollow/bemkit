@@ -419,6 +419,35 @@ point behind the baffle, because it is outside the geometry — but the value
 there describes the fictitious image, not your model. Keep evaluation points on
 the object's side of a reflecting plane.
 
+**Both 3D viewers draw the images.** `bem MODEL geometry` and
+`bem MODEL results` render the reflected copies as a second surface, so a
+symmetry-reduced model shows the whole object rather than a lone quadrant
+sitting next to a full-space eval grid. The ghosts carry mirrored data, not a
+neutral shell: boundary-condition colours in `geometry`, surface pressure in
+`results` — sign-flipped once per antisymmetric plane crossed, which is a pi
+shift you can see in `--quantity phase` but not in a magnitude. The symmetry is
+read from the variant's `NC.inp`, so the picture shows what was actually
+exported. Pass `--no-mirror` to either command to see only the elements you
+meshed. A model without `[SYMMETRY]` is unaffected.
+
+**What marks the simulated elements is the wireframe, not transparency.** Both
+viewers draw black mesh edges on the elements NumCalc actually solved and leave
+the ghosts smooth — so a full model is covered in edges, a quarter model carries
+them on one quadrant. The lines are wide but nearly transparent (`line_width` 3
+at 10 % opacity), which shades each element boundary rather than drawing a hard
+outline on it: the mesh density stays readable at a glance without the
+wireframe competing with the colour it sits on, and it does not turn into a
+solid black mat where a fine mesh is viewed at a distance. `--no-edges` turns
+them off in either viewer.
+
+Ghosts are *not* faded, and both viewers default to an opaque surface, because
+a see-through surface superimposes the far side onto the near side. That is
+harmless for a bare mesh but actively misleading for surface pressure: on a
+horn the throat and the outside of the mouth differ by tens of dB, and blending
+them produces a picture of neither. `--mesh-opacity` still lowers it if you
+want to see eval points inside the object; just do not read pressure off a
+transparent surface.
+
 ---
 
 ## 5. Export the NumCalc job bundle(s)

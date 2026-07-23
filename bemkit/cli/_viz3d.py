@@ -1,5 +1,7 @@
 """3D viewers: `bem MODEL geometry` and `bem MODEL results SET` (pyvista)."""
 
+import argparse
+
 
 def register(sub):
     p = sub.add_parser("geometry", help="3D pre-run inspection: mesh + BC + eval grid")
@@ -8,12 +10,21 @@ def register(sub):
                    help="Variant prefix filter, repeatable (e.g., --variant sphcap-50-10)")
     p.add_argument("--no-mesh", action="store_true", help="Don't show ObjectMesh")
     p.add_argument("--no-grid", action="store_true", help="Don't show EvalGrid")
-    p.add_argument("--mesh-opacity", type=float, default=0.6, help="Mesh opacity (default: 0.6)")
+    p.add_argument("--mesh-opacity", type=float, default=1.0,
+                   help="Mesh opacity (default: 1.0 — opaque. Lower it to see "
+                        "eval points inside the object, at the cost of "
+                        "superimposing the far side of the surface on the near one)")
     p.add_argument("--mesh-color", default="lightblue", help="Mesh color (default: lightblue)")
     p.add_argument("--grid-color", default="blue", help="Grid point color (default: blue)")
     p.add_argument("--point-size", type=float, default=6.0, help="Grid point size (default: 6.0)")
-    p.add_argument("--show-edges", action="store_true", help="Show mesh edges")
+    # Edges are on by default now; kept so old invocations still parse.
+    p.add_argument("--show-edges", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--no-edges", action="store_true",
+                   help="Don't draw mesh edges on the simulated elements")
     p.add_argument("--no-bc", action="store_true", help="Don't color mesh by boundary condition")
+    p.add_argument("--no-mirror", action="store_true",
+                   help="Don't draw the [SYMMETRY] ghost copies (show only "
+                        "the meshed elements)")
     p.add_argument("--bc-vibrating-color", default="red",
                    help="Color for vibrating elements (default: red), e.g., 'yellow', 'orange'")
     p.add_argument("--camera", default="iso", choices=["xz", "xy", "yz", "iso"],
@@ -45,6 +56,11 @@ def register(sub):
                    help="Skip surface pressure coloring")
     p.add_argument("--no-points", action="store_true",
                    help="Skip eval grid points")
+    p.add_argument("--no-mirror", action="store_true",
+                   help="Don't draw the [SYMMETRY] ghost copies (show only "
+                        "the meshed elements)")
+    p.add_argument("--no-edges", action="store_true",
+                   help="Don't draw mesh edges on the simulated elements")
     p.add_argument("--no-phase-fade", action="store_true",
                    help="Disable magnitude-based white fade for phase plots "
                         "(show flat hsv phase colors instead)")
@@ -113,6 +129,10 @@ def cmd_geometry(model_dir, args):
     from bemkit.sim.discovery import discover_variants, numcalc_dir
     from bemkit.sim.readers import (
         read_object_mesh_nodes, read_object_mesh_elements, read_eval_grid_nodes,
+        read_nc_inp_symmetry,
+    )
+    from bemkit.viz._symmetry import (
+        ghost_geometry, describe_symmetry, EDGE_STYLE,
     )
     from bemkit.viz.scene import setup_scene
 
@@ -137,9 +157,13 @@ def cmd_geometry(model_dir, args):
     current_variant = variants[0]
 
     def add_actors(scene, variant):
-        """Add mesh and grid actors for the given variant. Returns (mesh_actor, grid_actor)."""
+        """Add mesh, ghost and grid actors for the given variant.
+
+        Returns (mesh_actor, ghost_actor, grid_actor).
+        """
         nc_dir = numcalc_dir(model_dir, variant)
         mesh_actor = None
+        ghost_actor = None
         grid_actor = None
 
         if not args.no_mesh and (nc_dir / "ObjectMesh" / "Nodes.txt").exists():
@@ -147,15 +171,44 @@ def cmd_geometry(model_dir, args):
             elements = read_object_mesh_elements(nc_dir)
             show_bc = not args.no_bc
             bc_elements = _load_bc_elements(nc_dir, model_dir) if show_bc else None
+            bc_colors = ({"rigid": "gray", "vibrating": args.bc_vibrating_color}
+                         if show_bc else None)
+            edges = not args.no_edges
             mesh_actor = scene.add_object_mesh(
                 nodes, elements,
                 opacity=args.mesh_opacity,
                 color=args.mesh_color,
-                show_edges=args.show_edges,
+                show_edges=edges,
                 color_by_bc=show_bc,
                 bc_elements=bc_elements,
-                bc_colors={"rigid": "gray", "vibrating": args.bc_vibrating_color} if show_bc else None
+                bc_colors=bc_colors,
+                **(EDGE_STYLE if edges else {}),
             )
+
+            # Ghosts: the copies NumCalc reflects internally. Their own actor,
+            # so --no-mirror is a pure skip -- but drawn at the same opacity
+            # as the real elements. What sets the two apart is the wireframe,
+            # which only the simulated elements carry.
+            ghost = (None if args.no_mirror
+                     else ghost_geometry(nodes, elements,
+                                         read_nc_inp_symmetry(nc_dir / "NC.inp")))
+            if ghost is not None:
+                ghost_bc = None
+                if bc_elements is not None and "vibrating" in bc_elements:
+                    # Map the BC through the source index, so a mirrored
+                    # vibrating patch shows up in the same colour.
+                    import numpy as np
+                    ghost_bc = {"vibrating": np.flatnonzero(
+                        np.isin(ghost.source, bc_elements["vibrating"]))}
+                ghost_actor = scene.add_object_mesh(
+                    ghost.nodes, ghost.elements,
+                    opacity=args.mesh_opacity,
+                    color=args.mesh_color,
+                    show_edges=False,
+                    color_by_bc=show_bc and ghost_bc is not None,
+                    bc_elements=ghost_bc,
+                    bc_colors=bc_colors,
+                )
 
         if not args.no_grid and (nc_dir / "EvalGrid" / "Nodes.txt").exists():
             points = read_eval_grid_nodes(nc_dir)
@@ -165,7 +218,7 @@ def cmd_geometry(model_dir, args):
                 point_size=args.point_size
             )
 
-        return mesh_actor, grid_actor
+        return mesh_actor, ghost_actor, grid_actor
 
     # Print info
     if current_variant is not None:
@@ -180,8 +233,10 @@ def cmd_geometry(model_dir, args):
     scene._plotter.set_background(args.background)
 
     # Add initial actors
-    state = {"variant": current_variant, "mesh_actor": None, "grid_actor": None}
-    state["mesh_actor"], state["grid_actor"] = add_actors(scene, current_variant)
+    state = {"variant": current_variant, "mesh_actor": None,
+             "ghost_actor": None, "grid_actor": None}
+    (state["mesh_actor"], state["ghost_actor"],
+     state["grid_actor"]) = add_actors(scene, current_variant)
 
     if state["mesh_actor"] is None and state["grid_actor"] is None:
         print("Error: Nothing to visualize (both mesh and grid disabled/missing)")
@@ -193,6 +248,10 @@ def cmd_geometry(model_dir, args):
             print(f"  + ObjectMesh (opacity={args.mesh_opacity}, colored by BC: rigid=gray, vibrating={args.bc_vibrating_color})")
         else:
             print(f"  + ObjectMesh (opacity={args.mesh_opacity}, color={args.mesh_color})")
+    if state["ghost_actor"] is not None:
+        nc_dir = numcalc_dir(model_dir, current_variant)
+        print(f"  + Symmetry ghosts: "
+              f"{describe_symmetry(read_nc_inp_symmetry(nc_dir / 'NC.inp'))}")
     if state["grid_actor"] is not None:
         print(f"  + EvalGrid (color={args.grid_color}, point_size={args.point_size})")
 
@@ -202,13 +261,14 @@ def cmd_geometry(model_dir, args):
             if v == state["variant"]:
                 return
             # Remove old actors
-            for key in ("mesh_actor", "grid_actor"):
+            for key in ("mesh_actor", "ghost_actor", "grid_actor"):
                 if state[key] is not None:
                     scene._plotter.remove_actor(state[key])
                     state[key] = None
             state["variant"] = v
             # Add new
-            state["mesh_actor"], state["grid_actor"] = add_actors(scene, v)
+            (state["mesh_actor"], state["ghost_actor"],
+             state["grid_actor"]) = add_actors(scene, v)
             scene._plotter.render()
             print(f"  → variant: {v}")
 

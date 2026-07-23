@@ -192,6 +192,68 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
     return {"vibrating": np.array(vibrating_elements, dtype=np.int32)}
 
 
+def read_nc_inp_symmetry(nc_inp_file: str | Path) -> dict | None:
+    """Read the SYMMETRY section from an NC.inp file.
+
+    The variant directory is a self-contained job bundle, so a viewer that
+    wants to draw what the solver actually saw must read the symmetry back
+    from the bundle rather than from config.toml, which may have moved on.
+
+    Args:
+        nc_inp_file: Path to NC.inp
+
+    Returns:
+        ``{"planes": [px, py, pz], "coordinates": [cx, cy, cz]}``, or None
+        when the file has no SYMMETRY section (or does not exist — legacy
+        single-variant layouts, treated as "no symmetry" like the boundary
+        condition reader treats a missing file).
+
+    Raises:
+        ValueError: on a malformed or truncated section, or a plane code
+            outside 0-4. NumCalc rejects the same codes
+            (``NC_Input.cpp:489``), so a bundle carrying one could never have
+            produced results.
+    """
+    try:
+        with open(nc_inp_file, 'r') as f:
+            lines = [ln.strip() for ln in f]
+    except FileNotFoundError:
+        return None
+
+    for i, line in enumerate(lines):
+        if line.startswith("SYMMETRY"):
+            break
+    else:
+        return None
+
+    rows = [ln for ln in lines[i + 1:i + 3] if ln and not ln.startswith("##")]
+    if len(rows) < 2:
+        raise ValueError(
+            f"Truncated SYMMETRY section in {nc_inp_file}: expected a plane-code "
+            f"row and a coordinate row, got {len(rows)}")
+
+    try:
+        planes = [int(v) for v in rows[0].split()]
+        coordinates = [float(v) for v in rows[1].split()]
+    except ValueError as exc:
+        raise ValueError(
+            f"Malformed SYMMETRY section in {nc_inp_file}: {exc}") from exc
+
+    if len(planes) != 3 or len(coordinates) != 3:
+        raise ValueError(
+            f"Malformed SYMMETRY section in {nc_inp_file}: need three plane "
+            f"codes and three coordinates, got {len(planes)} and "
+            f"{len(coordinates)}")
+
+    for axis, code in zip("xyz", planes):
+        if not 0 <= code <= 4:
+            raise ValueError(
+                f"Invalid SYMMETRY plane code {code} for axis {axis} in "
+                f"{nc_inp_file}: NumCalc accepts 0-4 only")
+
+    return {"planes": planes, "coordinates": coordinates}
+
+
 # Known be.out quantities; value = True if 3-vector (one (N,3) row per point)
 QUANTITIES = {
     "pBoundary": False,

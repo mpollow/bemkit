@@ -9,6 +9,7 @@ from bemkit.sim.readers import (
     read_object_mesh_nodes,
     read_object_mesh_elements,
     read_nc_inp_boundary_conditions,
+    read_nc_inp_symmetry,
     _read_numcalc_data,
     _read_numcalc_velocity_data,
     QUANTITIES,
@@ -89,6 +90,69 @@ class TestReadNcInpBoundaryConditions:
         )
         bc = read_nc_inp_boundary_conditions(nc_inp)
         np.testing.assert_array_equal(bc["vibrating"], [0, 1, 2, 10, 11, 12])
+
+
+class TestReadNcInpSymmetry:
+    """The exported bundle, not config.toml, is the authority on what the
+    solver actually mirrored — so the viewers read the symmetry back out of
+    NC.inp exactly as they read boundary conditions."""
+
+    @staticmethod
+    def _write(tmp_path, body):
+        nc_inp = tmp_path / "NC.inp"
+        nc_inp.write_text(body)
+        return nc_inp
+
+    def test_parses_planes_and_coordinates(self, tmp_path):
+        nc_inp = self._write(
+            tmp_path,
+            "ELEMENTS\nObjectMesh/Elements.txt\n##\n"
+            "SYMMETRY\n1 1 0\n0.000000 0.000000 0.000000\n##\n"
+            "BOUNDARY\n")
+        sym = read_nc_inp_symmetry(nc_inp)
+        assert sym["planes"] == [1, 1, 0]
+        assert sym["coordinates"] == [0.0, 0.0, 0.0]
+
+    def test_keeps_a_nonzero_plane_position(self, tmp_path):
+        nc_inp = self._write(
+            tmp_path,
+            "SYMMETRY\n0 2 0\n0.000000 -0.125000 0.000000\n##\n")
+        sym = read_nc_inp_symmetry(nc_inp)
+        assert sym["planes"] == [0, 2, 0]
+        assert sym["coordinates"] == [0.0, -0.125, 0.0]
+
+    def test_no_symmetry_section_returns_none(self, tmp_path):
+        nc_inp = self._write(tmp_path, "NODES\nObjectMesh/Nodes.txt\n##\nBOUNDARY\n")
+        assert read_nc_inp_symmetry(nc_inp) is None
+
+    def test_missing_file_returns_none(self, tmp_path):
+        """Legacy single-variant layouts have no NC.inp; that is not an error,
+        it just means no mirroring — same fallback as the BC reader."""
+        assert read_nc_inp_symmetry(tmp_path / "nope.inp") is None
+
+    def test_rejects_a_plane_code_numcalc_would_reject(self, tmp_path):
+        nc_inp = self._write(tmp_path, "SYMMETRY\n1 5 0\n0.0 0.0 0.0\n##\n")
+        with pytest.raises(ValueError, match="y"):
+            read_nc_inp_symmetry(nc_inp)
+
+    def test_rejects_a_negative_plane_code(self, tmp_path):
+        nc_inp = self._write(tmp_path, "SYMMETRY\n-1 0 0\n0.0 0.0 0.0\n##\n")
+        with pytest.raises(ValueError, match="x"):
+            read_nc_inp_symmetry(nc_inp)
+
+    def test_rejects_a_truncated_section(self, tmp_path):
+        nc_inp = self._write(tmp_path, "SYMMETRY\n1 1 0\n##\n")
+        with pytest.raises(ValueError, match="SYMMETRY"):
+            read_nc_inp_symmetry(nc_inp)
+
+    def test_rejects_a_plane_row_that_is_not_three_long(self, tmp_path):
+        nc_inp = self._write(tmp_path, "SYMMETRY\n1 1\n0.0 0.0 0.0\n##\n")
+        with pytest.raises(ValueError, match="SYMMETRY"):
+            read_nc_inp_symmetry(nc_inp)
+
+    def test_reads_a_real_exported_bundle(self, numcalc_dir):
+        """The fixture bundle has no SYMMETRY section — the common case."""
+        assert read_nc_inp_symmetry(numcalc_dir / "NC.inp") is None
 
 
 class TestReadNumcalcData:

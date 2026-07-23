@@ -5,6 +5,7 @@ import numpy as np
 from bemkit.sim.discovery import numcalc_dir
 from bemkit.analysis.simulation import SimulationData
 from bemkit.viz._style import cmap_for_quantity
+from bemkit.viz._symmetry import EDGE_STYLE
 
 
 PHASE_DB_RANGE = 80.0  # dynamic range: max → opaque, max-80dB → transparent
@@ -119,6 +120,7 @@ class ResultsViewer:
         self.nc_dir = None
         self.sim = None
         self.surface_actor = None
+        self.ghost_actor = None
         self.mesh_actor = None
         self.points_actor = None
         self.intensity_actor = None
@@ -130,6 +132,7 @@ class ResultsViewer:
         # Cached per-variant data (see _load_variant)
         self._nodes = None
         self._elements = None
+        self._ghost = None
         self._has_data = False
         self._v_show_surface = False
         self._v_show_points = False
@@ -192,15 +195,27 @@ class ResultsViewer:
         self._pb_cache = (be_index, p)
         return p
 
-    def _compute_surface_data(self, be_index, freq, A_vib, db_ref=None):
+    def _compute_surface_data(self, be_index, freq, A_vib, db_ref=None,
+                              ghost=None):
         """Compute surface scalars or RGBA for the given frequency bin.
+
+        With ``ghost``, computes them for the mirrored copies instead: each
+        ghost element takes its source element's pressure, sign-flipped once
+        per antisymmetric plane that copy crossed. Applying the sign to the
+        complex pressure rather than to the finished scalars gets every
+        quantity right at once -- a flip is a pi phase shift, invisible in
+        magnitude but not in real/imag/phase.
 
         Returns (scalars, rgba_flag) or (None, False) if data missing.
         """
         p_surf = self._read_pBoundary(be_index)
         if p_surf is None:
-            print(f"  bin {be_index} ({freq:.1f} Hz): pBoundary not yet computed")
+            if ghost is None:
+                print(f"  bin {be_index} ({freq:.1f} Hz): pBoundary not yet computed")
             return None, False
+
+        if ghost is not None:
+            p_surf = p_surf[ghost.source] * ghost.sign
 
         if self.surface_rgba:
             if self.args.norm == "acc" and A_vib is not None:
@@ -264,6 +279,17 @@ class ResultsViewer:
         if self._v_show_surface or self._has_data:
             self._nodes = self.sim.boundary_nodes
             self._elements = self.sim.boundary_elements
+            # The copies NumCalc reflects internally. Read from the bundle's
+            # NC.inp, not config.toml, so the picture shows what was actually
+            # exported and solved.
+            self._ghost = None
+            if not self.args.no_mirror:
+                from bemkit.sim.readers import read_nc_inp_symmetry
+                from bemkit.viz._symmetry import ghost_geometry, describe_symmetry
+                symmetry = read_nc_inp_symmetry(nc_dir / "NC.inp")
+                self._ghost = ghost_geometry(self._nodes, self._elements, symmetry)
+                if self._ghost is not None:
+                    print(f"Symmetry ghosts: {describe_symmetry(symmetry)}")
 
         self.A_vib = None
         if self._v_show_surface:
@@ -311,6 +337,7 @@ class ResultsViewer:
 
         # Add surface
         surface_actor = None
+        ghost_actor = None
         mesh_actor = None
         if v_show_surface:
             scalars, is_rgba = self._compute_surface_data(
@@ -318,6 +345,7 @@ class ResultsViewer:
             if scalars is None:
                 scalars, is_rgba = self._surface_placeholder(len(self._elements))
 
+            edges = not args.no_edges
             surface_actor = scene.add_surface_pressure(
                 self._nodes, self._elements, scalars,
                 actual_freq=actual_freq,
@@ -326,11 +354,41 @@ class ResultsViewer:
                 opacity=args.mesh_opacity,
                 show_scalar_bar=not share_colorbar,
                 rgba=is_rgba,
+                show_edges=edges,
+                **(EDGE_STYLE if edges else {}),
             )
+
+            # Ghosts get their own actor so the real surface keeps its exact
+            # colorbar and clim handling; it is excluded from db_actors for
+            # the same reason -- its range is the real one's. Same opacity,
+            # no wireframe: the edges are what say "this part was solved".
+            if self._ghost is not None:
+                g_scalars, g_rgba = self._compute_surface_data(
+                    be_index, actual_freq, A_vib, db_ref=db_ref,
+                    ghost=self._ghost)
+                if g_scalars is None:
+                    g_scalars, g_rgba = self._surface_placeholder(
+                        len(self._ghost.elements))
+                ghost_actor = scene.add_surface_pressure(
+                    self._ghost.nodes, self._ghost.elements, g_scalars,
+                    actual_freq=actual_freq,
+                    quantity=self.surface_quantity,
+                    cmap=cmap_for_quantity(self.surface_quantity),
+                    opacity=args.mesh_opacity,
+                    clim=surface_actor.mapper.scalar_range if not g_rgba else None,
+                    show_scalar_bar=False,
+                    rgba=g_rgba,
+                )
         elif has_data:
             # --no-surface: show geometry without pressure coloring
+            edges = not args.no_edges
             mesh_actor = scene.add_object_mesh(
-                self._nodes, self._elements, opacity=args.mesh_opacity)
+                self._nodes, self._elements, opacity=args.mesh_opacity,
+                show_edges=edges, **(EDGE_STYLE if edges else {}))
+            if self._ghost is not None:
+                ghost_actor = scene.add_object_mesh(
+                    self._ghost.nodes, self._ghost.elements,
+                    opacity=args.mesh_opacity)
 
         # Add eval points
         points_actor = None
@@ -406,6 +464,7 @@ class ResultsViewer:
 
         # Update remaining instance state
         self.surface_actor = surface_actor
+        self.ghost_actor = ghost_actor
         self.mesh_actor = mesh_actor
         self.points_actor = points_actor
         self.intensity_actor = intensity_actor
@@ -451,10 +510,15 @@ class ResultsViewer:
                 self.db_actors, self.initial_clims, self.db_symmetric):
             if sym:
                 half = max(abs(v0), abs(v1)) + half_exp
-                actor.mapper.scalar_range = (-half, half)
+                rng = (-half, half)
             else:
-                actor.mapper.scalar_range = (v0 + shift - half_exp,
-                                             v1 + shift + half_exp)
+                rng = (v0 + shift - half_exp, v1 + shift + half_exp)
+            actor.mapper.scalar_range = rng
+            # The ghosts share the real surface's scale by definition -- they
+            # are the same elements. Kept out of db_actors (their range would
+            # be counted twice) but dragged along whenever it changes.
+            if actor is self.surface_actor and self.ghost_actor is not None:
+                self.ghost_actor.mapper.scalar_range = rng
         self.scene._plotter.render()
         if self.initial_clims:
             v0, v1 = self.initial_clims[0]
@@ -481,8 +545,9 @@ class ResultsViewer:
         # at the end (_apply_clim renders).
         plotter.suppress_rendering = True
         try:
-            for actor in (self.surface_actor, self.mesh_actor, self.points_actor,
-                          self.intensity_actor, self.impedance_actor):
+            for actor in (self.surface_actor, self.ghost_actor, self.mesh_actor,
+                          self.points_actor, self.intensity_actor,
+                          self.impedance_actor):
                 if actor is not None:
                     plotter.remove_actor(actor)
             for title in list(plotter.scalar_bars.keys()):

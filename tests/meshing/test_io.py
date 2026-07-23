@@ -156,3 +156,65 @@ class TestMirrorMesh:
         v, t = self._quarter_box()
         with pytest.raises(ValueError, match="three"):
             mirror_mesh(v, t, [1, 1], [0.0, 0.0, 0.0])
+
+
+class TestMirrorMeshReturnCopies:
+    """return_copies=True additionally reports which axes each copy flipped.
+
+    The viz layer needs that to map every mirrored element back to its source
+    element and to work out the reflected scalar's sign, without duplicating
+    the reflection logic.
+    """
+
+    _quarter_box = staticmethod(TestMirrorMesh._quarter_box)
+
+    def test_no_active_planes_yields_a_single_unflipped_copy(self):
+        v, t = self._quarter_box()
+        vm, tm, copies = mirror_mesh(v, t, [0, 0, 0], [0.0, 0.0, 0.0],
+                                     return_copies=True)
+        assert np.array_equal(vm, v)
+        assert np.array_equal(tm, t)
+        assert copies == [()]
+
+    def test_copy_count_is_two_to_the_number_of_planes(self):
+        v, t = self._quarter_box()
+        _, _, copies = mirror_mesh(v, t, [1, 1, 0], [0.0, 0.0, 0.0],
+                                   return_copies=True)
+        assert len(copies) == 4
+
+    def test_first_copy_is_the_unreflected_original(self):
+        v, t = self._quarter_box()
+        _, _, copies = mirror_mesh(v, t, [1, 1, 0], [0.0, 0.0, 0.0],
+                                   return_copies=True)
+        assert copies[0] == ()
+
+    def test_copy_order_matches_the_block_order_of_the_vertices(self):
+        """Copy k's flipped axes must describe vertex block k, or the viz
+        layer would colour ghosts with the wrong source element."""
+        v, t = self._quarter_box()
+        vm, _, copies = mirror_mesh(v, t, [1, 1, 0], [0.0, 0.0, 0.0],
+                                    return_copies=True)
+        n = len(v)
+        for k, flipped in enumerate(copies):
+            expected = v.copy()
+            for axis in flipped:
+                expected[:, axis] = -expected[:, axis]
+            assert np.allclose(vm[k * n:(k + 1) * n], expected), f"copy {k}"
+
+    def test_reports_the_axis_index_not_the_plane_position(self):
+        v, t = self._quarter_box()
+        _, _, copies = mirror_mesh(v, t, [0, 1, 0], [0.0, 0.0, 0.0],
+                                   return_copies=True)
+        assert copies == [(), (1,)]
+
+    def test_three_planes_give_eight_copies_ending_in_all_axes_flipped(self):
+        v, t = self._quarter_box()
+        _, _, copies = mirror_mesh(v, t, [1, 1, 1], [0.0, 0.0, 0.0],
+                                   return_copies=True)
+        assert len(copies) == 8
+        assert copies[-1] == (0, 1, 2)
+
+    def test_default_still_returns_two_values(self):
+        v, t = self._quarter_box()
+        result = mirror_mesh(v, t, [1, 1, 0], [0.0, 0.0, 0.0])
+        assert len(result) == 2

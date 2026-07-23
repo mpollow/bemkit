@@ -105,7 +105,7 @@ def read_mesh_triangles(mesh_file):
     return vertices, np.vstack(tri_list)
 
 
-def mirror_mesh(vertices, triangles, planes, coordinates):
+def mirror_mesh(vertices, triangles, planes, coordinates, return_copies=False):
     """Reflect a symmetry-reduced mesh into the full geometry.
 
     A model with [SYMMETRY] stores only one half/quarter/eighth of the
@@ -124,11 +124,16 @@ def mirror_mesh(vertices, triangles, planes, coordinates):
             is an active plane; the sign (symmetric vs antisymmetric) is a
             boundary condition and does not change the geometry.
         coordinates: where each plane cuts its axis, same units as vertices
+        return_copies: also return, per copy, the tuple of axes reflected to
+            produce it (``()`` for the original). Lets a caller map every
+            mirrored element back to its source without re-deriving the
+            reflection — see ``bemkit.viz._symmetry``.
 
     Returns:
-        Tuple of (vertices, triangles) with 2**k copies for k active planes.
-        The original mesh comes first, so ``triangles[:T]`` still indexes the
-        input elements.
+        Tuple of (vertices, triangles) with 2**k copies for k active planes,
+        or (vertices, triangles, copies) when ``return_copies``. The original
+        mesh comes first, so ``triangles[:T]`` still indexes the input
+        elements, and ``copies[0]`` is always ``()``.
     """
     planes = list(planes)
     coordinates = list(coordinates)
@@ -141,9 +146,10 @@ def mirror_mesh(vertices, triangles, planes, coordinates):
     triangles = np.asarray(triangles)
     axes = [i for i, p in enumerate(planes) if p]
     if not axes:
-        return vertices, triangles
+        return (vertices, triangles, [()]) if return_copies else (vertices, triangles)
 
     verts, tris = [vertices], [triangles]
+    copies = [()]
     for axis in axes:
         offset = 2.0 * float(coordinates[axis])
         reflected = []
@@ -153,10 +159,12 @@ def mirror_mesh(vertices, triangles, planes, coordinates):
             reflected.append(w)
         tris = tris + [t[:, ::-1] for t in tris]
         verts = verts + reflected
+        copies = copies + [c + (axis,) for c in copies]
 
     starts = np.cumsum([0] + [len(v) for v in verts[:-1]])
-    return (np.vstack(verts),
-            np.vstack([t + s for t, s in zip(tris, starts)]))
+    out = (np.vstack(verts),
+           np.vstack([t + s for t, s in zip(tris, starts)]))
+    return (*out, copies) if return_copies else out
 
 
 def read_mesh_physical_groups(mesh_file: str | Path) -> dict:
