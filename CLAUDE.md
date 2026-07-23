@@ -44,6 +44,7 @@ bemkit/
 │   ├── web.py             # auralizer-bundle exporter (`bem MODEL export-web`);
 │   │                      #   format contract: bemkit-auralizer docs/bundle-format.md
 │   └── cli/               # `bem` entry point
+│                          # _init.py     — `bem init` config.toml bootstrap
 │                          # _pipeline.py — mesh/export/run/pack/all + status
 │                          # _plot.py     — 2D plot subcommand
 │                          # _viz3d.py    — geometry/results 3D subcommands
@@ -101,6 +102,14 @@ subcommand (e.g. `mesh/`) needs a path prefix to disambiguate: `bem ./mesh`.
 bem examples/sphcap                    # show status (default; `bem MODEL status` is the same)
 #   status shows per-variant stages, bins done, solver warnings, and live
 #   NumCalc jobs (⟳ running, current bin — detected via /proc CWDs)
+bem newmodel init model.msh            # bootstrap config.toml from an existing mesh
+#   Copies the mesh into mesh/ (or uses what is already there) and writes a
+#   config.toml measured against it: sr=32000/nbins=65, onaxis fieldpoints
+#   placed clear of the bounding box, and — only when the mesh has no
+#   'vibrating' physical group — a placeholder [BOUNDARY] near= anchor, since
+#   a mesh with neither exports as a fully rigid surface that solves to zero.
+#   Trusted meshes need no [mesh]/[variants] section, so none is written.
+#   Writes config.toml only; run `export` then `run` next. --force overwrites.
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc (parallel)

@@ -42,7 +42,9 @@ def load_model_config(model_dir):
     try:
         return ModelConfig.from_dir(model_dir)
     except FileNotFoundError:
-        sys.exit(f"No config.toml in {model_dir}")
+        sys.exit(f"No config.toml in {model_dir}\n"
+                 f"  Bootstrap one from an existing mesh: "
+                 f"bem {model_dir} init [MESH]")
     except (ValueError, tomllib.TOMLDecodeError) as e:
         sys.exit(str(e))
 
@@ -78,7 +80,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", metavar="COMMAND",
                                 prog="bem [MODEL_DIR]")
 
-    from bemkit.cli import _pipeline, _plot, _viz3d, _web
+    from bemkit.cli import _init, _pipeline, _plot, _viz3d, _web
+    _init.register(sub)
     _pipeline.register(sub)
     _plot.register(sub)
     _viz3d.register(sub)

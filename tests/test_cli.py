@@ -29,6 +29,7 @@ def test_variant_flag_accumulates_across_repeats_and_spaces(command):
 
 @pytest.mark.parametrize("argv", [
     ["--help"],
+    ["x", "init", "--help"],
     ["x", "mesh", "--help"],
     ["x", "export", "--help"],
     ["x", "run", "--help"],

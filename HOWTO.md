@@ -132,6 +132,40 @@ cp left.stl right.stl examples/hutubs/mesh/     # meters
 bem examples/hutubs export                       # uses them as-is
 ```
 
+**Starting from nothing but a mesh?** `bem init` writes the `config.toml` for
+you, measured against the mesh itself:
+
+```bash
+bem mymodel init path/to/model.msh   # copies into mesh/, writes config.toml
+bem mymodel export
+bem mymodel run
+```
+
+It picks fieldpoint radii that clear the mesh bounding box (fixed radii would
+land *inside* a large or off-centre mesh and be dropped by validation), and it
+works out what drives the model:
+
+- **A `vibrating` physical group** (what bemkit's own mesher writes) — used
+  directly, nothing to configure.
+- **Groups with other names** — the common case for a mesh from another tool.
+  bemkit matches the group by name, so `SourceDisc` or `Piston` is invisible to
+  it by default. `init` picks the *smallest* group (a source patch is a small
+  fraction of the radiating body) and writes it down explicitly:
+
+  ```toml
+  [groups]
+  vibrating = "SourceDisc"   # every element outside this is rigid
+  ```
+
+  Check that line — if the guess is wrong, edit it rather than re-running init.
+- **No usable groups at all** — a **placeholder** `[BOUNDARY]` anchor on the
+  topmost element, flagged loudly. **Edit it before running**; see step 4.
+
+The reason for the noise: a surface with nothing driving it is a perfectly
+valid NumCalc job that returns silence. Export therefore *raises* if a
+configured `[groups] vibrating` name is not in the mesh, and warns if the mesh
+has groups but none of them resolved.
+
 > **Variants = mesh files.** Every mesh file under `mesh/` becomes a variant with
 > its own `numcalc/<stem>/` bundle. One file → one variant; many files → many
 > variants meshed/exported/run/packed independently. (You can also define
