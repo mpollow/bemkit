@@ -209,6 +209,40 @@ def read_mesh_physical_groups(mesh_file: str | Path) -> dict:
     return groups
 
 
+#: Default physical-group name for driven elements — what bemkit's own mesher
+#: writes (meshing/generate.py). Foreign meshes use whatever their authoring
+#: tool chose ("SourceDisc", "Piston", ...), hence the [groups] config override.
+DEFAULT_VIBRATING_GROUP = "vibrating"
+
+
+def resolve_vibrating_group(groups, name=None):
+    """Pick the driven physical group out of a mesh's groups.
+
+    Args:
+        groups: {name: element_indices} from read_mesh_physical_groups
+        name: explicit group name from config ([groups] vibrating); None means
+            fall back to the default name
+
+    Returns:
+        (group_name, indices), or (None, None) when no driven group is found.
+        Matching is case-insensitive so "Vibrating" works unconfigured.
+
+    Raises:
+        ValueError: if an explicitly configured name is not in the mesh — a
+            silent fallback there would export a fully rigid surface.
+    """
+    wanted = name if name is not None else DEFAULT_VIBRATING_GROUP
+    for key in groups:
+        if key == wanted or key.lower() == wanted.lower():
+            return key, groups[key]
+    if name is not None:
+        available = ", ".join(groups) or "none"
+        raise ValueError(
+            f"[groups] vibrating = {name!r} is not a physical group in this "
+            f"mesh (available: {available})")
+    return None, None
+
+
 def element_areas(nodes, elements):
     """Triangle areas of a surface mesh.
 

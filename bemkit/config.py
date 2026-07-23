@@ -30,6 +30,11 @@ _BEM_KEYS = {
 
 _MESH_KEYS = ("lc_min", "lc_max", "dist_min", "dist_max", "distance")
 
+#: [groups] keys — map a bemkit BC role onto this mesh's physical-group name.
+#: Only ``vibrating`` is functional: every element not in it is rigid by
+#: default, so naming the rigid group would carry no information.
+_GROUP_KEYS = ("vibrating",)
+
 #: How the size ramp measures distance from the vibrating surface.
 #: "geodesic" travels over the surface and is STEP/CAD only.
 _DISTANCE_MODES = ("euclidean", "geodesic")
@@ -92,6 +97,18 @@ def _validate(raw, path):
     if not isinstance(mesh, dict):
         raise ValueError(f"{path}: [mesh] must be a table")
     _check_mesh_params(mesh, f"{path}: [mesh]")
+
+    groups = raw.get("groups", {})
+    if not isinstance(groups, dict):
+        raise ValueError(f"{path}: [groups] must be a table")
+    unknown = [k for k in groups if k not in _GROUP_KEYS]
+    if unknown:
+        raise ValueError(f"{path}: unknown [groups] key(s): {', '.join(unknown)} "
+                         f"(known: {', '.join(_GROUP_KEYS)})")
+    for k, v in groups.items():
+        if not isinstance(v, str):
+            raise ValueError(f"{path}: [groups] {k} must be a physical-group "
+                             f"name (string), got {v!r}")
 
     fp = raw.get("fieldpoints", {})
     if isinstance(fp, str):
@@ -163,6 +180,7 @@ class ModelConfig:
     mesh_cfg: dict = field(default_factory=dict)
     geometry_cfg: dict = field(default_factory=dict)
     fieldpoints_cfg: dict = field(default_factory=dict)
+    groups_cfg: dict = field(default_factory=dict)
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -188,6 +206,7 @@ class ModelConfig:
             mesh_cfg=raw.get("mesh", {}),
             geometry_cfg=raw.get("geometry", {}),
             fieldpoints_cfg=raw.get("fieldpoints", {}),
+            groups_cfg=raw.get("groups", {}),
             raw=raw,
         )
 
@@ -219,6 +238,14 @@ class ModelConfig:
     def freq_array(self):
         """Frequency array excluding DC, shape (nbins-1,)."""
         return np.linspace(0, self.sr / 2, self.nbins)[1:]
+
+    def vibrating_group(self):
+        """Physical-group name holding the driven elements, or None.
+
+        None means "use the default name", not "there is no driven group" —
+        see bemkit.meshing.io.resolve_vibrating_group.
+        """
+        return self.groups_cfg.get("vibrating")
 
     def variants(self, prefixes=None):
         """Discover variant names from [variants] table or mesh/ directory."""

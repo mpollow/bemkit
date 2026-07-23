@@ -3,7 +3,10 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bemkit.meshing.io import MeshInfo, find_mesh_file, read_mesh_physical_groups
+from bemkit.meshing.io import (
+    DEFAULT_VIBRATING_GROUP, MeshInfo, find_mesh_file,
+    read_mesh_physical_groups, resolve_vibrating_group,
+)
 from bemkit.sim.fieldpoints import (
     combine_and_track, load_fieldpoint_sets, save_offsets, validate_points,
 )
@@ -91,10 +94,25 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     # mesh, then write the concrete element ranges.
     from bemkit.sim.boundary import flatten, resolve_boundary
     groups = read_mesh_physical_groups(mesh_file)
+    vib_name, vib_indices = resolve_vibrating_group(
+        groups, (config.get("groups") or {}).get("vibrating"))
     resolved = resolve_boundary(config, variant, mesh_file)
+    ranges = flatten(resolved)
+    if verbose and vib_name:
+        print(f"  Driven group '{vib_name}': {len(vib_indices)} elements")
+    if vib_indices is None and not ranges and groups:
+        # The mesh has groups but none of them is the driven one, and no
+        # [BOUNDARY] makes up for it — NumCalc would solve a fully rigid
+        # surface with no source and return silence without complaining.
+        print(f"  WARNING: variant '{variant}' has no driven elements. The mesh "
+              f"defines physical group(s) {', '.join(groups)} but none is named "
+              f"'{DEFAULT_VIBRATING_GROUP}'. Name the driven one in config.toml:\n"
+              f"    [groups]\n"
+              f"    vibrating = \"<one of: {', '.join(groups)}>\"\n"
+              f"  Otherwise the whole surface is rigid and the result is silence.")
     write_nc_inp(config, variant, nc_dir,
-                 vibrating_indices=groups.get("vibrating"),
-                 boundary_ranges=flatten(resolved), verbose=verbose)
+                 vibrating_indices=vib_indices,
+                 boundary_ranges=ranges, verbose=verbose)
 
     # -- config snapshot (records the effective config + resolved BC) --
     from bemkit.sim.config_snapshot import write_snapshot

@@ -228,6 +228,10 @@ dist_min = 50.0
 dist_max = 100.0
 distance = "euclidean"    # euclidean [default] | geodesic (STEP/CAD only)
 
+[groups]                  # optional: map bemkit's BC role onto this mesh's
+vibrating = "SourceDisc"  #   physical-group names (foreign meshers rarely use
+                          #   "vibrating"). Everything outside it is rigid.
+
 [fieldpoints.onaxis]      # declarative set: type + make_fields_* kwargs
 type = "onaxis"           # onaxis | polar | plane
 dim = "z"
@@ -406,6 +410,21 @@ Points validated against mesh surface using Moller-Trumbore ray-casting (multi-d
 
 See `bemkit/sim/templates/NC.inp` (package data). Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2` (specified velocity).
 STEP colors: Blue (0,0,255) = rigid, Red (255,0,0) = vibrating.
+
+### Driven-group resolution
+
+`meshing/generate.py` names its groups `rigid`/`vibrating`, but foreign meshes
+use their own (Akabak writes `HornWalls`/`SourceDisc`).
+`resolve_vibrating_group(groups, name)` in `bemkit/meshing/io.py` is the single
+lookup: it matches `name` from `[groups] vibrating` if given, else the default
+`vibrating`, **case-insensitively**. It resolves by *name*, never by tag ID —
+foreign meshes routinely invert bemkit's `RIGID=1`/`VIBRATING=2` numbering.
+
+Failure modes are deliberately loud, because a surface with no driven elements
+is a valid NumCalc job that returns silence:
+- an explicitly configured name absent from the mesh **raises** at export;
+- a mesh with physical groups where none resolved, and no `[BOUNDARY]` to
+  compensate, prints a WARNING naming the available groups.
 
 ### NumCalc Boundary Condition Types
 
