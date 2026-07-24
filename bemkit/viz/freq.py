@@ -2,9 +2,11 @@
 
 import numpy as np
 
+from bemkit.viz._angles import DEFAULT_ANGLES, angle_indices, axis_positions
 from bemkit.viz._style import (
-    point_colors, make_point_label, format_freq_axis,
+    point_colors, angle_styles, make_point_label, format_freq_axis,
     PRESSURE_LABEL_DB_ACC, PRESSURE_LABEL, PHASE_LABEL_DEG, PHASE_LABEL_RAD,
+    ONAXIS_LABEL, ONAXIS_LABEL_DB,
 )
 
 
@@ -142,6 +144,155 @@ def freq_phase(ax, result, *, points=None, quantity="pressure", norm="acc",
     format_freq_axis(ax)
     ax.set_ylabel(PHASE_LABEL_DEG if degrees else PHASE_LABEL_RAD)
     ax.set_xlim(freqs[0] / 1000, freqs[-1] / 1000)
+    ax.legend(loc="best")
+
+    return lines
+
+
+def angle_response(ax, result, *, angles=DEFAULT_ANGLES, quantity="pressure",
+                   norm="acc", db=True, ref=1.0, freq_range=None, tol=None,
+                   log_freq=True, **kwargs):
+    """Plot the frequency response of selected directions of a circular set.
+
+    The default fan — 0°, ±30°, ±60°, ±90° — is the standard off-axis family
+    quoted for a loudspeaker.  Requested angles the set does not cover are
+    dropped silently, so a half-circle set simply yields fewer curves.
+
+    A ±θ pair shares a color and is told apart by line style; see
+    ``_style.angle_styles``.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    result : BEMResult
+    angles : sequence of float
+        Requested directions in degrees.
+    quantity : "pressure" or "velocity"
+    norm : "acc" or "raw"
+    db : bool
+        Plot in dB (the default) or on a log magnitude axis.
+    ref : "onaxis", "max", "globalmax", or float
+        dB reference — see ``directivity.directivity_levels``.  The default
+        1.0 keeps the curves absolute, so the on-axis response is visible as
+        well as the off-axis spread; ``"onaxis"`` turns the plot into the line
+        equivalent of the isobaric map.
+    freq_range : (f_min, f_max) or None
+        Frequency bounds in Hz.
+    tol : float or None
+        Angle-matching tolerance in degrees (None = one angular step).
+    log_freq : bool
+        Logarithmic frequency axis.
+    **kwargs
+        Passed to ``ax.plot()``.
+
+    Returns
+    -------
+    list of Line2D
+
+    Raises
+    ------
+    bemkit.viz._angles.NotCircular
+        If the fieldpoint set is not a circle about the origin.
+    """
+    from bemkit.viz.directivity import directivity_levels, level_label
+
+    indices, matched = angle_indices(result, angles, tol=tol)
+    if len(indices) == 0:
+        raise ValueError(f"none of the angles {list(angles)} are covered by "
+                         f"fieldpoint set {result.name!r}")
+
+    freqs = result.frequencies
+    fsl = slice(None) if freq_range is None else result.freq_slice(*freq_range)
+    freqs = freqs[fsl]
+
+    mag = result.magnitude(quantity, norm)[indices][:, fsl]
+    vals = directivity_levels(mag, matched, ref) if db else mag
+
+    styles = angle_styles(matched)
+
+    lines = []
+    for ci, ang in enumerate(matched):
+        kw = {"alpha": 0.9}
+        kw.update(styles[ci])
+        kw.update(kwargs)
+        plot = ax.plot if db else ax.semilogy
+        lines.extend(plot(freqs, vals[ci], label=f"{ang:+.0f}°", **kw))
+
+    ax.set_xlim(freqs[0], freqs[-1])
+    format_freq_axis(ax, unit="Hz", log=log_freq)
+    ax.set_ylabel(level_label(ref) if db else PRESSURE_LABEL_DB_ACC)
+    ax.legend(loc="best", ncols=2 if len(matched) > 4 else 1)
+
+    return lines
+
+
+def onaxis_response(ax, result, *, quantity="pressure", norm="acc", db=True,
+                    ref=1.0, freq_range=None, log_freq=True, **kwargs):
+    """Plot the distance-compensated response of an on-axis fieldpoint set.
+
+    Every curve is multiplied by its own distance r from the origin.  Pressure
+    from a compact source falls as 1/r, so |p|·r is distance-independent: in
+    the far field the curves collapse onto one, and where they do *not* — near
+    field, or a source large compared with r — the spread is the reading of
+    interest.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    result : BEMResult
+    quantity : "pressure" or "velocity"
+    norm : "acc" or "raw"
+    db : bool
+        Plot in dB (the default) or on a log magnitude axis.
+    ref : float
+        dB reference in Pa·m per the data's own normalization.
+    freq_range : (f_min, f_max) or None
+        Frequency bounds in Hz.
+    log_freq : bool
+        Logarithmic frequency axis.
+    **kwargs
+        Passed to ``ax.plot()``.
+
+    Returns
+    -------
+    list of Line2D
+
+    Raises
+    ------
+    bemkit.viz._angles.NotOnAxis
+        If the fieldpoint set is not collinear through the origin.
+    """
+    from bemkit.viz._angles import AXES
+
+    positions, axis = axis_positions(result)
+    # The origin itself carries no distance to compensate with (and normally
+    # sits inside the mesh, so it was dropped at export anyway).
+    indices = np.flatnonzero(~np.isnan(positions) & (np.abs(positions) > 0))
+    order = indices[np.argsort(np.abs(positions[indices]))]
+
+    freqs = result.frequencies
+    fsl = slice(None) if freq_range is None else result.freq_slice(*freq_range)
+    freqs = freqs[fsl]
+
+    r = np.abs(positions[order])[:, None]
+    vals = result.magnitude(quantity, norm)[order][:, fsl] * r
+    if db:
+        with np.errstate(divide="ignore"):
+            vals = 20 * np.log10(vals / float(ref))
+
+    colors = point_colors(len(order), stop=0.75)
+
+    lines = []
+    for ci, idx in enumerate(order):
+        kw = {"color": colors[ci], "alpha": 0.9}
+        kw.update(kwargs)
+        label = f"{AXES[axis]}={positions[idx]:+.2f} m"
+        plot = ax.plot if db else ax.semilogy
+        lines.extend(plot(freqs, vals[ci], label=label, **kw))
+
+    ax.set_xlim(freqs[0], freqs[-1])
+    format_freq_axis(ax, unit="Hz", log=log_freq)
+    ax.set_ylabel(ONAXIS_LABEL_DB if db else ONAXIS_LABEL)
     ax.legend(loc="best")
 
     return lines

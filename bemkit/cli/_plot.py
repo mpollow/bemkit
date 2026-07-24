@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 
-PLOT_TYPES = ["freq", "ir", "polar", "plane", "phase", "etc", "sphere", "contour"]
+PLOT_TYPES = ["freq", "ir", "polar", "isobaric", "onaxis", "plane", "phase",
+              "etc", "sphere", "contour"]
 
 
 def register(sub):
@@ -19,15 +20,56 @@ def register(sub):
                    help="Frequency in Hz (required for plane/sphere/contour)")
     p.add_argument("--freqs", metavar="F1,F2,...",
                    help="Comma-separated frequencies for polar (default: octave bands)")
+    p.add_argument("--angles", metavar="A1,A2,...", default=None,
+                   help="Directions in degrees for freq/ir on a circular set "
+                        "(default: 0,±30,±60,±90)")
+    p.add_argument("--ref", default=None, metavar="REF",
+                   help="dB reference for polar/isobaric/freq: onaxis, max, "
+                        "globalmax, or a number")
+    p.add_argument("--clim", nargs=2, type=float, metavar=("LO", "HI"),
+                   default=None, help="Color/level limits in dB")
+    p.add_argument("--contours", type=float, default=6.0, metavar="DB",
+                   help="Isobaric contour spacing in dB (0 disables)")
+    p.add_argument("--linear-freq", action="store_true", dest="linear_freq",
+                   help="Linear instead of logarithmic frequency axis")
     p.add_argument("--value-func", default="magnitude_db", dest="value_func",
                    choices=["magnitude_db", "magnitude", "phase", "real", "imag"])
     p.add_argument("--filled", action="store_true", help="Filled contours")
     p.set_defaults(func=cmd_plot)
 
 
+def _parse_angles(spec):
+    """"0,30,-30" -> [0.0, 30.0, -30.0]; None -> the default fan."""
+    from bemkit.viz._angles import DEFAULT_ANGLES
+    if spec is None:
+        return list(DEFAULT_ANGLES)
+    try:
+        return [float(a) for a in spec.replace(" ", "").split(",") if a]
+    except ValueError:
+        raise SystemExit(f"--angles must be comma-separated degrees, "
+                         f"got {spec!r}")
+
+
+def _parse_ref(spec, default):
+    """Reference selector: a keyword, or a number given as a string."""
+    if spec is None:
+        return default
+    if spec in ("onaxis", "max", "globalmax"):
+        return spec
+    try:
+        return float(spec)
+    except ValueError:
+        raise SystemExit(f"--ref must be onaxis, max, globalmax, or a number, "
+                         f"got {spec!r}")
+
+
 def cmd_plot(model_dir, args):
     from bemkit.cli import require
     require("matplotlib", "viz")
+    # Validate up front: inside the per-set loop a bad value would be reported
+    # as a skipped set rather than as the typo it is.
+    _parse_ref(args.ref, None)
+    _parse_angles(args.angles)
     _plot_sets(model_dir, args.plot_type, args.set_name, args, prefixes=args.variant)
 
 
@@ -54,6 +96,8 @@ def _plot_sets(model_dir, plot_type, set_name, args, prefixes=None):
     if not ordered_sets:
         ordered_sets = [None]
 
+    from bemkit.viz._angles import NotCircular, NotOnAxis
+
     for sn in ordered_sets:
         effective_sn = set_name if set_name is not None else sn
         print(f"\n--- Plot: {effective_sn or 'auto'} ---")
@@ -64,7 +108,9 @@ def _plot_sets(model_dir, plot_type, set_name, args, prefixes=None):
                 _run_plot('ir', model_dir, effective_sn, args)
             if plot_type and plot_type not in ('freq', 'ir'):
                 _run_plot(plot_type, model_dir, effective_sn, args)
-        except SystemExit as e:
+        except (SystemExit, NotCircular, NotOnAxis) as e:
+            # A set that does not have the geometry a plot needs is a normal
+            # outcome of looping over every set, not an error.
             print(f"  Skipped: {e}")
 
 
@@ -91,13 +137,15 @@ def _save_fig(fig, output_file):
 def _run_plot(plot_type, model_dir, set_name, args):
     """Unified plot dispatcher."""
     import matplotlib.pyplot as plt
-    import numpy as np
 
     from bemkit.analysis.result import load_result
     from bemkit.viz import (
         freq_magnitude, impulse_response, polar_directivity,
         heatmap, freq_phase, energy_time_curve, spherical_heatmap, contour,
+        angle_response, onaxis_response, angle_impulse_response, isobaric,
+        level_label, format_polar_axes,
     )
+    from bemkit.viz._angles import is_circular
     from bemkit.viz._style import bem_style
 
     model_dir = Path(model_dir)
@@ -138,21 +186,48 @@ def _run_plot(plot_type, model_dir, set_name, args):
     plots_dir = model_dir / "plots"
     plots_dir.mkdir(exist_ok=True)
 
+    log_freq = not args.linear_freq
+
     with bem_style():
         if plot_type == 'freq':
             print(f"Frequencies: {result.n_freq} steps from {result.frequencies[0]:.0f} "
                   f"to {result.frequencies[-1]:.0f} Hz")
             fig, ax = plt.subplots(figsize=(12, 6))
-            freq_magnitude(ax, result, label_fmt="x={x:.2f} m")
-            ax.set_title(f"{result.name}: Field Pressure (volume_acc=1.0 m³/s²)",
-                         fontsize=13, fontweight="bold")
+            if is_circular(result):
+                # A circular set has one response per direction; the useful
+                # plot is the off-axis fan, not all N points at once.
+                angles = _parse_angles(args.angles)
+                ref = _parse_ref(args.ref, 1.0)
+                print(f"Off-axis responses at {angles} degrees")
+                angle_response(ax, result, angles=angles, ref=ref,
+                               log_freq=log_freq)
+                ax.set_title(f"{result.name}: Off-Axis Frequency Response",
+                             fontsize=13, fontweight="bold")
+            else:
+                freq_magnitude(ax, result, label_fmt="x={x:.2f} m")
+                ax.set_title(f"{result.name}: Field Pressure (volume_acc=1.0 m³/s²)",
+                             fontsize=13, fontweight="bold")
             _save_fig(fig, plots_dir / f"{stem}_field_pressure.png")
 
         elif plot_type == 'ir':
             fig, ax = plt.subplots(figsize=(12, 6))
-            impulse_response(ax, result, time_range=(0, 5), label_fmt="z={z:.2f} m")
-            ax.set_title(f"{result.name}: Impulse Responses",
-                         fontsize=13, fontweight="bold")
+            if is_circular(result):
+                from bemkit.viz._angles import circle_angles
+                angles = _parse_angles(args.angles)
+                # Every point of a circular set is the same distance away, so
+                # the direct sound has one known arrival time — window on it
+                # instead of the fixed 5 ms a mixed-distance set needs.
+                arrival = circle_angles(result)[1] / result.speed_of_sound * 1e3
+                angle_impulse_response(ax, result, angles=angles,
+                                       time_range=(max(0.0, arrival - 1.0),
+                                                   arrival + 2.0))
+                ax.set_title(f"{result.name}: Impulse Responses by Direction",
+                             fontsize=13, fontweight="bold")
+            else:
+                impulse_response(ax, result, time_range=(0, 5),
+                                 label_fmt="z={z:.2f} m")
+                ax.set_title(f"{result.name}: Impulse Responses",
+                             fontsize=13, fontweight="bold")
             _save_fig(fig, plots_dir / f"{stem}_IR.png")
 
         elif plot_type == 'polar':
@@ -164,13 +239,41 @@ def _run_plot(plot_type, model_dir, set_name, args):
                 raise SystemExit(
                     f"None of the requested frequencies {freqs_list} are in range "
                     f"[{result.frequencies[0]:.0f}, {result.frequencies[-1]:.0f}] Hz")
+            ref = _parse_ref(args.ref, "onaxis")
+            clim = tuple(args.clim) if args.clim else (-30.0, 0.0)
             print(f"Plotting polar directivity at {len(valid_freqs)} frequencies: {valid_freqs} Hz")
             fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
-            ax.set_theta_offset(np.pi / 2)
-            polar_directivity(ax, result, freq=valid_freqs, angle_key="auto")
-            ax.set_title(f"{result.name}: Polar Directivity",
+            format_polar_axes(ax, zero="top", rlim=clim)
+            polar_directivity(ax, result, freq=valid_freqs, angle_key="auto",
+                              ref=ref)
+            ax.set_title(f"{result.name}: Polar Directivity\n{level_label(ref)}",
                          fontsize=13, fontweight="bold", pad=20)
             _save_fig(fig, plots_dir / f"{stem}_polar_directivity.png")
+
+        elif plot_type == 'isobaric':
+            ref = _parse_ref(args.ref, "onaxis")
+            clim = tuple(args.clim) if args.clim else (-30.0, 0.0)
+            contours = args.contours if args.contours else None
+            print(f"Plotting isobaric map ({result.n_valid} directions x "
+                  f"{result.n_freq} frequency bins)")
+            fig, ax = plt.subplots(figsize=(11, 6))
+            mesh_obj = isobaric(ax, result, ref=ref, clim=clim,
+                                contours=contours, log_freq=log_freq)
+            cbar = fig.colorbar(mesh_obj, ax=ax, pad=0.02)
+            cbar.set_label(level_label(ref), fontsize=11)
+            ax.set_title(f"{result.name}: Isobaric Directivity",
+                         fontsize=13, fontweight="bold")
+            _save_fig(fig, plots_dir / f"{stem}_isobaric.png")
+
+        elif plot_type == 'onaxis':
+            print(f"Plotting distance-compensated on-axis response "
+                  f"({result.n_valid} distances)")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            onaxis_response(ax, result, ref=_parse_ref(args.ref, 1.0),
+                            log_freq=log_freq)
+            ax.set_title(f"{result.name}: On-Axis Response, Distance-Compensated (×r)",
+                         fontsize=13, fontweight="bold")
+            _save_fig(fig, plots_dir / f"{stem}_onaxis_response.png")
 
         elif plot_type == 'phase':
             print(f"Frequencies: {result.n_freq} steps from {result.frequencies[0]:.0f} "

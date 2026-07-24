@@ -38,6 +38,8 @@ bemkit/
 │   │                      # analytic.py    — spherical cap solver (optional: scipy)
 │   ├── viz/               # 2D/3D visualization (matplotlib/pyvista)
 │   │                      # freq.py, time.py, polar.py, field.py — 2D plots
+│   │                      # directivity.py — isobaric map (angle x freq)
+│   │                      # _angles.py    — circular/on-axis set geometry
 │   │                      # scene.py       — BEMScene 3D rendering (lazy pyvista, no I/O)
 │   │                      # results_viewer.py — interactive 3D viewer (owns data loading)
 │   │                      # _style.py      — colormaps, formatting
@@ -121,9 +123,11 @@ bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink), then 
 bem examples/sphcap pack --keep-original     # keep be.out/ after the verified pack
 bem ps                                 # every running NumCalc, any model: model/variant/bins/pid
 bem examples/sphcap plot               # freq + ir plots (all sets)
-bem examples/sphcap plot freq          # frequency magnitude
+bem examples/sphcap plot freq          # frequency magnitude (off-axis fan on a circular set)
 bem examples/sphcap plot ir
 bem examples/sphcap plot polar
+bem examples/sphcap plot isobaric      # angle x frequency map (circular set)
+bem examples/sphcap plot onaxis        # distance-compensated response (on-axis set)
 bem examples/sphcap plot plane --freq 1000
 bem examples/sphcap plot phase
 bem examples/sphcap plot etc
@@ -151,6 +155,11 @@ bemkit-auralizer framework; the format contract is that repo's
 docs/bundle-format.md, guarded there by a golden-manifest test). The
 diagnostic `bem MODEL check ...` family ships separately via the
 `bemkit.cli` entry-point group (private `bemlab` package).
+
+`bem MODEL plot [TYPE] [SET]` options: `--variant` (repeatable), `--freq` (plane/sphere/contour),
+`--freqs` (polar), `--angles` (freq/ir on a circular set; default `0,±30,±60,±90`),
+`--ref` (onaxis/max/globalmax/number), `--clim LO HI`, `--contours DB` (0 disables),
+`--linear-freq`, `--value-func`, `--filled`
 
 `bem MODEL geometry` options: `--variant` (repeatable), `--no-bc`, `--no-mesh`, `--no-grid`,
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
@@ -538,6 +547,40 @@ Normalization matches BEM pipeline: velocity BC (v=1) → raw pressure → ÷(rh
 Composable matplotlib/PyVista visualizations. All 2D functions take an Axes and BEMResult, return artists.
 
 2D plots: `freq_magnitude`, `freq_phase`, `freq_real_imag`, `impulse_response`, `energy_time_curve`, `polar_directivity`, `polar_balloon_slice`, `heatmap`, `contour`, `scatter_field`, `spherical_heatmap`
+
+### Dataset-tailored plots
+
+These read the *geometry* of a fieldpoint set and refuse the wrong one, so
+`bem MODEL plot <type>` over all sets plots the ones that fit and skips the
+rest with a reason. `bemkit/viz/_angles.py` answers the two questions they
+share — is this set a circle about the origin (`circle_angles`, and the angle
+of every point), is it collinear through the origin (`axis_positions`) — from
+the coordinates alone, since a `BEMResult` carries no record of the
+`[fieldpoints.<name>]` table that made it.
+
+| Function | Set | What it shows |
+|---|---|---|
+| `isobaric` (`viz.directivity`) | circular | angle × frequency map, level in color |
+| `angle_response` (`viz.freq`) | circular | frequency response at 0°, ±30°, ±60°, ±90° |
+| `angle_impulse_response` (`viz.time`) | circular | IRs of selected directions, overlaid |
+| `onaxis_response` (`viz.freq`) | on-axis | frequency response × r (1/r decay removed) |
+
+Angle convention (shared by `polar_directivity(angle_key="auto")`): for a
+circle whose plane normal is axis *n*, 0° is on axis `(n+1)%3` and +90° on
+`(n+2)%3`. A `dims = "zx"` polar set therefore has 0° on +z. Angles run
+-180°…180°, and `angle_indices` snaps a requested direction to the nearest
+measured one, dropping requests outside the covered arc — so a half circle
+just yields fewer curves.
+
+dB reference (`directivity_levels`, used by `isobaric`, `polar_directivity`
+and `angle_response`): `"onaxis"` (default for the maps — every frequency
+referenced to its own 0°, so the plot is directivity only), `"max"`,
+`"globalmax"`, or a number for absolute levels. `--ref` on the CLI.
+
+A ±θ pair always shares a color and is separated by line style
+(`_style.angle_styles`), so the pairing survives grayscale and color blindness
+— on an axisymmetric source the two curves land on top of each other, which is
+itself the symmetry check.
 
 3D scenes (`BEMScene`, in `bemkit.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
 - `add_mesh(nodes, elements)` — generic triangular mesh

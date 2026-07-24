@@ -2,8 +2,10 @@
 
 import numpy as np
 
+from bemkit.viz._angles import DEFAULT_ANGLES, angle_indices
 from bemkit.viz._style import (
-    point_colors, make_point_label, TIME_LABEL_MS, TIME_LABEL_S, IR_LABEL,
+    point_colors, angle_styles, make_point_label,
+    TIME_LABEL_MS, TIME_LABEL_S, IR_LABEL,
 )
 from bemkit.viz.freq import _resolve_points
 
@@ -63,6 +65,88 @@ def impulse_response(ax, result, *, points=None, quantity="pressure", norm="acc"
     ax.set_ylabel(IR_LABEL)
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
+
+    if time_range is not None:
+        ax.set_xlim(time_range)
+
+    return lines
+
+
+def angle_impulse_response(ax, result, *, angles=DEFAULT_ANGLES,
+                           quantity="pressure", norm="acc", align=False,
+                           time_range=None, time_unit="ms", tol=None,
+                           **kwargs):
+    """Plot impulse responses of selected directions of a circular set.
+
+    One direction or several, overlaid on shared axes: a single angle gives
+    that direction's IR, a fan gives the comparison (a ±θ pair shares a color
+    and differs in line style).  On a circular set every point sits at the
+    same radius, so the curves are directly comparable without any distance
+    correction — only the arrival time shifts as the source's effective
+    acoustic centre moves with angle.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+    result : BEMResult
+    angles : sequence of float
+        Requested directions in degrees.  Angles the set does not cover are
+        dropped.
+    quantity : "pressure" or "velocity"
+    norm : "acc" or "raw"
+    align : bool
+        Shift the time axis so t=0 is the direct-sound arrival of the *first*
+        selected direction (its peak), which is what makes the relative delays
+        between directions readable.
+    time_range : (t_min, t_max) or None
+        Time bounds in the selected unit.
+    time_unit : "ms", "s", or "samples"
+    tol : float or None
+        Angle-matching tolerance in degrees (None = one angular step).
+    **kwargs
+        Passed to ``ax.plot()``.
+
+    Returns
+    -------
+    list of Line2D
+
+    Raises
+    ------
+    bemkit.viz._angles.NotCircular
+        If the fieldpoint set is not a circle about the origin.
+    """
+    indices, matched = angle_indices(result, angles, tol=tol)
+    if len(indices) == 0:
+        raise ValueError(f"none of the angles {list(angles)} are covered by "
+                         f"fieldpoint set {result.name!r}")
+
+    time_s, ir = result.impulse_response(quantity, norm)
+
+    if time_unit == "samples":
+        t = np.arange(ir.shape[1]).astype(float)
+        xlabel = "Samples"
+    else:
+        t = time_s * _TIME_SCALES[time_unit]
+        xlabel = TIME_LABEL_MS if time_unit == "ms" else TIME_LABEL_S
+
+    if align:
+        t = t - t[int(np.argmax(np.abs(ir[indices[0]])))]
+
+    styles = angle_styles(matched)
+
+    lines = []
+    for ci, (idx, ang) in enumerate(zip(indices, matched)):
+        if np.any(np.isnan(ir[idx])):
+            continue
+        kw = {"alpha": 0.9}
+        kw.update(styles[ci])
+        kw.update(kwargs)
+        lines.extend(ax.plot(t, ir[idx], label=f"{ang:+.0f}°", **kw))
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(IR_LABEL)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best", ncols=2 if len(matched) > 4 else 1)
 
     if time_range is not None:
         ax.set_xlim(time_range)

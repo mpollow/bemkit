@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from bemkit.viz._angles import NotCircular, circle_angles
+from bemkit.viz.directivity import directivity_levels
 from bemkit.viz._style import freq_colors, CMAP_MAGNITUDE
 
 
@@ -21,11 +23,15 @@ def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
     norm : "acc" or "raw"
     db : bool
         Plot in dB.
-    ref : float or "max"
-        dB reference. "max" normalizes each curve to its peak.
+    ref : "onaxis", "max", "globalmax", or float
+        dB reference, per ``directivity.directivity_levels``.  "max" (the
+        default here) normalizes each curve to its own peak; "onaxis"
+        references every curve to its 0° value, which keeps the curves
+        comparable when the peak wanders off axis.
     angle_key : "theta", "phi", or "auto"
-        Which angle to use as the polar axis. "auto" detects planar data
-        and uses the in-plane angle for full 360° plots.
+        Which angle to use as the polar axis. "auto" uses the signed in-plane
+        angle of a circular set (0° on the first in-plane axis, full -180°…
+        180° sweep) and falls back to theta for anything else.
     label_fmt : str
         Format string with ``{f}`` for frequency.
     mirror : bool
@@ -46,27 +52,9 @@ def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
     elif angle_key == "phi":
         angles = result.phi
     elif angle_key == "auto":
-        # Auto-detect best angle for planar data
-        x = result.eval_points[:, 0]
-        y = result.eval_points[:, 1]
-        z = result.eval_points[:, 2]
-
-        # Check which plane the data lies in
-        y_range = y.max() - y.min()
-        x_range = x.max() - x.min()
-        z_range = z.max() - z.min()
-
-        # Data in XZ plane (y~0): use angle in XZ plane
-        if y_range < 0.01 * max(x_range, z_range):
-            angles = np.arctan2(x, z)
-        # Data in XY plane (z~0): use angle in XY plane
-        elif z_range < 0.01 * max(x_range, y_range):
-            angles = np.arctan2(y, x)
-        # Data in YZ plane (x~0): use angle in YZ plane
-        elif x_range < 0.01 * max(y_range, z_range):
-            angles = np.arctan2(z, y)
-        else:
-            # Not planar, fall back to theta
+        try:
+            angles = np.radians(circle_angles(result)[0])
+        except NotCircular:
             angles = result.theta
     else:
         raise ValueError(f"angle_key must be 'theta', 'phi', or 'auto', got {angle_key!r}")
@@ -78,17 +66,18 @@ def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
     order = np.argsort(angles[valid])
     ang_sorted = angles[valid][order]
 
+    if db:
+        levels = directivity_levels(mag_all[valid][order],
+                                    np.degrees(ang_sorted), ref)
+
     lines = []
     for ci, f in enumerate(freqs):
         fi = result.at_freq(f)
-        mag = mag_all[valid, fi][order]
 
         if db:
-            ref_val = mag.max() if ref == "max" else float(ref)
-            with np.errstate(divide="ignore"):
-                vals = 20 * np.log10(mag / ref_val)
+            vals = levels[:, fi]
         else:
-            vals = mag
+            vals = mag_all[valid, fi][order]
 
         # Mirror data to create full 360° plot
         if mirror:
