@@ -1,5 +1,6 @@
 """Pipeline subcommands: mesh / export / run / pack / all, plus status."""
 
+import subprocess
 import sys
 
 
@@ -26,13 +27,26 @@ def register(sub):
     p.add_argument("--force", action="store_true",
                    help="Recompute all bins from scratch, discarding existing "
                         "results (needed after re-exporting a changed mesh/config)")
+    p.add_argument("--foreground", action="store_true",
+                   help="Wait for NumCalc instead of detaching (default is to "
+                        "start in the background and return)")
+    p.add_argument("--restart", action="store_true",
+                   help="Kill NumCalc processes already running for the "
+                        "selected variants, then run. Resumes missing bins; "
+                        "add --force to recompute everything")
     p.set_defaults(func=cmd_run)
 
-    p = sub.add_parser("pack", help="Pack be.out/ into be.npz (~4x shrink)")
+    p = sub.add_parser("pack", help="Pack be.out/ into be.npz (~4x shrink) "
+                                    "and remove be.out/")
     _add_variant(p)
-    p.add_argument("--delete-original", action="store_true",
-                   help="Remove be.out/ after a verified round-trip")
+    p.add_argument("--keep-original", action="store_true",
+                   help="Keep be.out/ instead of removing it after the "
+                        "verified round-trip")
     p.set_defaults(func=cmd_pack)
+
+    p = sub.add_parser("ps", help="List NumCalc processes running anywhere "
+                                  "(model / variant / bins / pid). Ignores MODEL_DIR")
+    p.set_defaults(func=cmd_ps)
 
     p = sub.add_parser("all", help="mesh -> export -> run")
     _add_variant(p)
@@ -74,17 +88,134 @@ def cmd_export(model_dir, args):
 def cmd_run(model_dir, args):
     from bemkit.cli import load_model_config
     config = load_model_config(model_dir)
+    if not args.foreground:
+        return _detach_run(model_dir, config, args)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        force=args.force)
+        force=args.force, restart=args.restart)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
+
+
+def _detach_run(model_dir, config, args):
+    """Start the run in a background copy of this CLI and return.
+
+    NumCalc runs for hours, so the terminal should not be held for it. The
+    supervisor is this same CLI re-invoked with --foreground: that preserves
+    -j queueing, the bin fan-out and the solver-warning summary exactly,
+    rather than reimplementing them for the detached case. `bem status`
+    already sees the jobs -- it derives them from a /proc scan, not from any
+    bookkeeping this function would have to write.
+
+    Everything that can be decided up front is decided here, so failures land
+    on the terminal instead of in a log nobody is watching yet.
+    """
+    from bemkit.pipeline import busy_error, plan_run, require_numcalc
+    from bemkit.sim.status import running_variants
+
+    try:
+        require_numcalc()
+    except RuntimeError as e:
+        sys.exit(str(e))
+
+    variants = config.variants(args.variant)
+    if not variants:
+        sys.exit(f"No mesh files in {model_dir / 'mesh'}. Run 'export' first.")
+    if not args.restart:
+        # --restart kills these instead; the stage does it, after detaching.
+        msg = busy_error(running_variants(model_dir, variants))
+        if msg:
+            sys.exit(msg)
+
+    _, jobs = plan_run(config, variants, max_jobs=args.jobs, force=args.force)
+    if not jobs:
+        print("  Nothing to run (all bins present — use --force to recompute).")
+        return
+
+    argv = [sys.executable, "-m", "bemkit.cli", str(model_dir), "run",
+            "--foreground"]
+    if args.variant:
+        argv += ["--variant", *args.variant]
+    if args.jobs:
+        argv += ["-j", str(args.jobs)]
+    if args.force:
+        argv.append("--force")
+    if args.restart:
+        argv.append("--restart")
+
+    log_path = model_dir / "numcalc" / "run.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "w") as log:
+        proc = subprocess.Popen(
+            argv, cwd=str(model_dir), stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT,
+            # Its own session, or the run dies with the terminal that started
+            # it (SIGHUP) or with a Ctrl-C aimed at this process group.
+            start_new_session=True)
+
+    n_at_once = min(args.jobs or len(jobs), len(jobs))
+    print(f"  Started in background (pid {proc.pid}), {len(jobs)} job(s), "
+          f"{n_at_once} at a time")
+    print(f"  Log: {log_path}")
+    print(f"  Progress: bem {model_dir}")
 
 
 def cmd_pack(model_dir, args):
     from bemkit.cli import load_model_config
     _run_stage("pack", load_model_config(model_dir), prefixes=args.variant,
-               delete_original=args.delete_original)
+               delete_original=not args.keep_original)
+
+
+def cmd_ps(model_dir, args):
+    """List every running NumCalc, across all models. MODEL_DIR is ignored.
+
+    The rest of the CLI is scoped to one model; once runs detach, the missing
+    view is "which project is computing right now". Each live process reveals
+    that in its working directory (``<model>/numcalc/<variant>/``), so this
+    reads the answer straight off a /proc scan.
+    """
+    from bemkit.sim.status import scan_numcalc, available_bins
+
+    jobs = scan_numcalc()
+    if not jobs:
+        print("No NumCalc processes running.")
+        return
+
+    nf_cache = {}
+    rows = []
+    for nc_dir, pids in jobs.items():
+        variant = nc_dir.name
+        # <model>/numcalc/<variant>/ is the layout every exported bundle uses;
+        # anything else was launched by hand, so fall back to the raw path.
+        model_dir_of = (nc_dir.parent.parent
+                        if nc_dir.parent.name == "numcalc" else None)
+        model = model_dir_of.name if model_dir_of else str(nc_dir)
+
+        nf = None
+        if model_dir_of is not None:
+            if model_dir_of not in nf_cache:
+                try:
+                    from bemkit.config import ModelConfig
+                    nf_cache[model_dir_of] = ModelConfig.from_dir(model_dir_of).nbins - 1
+                except Exception:  # unreadable/incomplete config — show bare count
+                    nf_cache[model_dir_of] = None
+            nf = nf_cache[model_dir_of]
+
+        done = len(available_bins(nc_dir))
+        bins = f"{done}/{nf} bins" if nf else f"{done} bins"
+        rows.append((model, variant, bins, len(pids), pids))
+
+    rows.sort(key=lambda r: (r[0], r[1]))
+    n_models = len({r[0] for r in rows})
+    n_proc = sum(r[3] for r in rows)
+    print(f"NumCalc running ({n_models} model(s), {n_proc} process(es)):")
+
+    mw = max(len(r[0]) for r in rows)
+    vw = max(len(r[1]) for r in rows)
+    for model, variant, bins, n, pids in rows:
+        proc = f"{n} proc"
+        pidstr = "pid " + ", ".join(map(str, pids))
+        print(f"  {model:<{mw}}  {variant:<{vw}}  {bins:>10}  {proc:>7}  {pidstr}")
 
 
 def cmd_all(model_dir, args):

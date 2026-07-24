@@ -6,6 +6,8 @@ from bemkit.sim.status import (
     is_complete,
     missing_bins,
     numcalc_pids,
+    running_variants,
+    scan_numcalc,
     solver_warnings,
 )
 
@@ -82,6 +84,62 @@ def test_current_step_without_logs(tmp_path):
 def test_numcalc_pids_none_running(tmp_path):
     # No NumCalc has tmp_path as CWD; must be [] (also [] without /proc).
     assert numcalc_pids(tmp_path) == []
+
+
+class TestRunningVariants:
+    """Which of a model's variants have a live NumCalc — the guard `run` and
+    `pack` both need, so neither races an in-flight solver."""
+
+    def test_nothing_running_is_an_empty_mapping(self, tmp_path):
+        assert running_variants(tmp_path, ["a", "b"]) == {}
+
+    def test_maps_the_variant_name_to_its_pids(self, tmp_path, monkeypatch):
+        import bemkit.sim.status as status
+        monkeypatch.setattr(status, "numcalc_pids", lambda d: [11, 22])
+        assert running_variants(tmp_path, ["a"]) == {"a": [11, 22]}
+
+    def test_omits_variants_with_no_live_process(self, tmp_path, monkeypatch):
+        import bemkit.sim.status as status
+        monkeypatch.setattr(status, "numcalc_pids",
+                            lambda d: [7] if d.name == "busy" else [])
+        assert running_variants(tmp_path, ["idle", "busy"]) == {"busy": [7]}
+
+    def test_looks_under_the_models_numcalc_directory(self, tmp_path, monkeypatch):
+        seen = []
+        import bemkit.sim.status as status
+        monkeypatch.setattr(status, "numcalc_pids",
+                            lambda d: seen.append(d) or [])
+        running_variants(tmp_path, ["v1"])
+        assert seen == [tmp_path / "numcalc" / "v1"]
+
+    def test_no_variants_needs_no_proc_scan(self, tmp_path):
+        assert running_variants(tmp_path, []) == {}
+
+
+class TestScanNumcalc:
+    """Every NumCalc process on the machine, keyed by its variant directory —
+    the cross-model view `bem ps` needs, since the CLI is otherwise scoped to
+    one model at a time."""
+
+    def test_empty_when_nothing_is_running(self, monkeypatch):
+        import bemkit.sim.status as status
+        monkeypatch.setattr(status, "_numcalc_procs", lambda: iter(()))
+        assert scan_numcalc() == {}
+
+    def test_groups_pids_by_the_directory_they_run_in(self, monkeypatch, tmp_path):
+        import bemkit.sim.status as status
+        a = tmp_path / "m" / "numcalc" / "v1"
+        b = tmp_path / "m" / "numcalc" / "v2"
+        monkeypatch.setattr(status, "_numcalc_procs",
+                            lambda: iter([(10, a), (12, b), (11, a)]))
+        assert scan_numcalc() == {a: [10, 11], b: [12]}
+
+    def test_pids_within_a_directory_are_sorted(self, monkeypatch, tmp_path):
+        import bemkit.sim.status as status
+        a = tmp_path / "m" / "numcalc" / "v1"
+        monkeypatch.setattr(status, "_numcalc_procs",
+                            lambda: iter([(30, a), (10, a), (20, a)]))
+        assert scan_numcalc()[a] == [10, 20, 30]
 
 
 _LOG = """\

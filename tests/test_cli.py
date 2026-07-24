@@ -37,6 +37,42 @@ def test_mesh_edges_are_drawn_by_default_in_both_viewers(command):
     assert _parse([command, "--no-edges"]).no_edges is True
 
 
+class TestRunFlags:
+    """`run` detaches by default; --foreground is both the escape hatch and
+    the recursion guard the background supervisor re-invokes itself with."""
+
+    def test_foreground_is_off_by_default(self):
+        assert _parse(["run"]).foreground is False
+        assert _parse(["run", "--foreground"]).foreground is True
+
+    def test_restart_is_off_by_default(self):
+        assert _parse(["run"]).restart is False
+        assert _parse(["run", "--restart"]).restart is True
+
+    def test_restart_is_independent_of_force(self):
+        """--restart kills and resumes; --force recomputes. Orthogonal, so
+        --force must not be implied (it would rmtree be.out/ unasked)."""
+        assert _parse(["run", "--restart"]).force is False
+        args = _parse(["run", "--restart", "--force"])
+        assert (args.restart, args.force) == (True, True)
+
+
+class TestPackFlags:
+    """Packing deletes be.out/ by default now — it is gated on a verified
+    round-trip and reversible via unpack_variant."""
+
+    def test_keep_original_is_off_by_default(self):
+        assert _parse(["pack"]).keep_original is False
+        assert _parse(["pack", "--keep-original"]).keep_original is True
+
+    def test_delete_original_is_gone(self):
+        """It is the default, so silently accepting it would be fine — but it
+        also read as 'and this is the unusual, dangerous one', which is now
+        backwards. Fail loudly instead."""
+        with pytest.raises(SystemExit):
+            _parse(["pack", "--delete-original"])
+
+
 def test_geometry_still_accepts_the_superseded_show_edges_flag():
     """--show-edges is what edges used to need; it is the default now, so the
     flag stays valid and does nothing rather than breaking old invocations."""
@@ -61,6 +97,7 @@ def test_variant_flag_accumulates_across_repeats_and_spaces(command):
     ["x", "export", "--help"],
     ["x", "run", "--help"],
     ["x", "pack", "--help"],
+    ["x", "ps", "--help"],
     ["x", "plot", "--help"],
     ["x", "geometry", "--help"],
     ["x", "results", "--help"],

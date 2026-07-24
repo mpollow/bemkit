@@ -40,31 +40,75 @@ def is_complete(nc_dir, nf):
     return not missing_bins(nc_dir, nf)
 
 
-def numcalc_pids(nc_dir):
-    """PIDs of NumCalc processes currently running with CWD = nc_dir.
+def _numcalc_procs():
+    """Yield ``(pid, cwd)`` for every running NumCalc process.
 
-    State is derived, not tracked: NumCalc always runs with the variant
-    directory as its working directory (LocalRunner, or a manual
-    ``cd numcalc/<v> && NumCalc``), so a /proc scan identifies live jobs
-    exactly. Returns [] on platforms without /proc (best effort).
+    NumCalc always runs with a variant directory as its working directory
+    (``LocalRunner``, or a manual ``cd numcalc/<v> && NumCalc``), so the cwd
+    of the process is the whole of its identity — model and variant both.
+    Best effort: yields nothing on a platform without ``/proc``, and skips a
+    process that vanished mid-scan or belongs to another user.
     """
     import os
-    nc_dir = Path(nc_dir).resolve()
     proc = Path("/proc")
-    pids = []
     if not proc.is_dir():
-        return pids
+        return
     for p in proc.iterdir():
         if not p.name.isdigit():
             continue
         try:
             if (p / "comm").read_text().strip() != "NumCalc":
                 continue
-            if Path(os.readlink(p / "cwd")) == nc_dir:
-                pids.append(int(p.name))
+            cwd = Path(os.readlink(p / "cwd"))
         except OSError:  # process vanished or belongs to another user
             continue
-    return sorted(pids)
+        yield int(p.name), cwd
+
+
+def numcalc_pids(nc_dir):
+    """PIDs of NumCalc processes currently running with CWD = nc_dir.
+
+    State is derived, not tracked (see ``_numcalc_procs``). Returns [] on
+    platforms without /proc.
+    """
+    nc_dir = Path(nc_dir).resolve()
+    return sorted(pid for pid, cwd in _numcalc_procs() if cwd == nc_dir)
+
+
+def scan_numcalc():
+    """Every running NumCalc job as ``{variant_dir: [pid, ...]}``.
+
+    The machine-wide counterpart of ``numcalc_pids`` — it does not filter by
+    directory, so one call sees jobs across every model. ``bem ps`` turns each
+    key into a model / variant / progress line.
+    """
+    jobs = {}
+    for pid, cwd in _numcalc_procs():
+        jobs.setdefault(cwd, []).append(pid)
+    return {d: sorted(pids) for d, pids in jobs.items()}
+
+
+def running_variants(model_dir, variants):
+    """Map each variant with a live NumCalc to its PIDs (absent when idle).
+
+    Both `run` and `pack` need this: a second NumCalc in a variant directory
+    races the first one's be.out/ writes, and packing deletes be.out/ from
+    under a solver still writing into it.
+
+    Args:
+        model_dir: model directory (variants live in ``numcalc/<name>/``)
+        variants: variant names to check
+
+    Returns:
+        ``{variant: [pid, ...]}``, containing only the busy variants.
+    """
+    model_dir = Path(model_dir)
+    busy = {}
+    for v in variants:
+        pids = numcalc_pids(model_dir / "numcalc" / v)
+        if pids:
+            busy[v] = pids
+    return busy
 
 
 def current_step(nc_dir):

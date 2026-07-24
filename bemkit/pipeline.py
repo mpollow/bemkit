@@ -19,6 +19,65 @@ from bemkit.sim.runner import plan_jobs, run_jobs
 from bemkit.sim.status import solver_warnings
 
 
+def require_numcalc():
+    """Raise unless NumCalc is on PATH.
+
+    Called from the stage and, before detaching, from the CLI — a background
+    run must fail on the terminal, not silently in its log file.
+    """
+    if shutil.which("NumCalc") is None:
+        raise RuntimeError(
+            "NumCalc not found on PATH — install Mesh2HRTF's NumCalc "
+            "or add its directory to PATH.")
+
+
+def busy_error(busy):
+    """Message for variants with a live NumCalc, or None when none are."""
+    if not busy:
+        return None
+    where = "; ".join(f"{v} (pid {', '.join(map(str, pids))})"
+                      for v, pids in sorted(busy.items()))
+    return (f"NumCalc already running for: {where}\n"
+            f"  Wait for it, or re-run with --restart to kill and start over.")
+
+
+def _kill_numcalc(pids, timeout=10.0):
+    """Terminate NumCalc processes by PID, escalating to SIGKILL.
+
+    Mirrors LocalRunner.cancel, but works on PIDs rather than Popen handles —
+    a background run's processes outlive the CLI invocation that started them,
+    so there is no handle left to cancel.
+    """
+    import signal
+    import time
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # someone else's process; not ours to wait on
+            return False
+        return True
+
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not any(alive(p) for p in pids):
+            return
+        time.sleep(0.1)
+    for pid in pids:
+        if alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+
 class PipelineStage(ABC):
     """Base class for BEM pipeline stages."""
 
@@ -211,12 +270,35 @@ class ExportStage(PipelineStage):
         return results
 
 
+def plan_run(config, variants, *, max_jobs=None, force=False, verbose=True):
+    """Work out what a run would do, without doing any of it.
+
+    Shared by ``RunStage.run`` and the CLI's pre-flight: a backgrounded run
+    has to know the job count before it detaches, and must not spawn a
+    supervisor whose only act would be to report that there is nothing to do.
+
+    Returns (pairs, jobs): the (variant, nc_dir) pairs that are exported, and
+    the planned jobs.
+    """
+    pairs = []
+    for v in variants:
+        nc_dir = config.model_dir / "numcalc" / v
+        if not nc_dir.is_dir():
+            if verbose:
+                print(f"  {v}: skipping (no numcalc/{v}/ — run 'export' first)")
+            continue
+        pairs.append((v, nc_dir))
+    jobs = plan_jobs(pairs, config.nbins - 1, max_jobs=max_jobs,
+                     missing_only=not force)
+    return pairs, jobs
+
+
 class RunStage(PipelineStage):
     def check(self, config, variant):
         return has_results(config.model_dir / "numcalc" / variant)
 
     def run(self, config, *, prefixes=None, max_jobs=None, force=False,
-            **kwargs):
+            restart=False, **kwargs):
         if max_jobs is not None and max_jobs < 1:
             raise ValueError(f"-j must be at least 1, got {max_jobs}")
         # Default is resume: only bins absent from be.out//be.npz are
@@ -228,30 +310,27 @@ class RunStage(PipelineStage):
         if not variants:
             raise FileNotFoundError(
                 f"No mesh files in {config.model_dir / 'mesh'}. Run 'export' first.")
-        from bemkit.sim.status import numcalc_pids
-        pairs = []
-        for v in variants:
-            nc_dir = config.model_dir / "numcalc" / v
-            if not nc_dir.is_dir():
-                print(f"  {v}: skipping (no numcalc/{v}/ — run 'export' first)")
-                continue
-            pids = numcalc_pids(nc_dir)
-            if pids:
-                # A second NumCalc in the same dir would race the first one's
-                # be.out/ writes and corrupt bins.
-                print(f"  {v}: skipping (NumCalc already running, "
-                      f"pid {', '.join(map(str, pids))})")
-                continue
-            pairs.append((v, nc_dir))
-        nf = config.nbins - 1
-        jobs = plan_jobs(pairs, nf, max_jobs=max_jobs, missing_only=missing_only)
+
+        # A second NumCalc in a variant directory races the first one's be.out/
+        # writes and corrupts bins, so a live variant stops the whole run —
+        # including under --force, which would otherwise rmtree be.out/ from
+        # under the running solver. --restart kills first instead.
+        from bemkit.sim.status import running_variants
+        busy = running_variants(config.model_dir, variants)
+        if busy and restart:
+            for v, pids in sorted(busy.items()):
+                print(f"  {v}: killing NumCalc (pid {', '.join(map(str, pids))})")
+            _kill_numcalc([p for pids in busy.values() for p in pids])
+            busy = running_variants(config.model_dir, variants)
+        if busy:
+            raise RuntimeError(busy_error(busy))
+
+        pairs, jobs = plan_run(config, variants, max_jobs=max_jobs, force=force)
         if not jobs:
             print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
-        if shutil.which("NumCalc") is None:
-            raise RuntimeError(
-                "NumCalc not found on PATH — install Mesh2HRTF's NumCalc "
-                "or add its directory to PATH.")
+        require_numcalc()
+        nf = config.nbins - 1
         # A leftover be.npz would shadow the fresh be.out/ results; for a
         # resume, restore its bins into be.out/ first so the runs merge.
         job_dirs = {j.nc_dir for j in jobs}
@@ -289,17 +368,26 @@ class PackStage(PipelineStage):
     def check(self, config, variant):
         return is_packed(config.model_dir / "numcalc" / variant)
 
-    def run(self, config, *, prefixes=None, delete_original=False, **kwargs):
+    def run(self, config, *, prefixes=None, delete_original=True, **kwargs):
         from bemkit.sim.discovery import discover_variants
         from bemkit.sim.readers import list_bins
+        from bemkit.sim.status import running_variants
         # dedup: a variant can surface twice (e.g. cone.msh + cone.ply) — pack once.
         variants = list(dict.fromkeys(
             discover_variants(config.model_dir, prefixes, need_be_out=True)))
         if not variants:
             print(f"  No variants with results found in {config.model_dir / 'numcalc'}")
             return []
+        # Packing a live variant would read bins NumCalc is still writing, and
+        # (by default) delete be.out/ from under it. Skip rather than abort:
+        # the finished variants of the same model should still pack.
+        busy = running_variants(config.model_dir, variants)
         packed = []
         for v in variants:
+            if v in busy:
+                print(f"  {v}: skipping (NumCalc still running, "
+                      f"pid {', '.join(map(str, busy[v]))})")
+                continue
             nc_dir = config.model_dir / "numcalc" / v
             be_out = nc_dir / "be.out"
             if not be_out.is_dir():

@@ -112,11 +112,14 @@ bem newmodel init model.msh            # bootstrap config.toml from an existing 
 #   Writes config.toml only; run `export` then `run` next. --force overwrites.
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
-bem examples/sphcap run                # run NumCalc (parallel)
+bem examples/sphcap run                # run NumCalc in the background, return immediately
 bem examples/sphcap run -j 4           # at most 4 NumCalc processes (auto bin fan-out)
 bem examples/sphcap run --force        # recompute all bins (default only runs missing ones)
-bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink, complex64)
-bem examples/sphcap pack --delete-original   # also remove be.out/ after verify
+bem examples/sphcap run --foreground   # wait for it (what `all` and CI want)
+bem examples/sphcap run --restart      # kill the running NumCalc first, then resume
+bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink), then remove be.out/
+bem examples/sphcap pack --keep-original     # keep be.out/ after the verified pack
+bem ps                                 # every running NumCalc, any model: model/variant/bins/pid
 bem examples/sphcap plot               # freq + ir plots (all sets)
 bem examples/sphcap plot freq          # frequency magnitude
 bem examples/sphcap plot ir
@@ -367,6 +370,33 @@ needed — outputs just land in the same `be.out/`).
   partial/failed runs resume without redoing completed bins, and a complete run is a
   no-op. `--force` recomputes everything from scratch — required after re-exporting a
   changed mesh or config, since bin presence says nothing about which export produced it.
+- `bem MODEL run` **detaches by default**: it re-execs `python -m bemkit.cli ... run
+  --foreground` with `start_new_session=True` (so the run outlives the terminal) and
+  returns. bemkit's own progress goes to `numcalc/run.log`; NumCalc's own output still
+  goes to the per-variant `NC*.out`. `--foreground` runs inline and doubles as the
+  supervisor's recursion guard. Everything decidable up front — NumCalc on PATH, a live
+  run, an empty job list — is checked in `_detach_run` (`cli/_pipeline.py`) *before* the
+  fork, so those failures reach the terminal rather than a log nobody is watching.
+  `bem MODEL all` stays foreground: it is the blocking batch entry point.
+- **A live NumCalc aborts `run`.** Two processes in one variant directory race each
+  other's `be.out/` writes, so `running_variants(model_dir, variants)`
+  (`bemkit.sim.status`) gates the run and it raises rather than quietly doing the other
+  variants. `--force` is *not* an override — it `rmtree`s `be.out/`, which under a live
+  solver is the one combination that must stay impossible. `--restart` kills the
+  processes (SIGTERM, then SIGKILL) and then proceeds; on its own it resumes the missing
+  bins, since a bin killed mid-write fails `complete_bins` and is recomputed anyway.
+- `bem ps` lists every running NumCalc across *all* models (MODEL_DIR is ignored),
+  one line per variant: model, variant, completed/total bins, process count, pids. It is
+  the cross-model companion to `bem MODEL` status, needed once runs detach — the answer
+  lives in each process's cwd (`<model>/numcalc/<variant>/`), read via
+  `scan_numcalc()` (`bemkit.sim.status`), which is the undirected form of `numcalc_pids`.
+- `bem MODEL pack` **deletes `be.out/` by default**; `--keep-original` opts out. The
+  deletion is gated on `_verify_round_trip` (every bin and quantity re-read from ASCII
+  and compared at `rtol=1e-5`, keeping `be.out/` on any mismatch) and is reversible via
+  `unpack_variant`, which is what makes it safe as a default. `pack` skips a variant with
+  a live NumCalc (skips, not aborts — the finished variants should still pack). The
+  library-level `pack_variant(delete_original=False)` default is unchanged; only the
+  pipeline stage and CLI default flipped.
 - `bem MODEL run -j N` is the single load knob: N = max concurrent NumCalc processes.
   `plan_jobs(pairs, nf, max_jobs=N)` decides the rest — one job per variant, and when
   variants would leave slots idle, variants are fanned out into bin ranges

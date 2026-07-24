@@ -477,10 +477,43 @@ and writes results into `be.out/`. Frequency bins are independent, so runs
 parallelize and resume trivially.
 
 ```bash
-bem examples/sphcap run                       # all variants, parallel
+bem examples/sphcap run                       # all variants, parallel, in the background
 bem examples/sphcap run -j 4                  # at most 4 concurrent NumCalc procs
 bem examples/sphcap run --force               # recompute all bins from scratch
+bem examples/sphcap run --foreground          # wait for it instead of detaching
+bem examples/sphcap run --restart             # kill a running NumCalc first
 ```
+
+`run` **starts in the background and returns.** NumCalc runs for hours, so the
+terminal is not held for it: the command detaches a supervisor in its own
+session — immune to the terminal closing and to Ctrl-C — and prints its pid, the
+job count and the log path. bemkit's own progress goes to `numcalc/run.log`;
+NumCalc's per-variant `NC*.out` logs are unchanged. Nothing is written to track
+the run, because nothing needs to be: `bem status` finds live jobs with a `/proc`
+scan and reads completion out of `be.out/` itself.
+
+Anything decidable up front — NumCalc missing from PATH, a run already in
+flight, no bins left to compute — is reported on the terminal before the detach,
+so you never have to open the log to find out the run never started. Use
+`--foreground` to wait instead (`bem all` always does).
+
+With runs detached, `bem MODEL` status only tells you about the one model you
+name. To see which project is computing across everything at once:
+
+```bash
+bem ps
+```
+
+```
+NumCalc running (2 model(s), 4 process(es)):
+  hornstudio          horn_iwata_fc640_akabak_bem   22/64 bins   1 proc  pid 22881
+  hornstudio          horn_os_fc400_akabak_bem      19/64 bins   1 proc  pid 22882
+  hornstudio-quarter  hires_jmlcell_QUARTER_xy       4/64 bins   2 proc  pid 26817, 26818
+```
+
+`bem ps` ignores `MODEL_DIR` — it scans every NumCalc process on the machine and
+reads model, variant and progress out of each one's working directory, so it
+works the same from any directory.
 
 `-j N` is the only load knob: N is the number of NumCalc processes allowed to
 run at once, whatever the model contains. With fewer variants than slots, the
@@ -508,8 +541,21 @@ bem examples/sphcap                   # status: per-variant bins done / missing 
                                       #   plus live NumCalc jobs (⟳ running, current bin)
 ```
 
-`bem run` on a variant that is already being computed is skipped (two NumCalc
-processes in one directory would corrupt results), so it is always safe to call.
+`bem run` **stops** if NumCalc is already working on one of the selected
+variants — two processes in one directory would race each other's `be.out/`
+writes and corrupt bins. It names the pids and does nothing else:
+
+```
+NumCalc already running for: fine (pid 26276, 26277)
+  Wait for it, or re-run with --restart to kill and start over.
+```
+
+`--force` is not a way around that check. It deletes `be.out/` before
+recomputing, so pairing it with a live solver is the one combination that has to
+stay impossible. `--restart` is the explicit escape hatch: it terminates the
+processes (SIGTERM, then SIGKILL) and then runs. On its own it *resumes* — a bin
+killed mid-write fails the completeness check and is recomputed anyway — so add
+`--force` only if you actually want everything redone.
 
 You can also run NumCalc entirely outside bemkit:
 `cd numcalc/<variant> && NumCalc` (outputs `NC.out`, `be.out/`).
@@ -519,12 +565,21 @@ You can also run NumCalc entirely outside bemkit:
 ## 7. Pack results (optional but recommended)
 
 ```bash
-bem examples/sphcap pack                    # be.out/ (ASCII) → be.npz (~4× smaller, complex64)
-bem examples/sphcap pack --delete-original  # verify, then remove be.out/
+bem examples/sphcap pack                  # be.out/ → be.npz (~4× smaller), be.out/ removed
+bem examples/sphcap pack --keep-original  # pack, but leave be.out/ in place
 ```
 
 `be.npz` shadows `be.out/` everywhere downstream. (A subsequent full `run`
 removes a stale `be.npz` so it can't hide fresh output — re-`pack` afterwards.)
+
+**`pack` removes `be.out/` by default.** It is >99 % of a variant directory and
+pure redundancy once packed, and the removal is not taken on trust: every bin and
+quantity is re-read from the ASCII tree and compared against the packed arrays
+first, and any mismatch keeps `be.out/` and raises. `complex64` is lossless
+relative to NumCalc's 6-digit text output, and `unpack_variant` regenerates the
+ASCII tree from `be.npz` if you ever need it back. Pass `--keep-original` to skip
+the removal. A variant with a live NumCalc is skipped rather than packed — the
+other variants of the same model still pack.
 
 ---
 
