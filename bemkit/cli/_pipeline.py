@@ -21,9 +21,9 @@ def register(sub):
                                    "bins only — resumes interrupted runs)")
     _add_variant(p)
     _add_band(p)
-    p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
-                   help="Max NumCalc processes at once (default: one per "
-                        "variant). Variants are fanned out over bin ranges "
+    p.add_argument("-j", "--jobs", type=int, default=1, metavar="N",
+                   help="Max NumCalc processes at once (default: 1). "
+                        "Variants and bin ranges are fanned out "
                         "automatically to fill N processes")
     p.add_argument("--force", action="store_true",
                    help="Recompute all bins from scratch, discarding existing "
@@ -52,7 +52,7 @@ def register(sub):
     p = sub.add_parser("all", help="mesh -> export -> run")
     _add_variant(p)
     _add_band(p)
-    p.add_argument("-j", "--jobs", type=int, default=None, metavar="N")
+    p.add_argument("-j", "--jobs", type=int, default=1, metavar="N")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_all)
 

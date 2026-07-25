@@ -248,3 +248,17 @@ def test_detached_run_forwards_the_band_selection(tmp_path, monkeypatch):
     argv = recorded["argv"]
     assert "--preview" in argv and argv[argv.index("--preview") + 1] == "8"
     assert "--foreground" in argv
+
+
+class TestJobsDefault:
+    """-j is the single load knob; its floor is one solver, because BEM peak
+    memory is the binding constraint."""
+
+    def test_run_defaults_to_one_job(self):
+        assert _parse(["run"]).jobs == 1
+
+    def test_all_defaults_to_one_job(self):
+        assert _parse(["all"]).jobs == 1
+
+    def test_explicit_j_still_wins(self):
+        assert _parse(["run", "-j", "4"]).jobs == 4
