@@ -130,6 +130,49 @@ class TestPlanJobs:
         jobs = plan_jobs([(name, nc_dir)], nf=6, max_jobs=2, missing_only=True)
         assert sorted(j.steps for j in jobs) == [(3, 4), (5, 6)]
 
+    def test_bins_restricts_a_full_run(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=8, bins=[2, 5])
+        assert sorted(b for j in jobs for b in _bins(j, 8)) == [2, 5]
+
+    def test_bins_always_get_explicit_steps(self, tmp_path):
+        """A partial run must never take the plain-NumCalc shortcut, or it
+        would write NC.out and collide with a full run's log."""
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=2, bins=[1, 2])
+        assert all(j.steps is not None for j in jobs)
+
+    def test_scattered_bins_stay_scattered(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=8, bins=[1, 4, 8])
+        assert sorted(j.steps for j in jobs) == [(1, 1), (4, 4), (8, 8)]
+
+    def test_adjacent_bins_become_one_range(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=8, bins=[3, 4, 5])
+        assert [j.steps for j in jobs] == [(3, 5)]
+
+    def test_bins_intersect_with_missing_on_a_resume(self, tmp_path):
+        name, nc_dir = _variant(tmp_path, "a")
+        for i in (1, 2):
+            _write_bin(nc_dir / "be.out", i)
+        jobs = plan_jobs([(name, nc_dir)], nf=8, bins=[1, 2, 7],
+                         missing_only=True)
+        assert sorted(b for j in jobs for b in _bins(j, 8)) == [7]
+
+    def test_bins_already_complete_plans_nothing(self, tmp_path):
+        name, nc_dir = _variant(tmp_path, "a")
+        for i in (1, 2):
+            _write_bin(nc_dir / "be.out", i)
+        assert plan_jobs([(name, nc_dir)], nf=8, bins=[1, 2],
+                         missing_only=True) == []
+
+    def test_log_names_are_distinct_per_bin(self, tmp_path):
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=8, bins=[1, 4])
+        assert sorted(j.log_name for j in jobs) == ["NC1-1.out", "NC4-4.out"]
+
+    def test_scattered_bins_are_not_split_further(self, tmp_path):
+        """8 pieces already exceed 4 slots, so -j only throttles them."""
+        jobs = plan_jobs([_variant(tmp_path, "a")], nf=16,
+                         bins=[1, 3, 5, 7, 9, 11, 13, 15], max_jobs=4)
+        assert len(jobs) == 8
+
 
 class TestJobOrder:
     def test_heavy_and_light_variants_are_interleaved(self, tmp_path):

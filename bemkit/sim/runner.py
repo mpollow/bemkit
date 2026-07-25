@@ -189,7 +189,7 @@ def _queue_order(weighted):
     return out
 
 
-def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False):
+def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False, bins=None):
     """Build the job list for a run.
 
     One job per variant, except that fewer variants than ``max_jobs`` would
@@ -203,12 +203,18 @@ def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False):
         nf: number of frequency bins
         max_jobs: NumCalc processes that may run at once (None: no fan-out)
         missing_only: only schedule bins absent from be.out/ (resume)
+        bins: 1-based bins to restrict the run to (None: the whole band).
+            A partial-band run — intersected with whatever would otherwise
+            be scheduled, so it never re-runs a bin that already has results.
     """
     todo = []
     for name, nc_dir in variants:
         nc_dir = Path(nc_dir)
-        ranges = (missing_ranges(nc_dir, nf) if missing_only
-                  else [(1, nf)] if nf > 0 else [])
+        wanted = (set(missing_bins(nc_dir, nf)) if missing_only
+                  else set(range(1, nf + 1)))
+        if bins is not None:
+            wanted &= set(bins)
+        ranges = _contiguous(sorted(wanted))
         if ranges:
             todo.append((name, nc_dir, ranges, _element_count(nc_dir)))
     if not todo:
@@ -225,8 +231,10 @@ def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False):
     for (name, nc_dir, ranges, elem), n in zip(todo, slots):
         for rng in _split_ranges(ranges, n):
             # A lone full-band range keeps NumCalc's plain invocation (and its
-            # NC.out log); a resume always states its range explicitly.
-            steps = None if rng == (1, nf) and not missing_only else rng
+            # NC.out log); a resume or a partial-band run always states its
+            # range explicitly, so it can never collide with a full run's log.
+            steps = (None if rng == (1, nf) and not missing_only and bins is None
+                     else rng)
             weighted.append((elem * _cost(rng), Job(name, nc_dir, steps)))
     return _queue_order(weighted)
 
