@@ -8,6 +8,16 @@ import numpy as np
 from bemkit.analysis._grid import detect_grid, reshape_to_grid
 
 
+class IncompleteBand(ValueError):
+    """Raised when an operation needs the whole band but bins are missing.
+
+    A partial-band run (``bem MODEL run --preview 8``) leaves the uncomputed
+    bins NaN. Anything that transforms across frequency — an inverse FFT
+    above all — cannot be evaluated on that, and returning an all-NaN result
+    hides the reason.
+    """
+
+
 @dataclass(frozen=True)
 class BEMResult:
     """Immutable container for BEM simulation results.
@@ -118,6 +128,20 @@ class BEMResult:
         """Number of frequency bins."""
         return len(self.frequencies)
 
+    @property
+    def missing_bins(self):
+        """1-based bins with no data (all-NaN across valid eval points).
+
+        Rows are masked by ``valid_mask`` first: fieldpoints dropped during
+        export are NaN for every frequency, and must not be mistaken for a
+        frequency nobody computed.
+        """
+        rows = self.pressure_acc[self.valid_mask]
+        if rows.size == 0:
+            return []
+        blank = np.all(np.isnan(rows), axis=0)
+        return [int(i) + 1 for i in np.flatnonzero(blank)]
+
     # -- Data accessors --
 
     def data(self, quantity="pressure", norm="acc"):
@@ -196,7 +220,20 @@ class BEMResult:
             Time in seconds.
         ir : (N, M) float array
             Impulse response waveforms.
+
+        Raises
+        ------
+        IncompleteBand
+            If any frequency bin is entirely missing (a partial-band run):
+            NaN columns would otherwise turn the whole IRFFT into NaN, which
+            looks like a silent failure rather than a band that is not done.
         """
+        missing = self.missing_bins
+        if missing:
+            raise IncompleteBand(
+                f"impulse response needs the whole band: {len(missing)} of "
+                f"{self.n_freq} bins have no results "
+                f"(run `bem MODEL run` to fill in the band)")
         d = self.data(quantity, norm)
         ir = np.fft.irfft(d, axis=1)
         dt = 1.0 / (2 * self.frequencies[-1])  # sr = 2 * f_max

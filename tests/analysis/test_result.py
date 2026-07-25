@@ -148,3 +148,53 @@ class TestBEMResultImpulseResponse:
     def test_ir_time_starts_at_zero(self, simple_result):
         time_s, _ = simple_result.impulse_response()
         assert time_s[0] == 0.0
+
+
+class TestMissingBins:
+    """A partial-band run leaves whole frequency columns NaN."""
+
+    def _result(self, missing=()):
+        """A 3-point, 4-bin result with the given 1-based bins blanked."""
+        from bemkit.analysis.result import BEMResult
+
+        nf, n = 4, 3
+        p = np.ones((n, nf), dtype=complex)
+        for b in missing:
+            p[:, b - 1] = np.nan
+        return BEMResult(
+            name="t",
+            frequencies=np.array([250.0, 500.0, 750.0, 1000.0]),
+            eval_points=np.zeros((n, 3)),
+            pressure_raw=p, pressure_acc=p,
+            velocity_raw=p, velocity_acc=p,
+            rho0=1.2, speed_of_sound=340.0,
+        )
+
+    def test_full_band_has_none_missing(self):
+        assert self._result().missing_bins == []
+
+    def test_blank_columns_are_reported_1_based(self):
+        assert self._result(missing=(2, 4)).missing_bins == [2, 4]
+
+    def test_dropped_points_are_not_mistaken_for_missing_bins(self):
+        """Fieldpoint validation NaNs whole rows; that is not a missing bin."""
+        r = self._result()
+        r.eval_points[1] = np.nan
+        r.pressure_acc[1, :] = np.nan
+        assert r.missing_bins == []
+
+    def test_impulse_response_refuses_a_sparse_band(self):
+        from bemkit.analysis.result import IncompleteBand
+
+        with pytest.raises(IncompleteBand, match="2 of 4"):
+            self._result(missing=(2, 4)).impulse_response()
+
+    def test_impulse_response_still_works_on_a_full_band(self):
+        time_s, ir = self._result().impulse_response()
+        assert ir.shape[0] == 3 and len(time_s) == ir.shape[1]
+
+    def test_incomplete_band_is_a_value_error(self):
+        """cli/_plot.py catches it alongside NotCircular/NotOnAxis."""
+        from bemkit.analysis.result import IncompleteBand
+
+        assert issubclass(IncompleteBand, ValueError)

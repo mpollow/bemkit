@@ -96,6 +96,7 @@ def _plot_sets(model_dir, plot_type, set_name, args, prefixes=None):
     if not ordered_sets:
         ordered_sets = [None]
 
+    from bemkit.analysis.result import IncompleteBand
     from bemkit.viz._angles import NotCircular, NotOnAxis
 
     for sn in ordered_sets:
@@ -108,7 +109,7 @@ def _plot_sets(model_dir, plot_type, set_name, args, prefixes=None):
                 _run_plot('ir', model_dir, effective_sn, args)
             if plot_type and plot_type not in ('freq', 'ir'):
                 _run_plot(plot_type, model_dir, effective_sn, args)
-        except (SystemExit, NotCircular, NotOnAxis) as e:
+        except (SystemExit, NotCircular, NotOnAxis, IncompleteBand) as e:
             # A set that does not have the geometry a plot needs is a normal
             # outcome of looping over every set, not an error.
             print(f"  Skipped: {e}")
