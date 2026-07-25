@@ -114,10 +114,18 @@ def test_status_on_model_without_vars_toml(tmp_path):
 
 
 def test_status_marks_a_partial_run_distinctly(tmp_path, capsys):
-    """A partial run is neither done nor untouched; ✗ alone reads as failure."""
+    """A partial run is neither done nor untouched; ✗ alone reads as failure.
+
+    NC.inp must exist for `export` to check done — NumCalc cannot produce
+    be.out/ without one, so a real partial run always has it. Without it,
+    `export` (not `run`) is the blocking stage and the ``run``-only hint
+    below it never renders, which is not a state that occurs in practice.
+    """
     (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
     (tmp_path / "mesh").mkdir()
     (tmp_path / "mesh" / "v.stl").write_text("")
+    (tmp_path / "numcalc" / "v").mkdir(parents=True)
+    (tmp_path / "numcalc" / "v" / "NC.inp").touch()
     be = tmp_path / "numcalc" / "v" / "be.out" / "be.4"
     be.mkdir(parents=True)
     (be / "pBoundary").write_text("h1\nh2\nh3\n0 1.0 2.0\n")
@@ -127,7 +135,34 @@ def test_status_marks_a_partial_run_distinctly(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "◐" in out
     assert "1/64 bins" in out
-    assert "plot" in out          # the usable-now hint
+    assert "Next: bem" in out and "run" in out
+    assert "plot freq" in out          # the usable-now hint, right below it
+
+
+def test_partial_run_hint_only_follows_the_run_stage_advice(tmp_path, capsys):
+    """The 'plot freq' hint belongs directly under the `run` advice line — it
+    must not dangle off unrelated advice (e.g. a different variant's `mesh`
+    step) just because *some* variant happens to have a partial run."""
+    (tmp_path / "config.toml").write_text(
+        "[bem]\nsr = 32000\nnbins = 65\n"
+        '[variants.v1]\nmesh = "v1"\n'
+        '[variants.v2]\nmesh = "v2"\n')
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "v1.stl").write_text("")
+    # v2 has no mesh/v2.stl -- 'mesh' is v2's blocking stage, so it sorts
+    # ahead of v1's partial 'run' in the per-stage Next-hint loop.
+    (tmp_path / "numcalc" / "v1").mkdir(parents=True)
+    (tmp_path / "numcalc" / "v1" / "NC.inp").touch()
+    be = tmp_path / "numcalc" / "v1" / "be.out" / "be.4"
+    be.mkdir(parents=True)
+    (be / "pBoundary").write_text("h1\nh2\nh3\n0 1.0 2.0\n")
+
+    main([str(tmp_path), "status"])
+
+    out = capsys.readouterr().out
+    assert "◐" in out                    # v1's partial run still shown
+    assert "Next: bem" in out and " mesh " in out
+    assert "plot freq" not in out        # not dangling off the mesh hint
 
 
 def test_status_marks_untouched_and_complete_runs_distinctly_from_partial(tmp_path, capsys):
@@ -268,9 +303,20 @@ class TestPartialBandForceConflict:
         assert args.force is True and args.preview is None
 
 
-def test_detached_run_forwards_the_band_selection(tmp_path, monkeypatch):
+@pytest.mark.parametrize("selector, expected", [
+    (["--preview", "8"], ["--preview", "8"]),
+    (["--freq", "1000", "4000"], ["--freq", "1000.0", "4000.0"]),
+    (["--bins", "4", "16"], ["--bins", "4", "16"]),
+])
+def test_detached_run_forwards_the_band_selection(tmp_path, monkeypatch,
+                                                  selector, expected):
     """The background supervisor is this same CLI re-invoked, so it must be
-    told which bins to run or it would silently compute the whole band."""
+    told which bins to run or it would silently compute the whole band.
+
+    Parametrized over all three selectors: they are three sibling branches in
+    _detach_run's argv construction, and covering one proves nothing about
+    the other two.
+    """
     from bemkit.cli import _pipeline
 
     (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
@@ -289,11 +335,25 @@ def test_detached_run_forwards_the_band_selection(tmp_path, monkeypatch):
     monkeypatch.setattr(_pipeline.subprocess, "Popen", FakePopen)
     monkeypatch.setattr("bemkit.pipeline.require_numcalc", lambda: None)
 
-    main([str(tmp_path), "run", "--preview", "8"])
+    main([str(tmp_path), "run", *selector])
 
     argv = recorded["argv"]
-    assert "--preview" in argv and argv[argv.index("--preview") + 1] == "8"
+    flag = expected[0]
+    assert flag in argv
+    assert argv[argv.index(flag) + 1:argv.index(flag) + len(expected)] == expected[1:]
     assert "--foreground" in argv
+
+
+def test_all_also_refuses_force_with_a_selection(tmp_path):
+    """The refusal lives in cmd_run *and* cmd_all — `all` ends in the same
+    run stage, so scoping --force there would mix exports just the same."""
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "v.stl").write_text("")
+
+    with pytest.raises(SystemExit) as exit_info:
+        main([str(tmp_path), "all", "--force", "--preview", "8"])
+    assert "--force" in str(exit_info.value)
 
 
 class TestJobsDefault:

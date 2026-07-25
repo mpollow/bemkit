@@ -18,7 +18,8 @@ NumCalc itself is a separate program (part of Mesh2HRTF, EUPL-licensed);
 
     bem examples/sphcap mesh         # STEP -> triangle mesh (needs gmsh)
     bem examples/sphcap export       # fieldpoints + mesh + NC.inp
-    bem examples/sphcap run          # run NumCalc (parallel, resumable)
+    bem examples/sphcap run          # run NumCalc (resumable; -j N for parallel)
+    bem examples/sphcap run --preview 8   # or solve 8 bins first for a fast look
     bem examples/sphcap plot         # frequency response + impulse response
     bem examples/sphcap              # status
 

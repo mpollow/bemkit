@@ -339,7 +339,11 @@ class RunStage(PipelineStage):
         pairs, jobs = plan_run(config, variants, max_jobs=max_jobs, force=force,
                                bins=bins)
         if not jobs:
-            print("  Nothing to run (all bins present — use --force to recompute).")
+            if bins is not None:
+                print(f"  Nothing to run (all {len(bins)} selected bin(s) already "
+                      f"present — drop the selector to compute the rest).")
+            else:
+                print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
         require_numcalc()
         nf = config.nbins - 1

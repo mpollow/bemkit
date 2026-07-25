@@ -17,8 +17,8 @@ def register(sub):
     _add_variant(p)
     p.set_defaults(func=cmd_export)
 
-    p = sub.add_parser("run", help="Run NumCalc (parallel; computes missing "
-                                   "bins only — resumes interrupted runs)")
+    p = sub.add_parser("run", help="Run NumCalc (computes missing bins only "
+                                   "— resumes interrupted runs)")
     _add_variant(p)
     _add_band(p)
     p.add_argument("-j", "--jobs", type=int, default=1, metavar="N",
@@ -78,6 +78,18 @@ def _add_band(p):
                         "a fast look at the model; a later run fills in the rest")
 
 
+def _has_band_selection(args):
+    """True if --freq/--bins/--preview was given (any one of them).
+
+    The one place this is asked, spelled the same way everywhere it is
+    asked: an empty list (unreachable via argparse's ``nargs="+"``, but not
+    via a direct caller) must count as "given" here exactly as it does in
+    ``_selected_bins``/``_reject_force_with_selection``/``_detach_run``'s
+    argv forwarding — a truthiness check on the list would disagree.
+    """
+    return args.freq is not None or args.bins is not None or args.preview is not None
+
+
 def _selected_bins(config, args):
     """Resolve --freq/--bins/--preview to bin indices, or None for the full band.
 
@@ -86,7 +98,7 @@ def _selected_bins(config, args):
     """
     from bemkit.config import resolve_bins
 
-    if args.freq is None and args.bins is None and args.preview is None:
+    if not _has_band_selection(args):
         return None
 
     try:
@@ -116,7 +128,7 @@ def _reject_force_with_selection(args):
     """
     if not args.force:
         return
-    if args.freq is None and args.bins is None and args.preview is None:
+    if not _has_band_selection(args):
         return
     sys.exit(
         "--force discards every existing bin and cannot be combined with "
@@ -196,7 +208,11 @@ def _detach_run(model_dir, config, args, bins=None):
     _, jobs = plan_run(config, variants, max_jobs=args.jobs, force=args.force,
                        bins=bins)
     if not jobs:
-        print("  Nothing to run (all bins present — use --force to recompute).")
+        if bins is not None:
+            print(f"  Nothing to run (all {len(bins)} selected bin(s) already "
+                  f"present — drop the selector to compute the rest).")
+        else:
+            print("  Nothing to run (all bins present — use --force to recompute).")
         return
 
     argv = [sys.executable, "-m", "bemkit.cli", str(model_dir), "run",
@@ -209,11 +225,14 @@ def _detach_run(model_dir, config, args, bins=None):
         argv.append("--force")
     if args.restart:
         argv.append("--restart")
-    if args.freq:
+    # `is not None`, not truthiness: the supervisor re-resolves the selection
+    # from these flags, so a selector that is present but empty must still be
+    # forwarded as present — dropping it would silently run the whole band.
+    if args.freq is not None:
         argv += ["--freq", *(str(f) for f in args.freq)]
-    if args.bins:
+    if args.bins is not None:
         argv += ["--bins", *(str(b) for b in args.bins)]
-    if args.preview:
+    if args.preview is not None:
         argv += ["--preview", str(args.preview)]
 
     log_path = model_dir / "numcalc" / "run.log"
@@ -226,7 +245,7 @@ def _detach_run(model_dir, config, args, bins=None):
             # it (SIGHUP) or with a Ctrl-C aimed at this process group.
             start_new_session=True)
 
-    n_at_once = min(args.jobs or len(jobs), len(jobs))
+    n_at_once = min(args.jobs, len(jobs))
     print(f"  Started in background (pid {proc.pid}), {len(jobs)} job(s), "
           f"{n_at_once} at a time")
     print(f"  Log: {log_path}")
@@ -340,15 +359,12 @@ def show_status(model_dir):
             done = STAGES[name].check(config, v)
             mark = "✓" if done else "✗"
             extra = ""
-            partial = False
             if name == "run":
                 n_avail = len(available_bins(nc_dir))
                 if 0 < n_avail < nf:
                     extra = f"  ({n_avail}/{nf} bins)"
                     done = False
-                    partial = True
                     mark = "◐"
-                if partial:
                     partial_runs.append(v)
                 pids = numcalc_pids(nc_dir)
                 if pids:
@@ -409,13 +425,15 @@ def show_status(model_dir):
             n, total = len(pending), len(variants)
             count = f"({n}/{total} variants)" if total > 1 else ""
             print(f"  Next: bem {rel} {name}  {count}".rstrip())
+            if name == "run" and partial_runs:
+                # A partial run's bins are usable right now, whatever the
+                # rest of the band still needs — but only when `run` is
+                # itself the blocking stage, so this offers a continuation
+                # of that exact advice rather than dangling off an unrelated
+                # one (a different variant's mesh/export, or the "NumCalc
+                # running" line just above, which is not an imperative).
+                print(f"     or bem {rel} plot freq"
+                      f"    # the bins already computed are usable now")
             break
     else:
         print("  All stages complete.")
-
-    if partial_runs:
-        # However the "Next" hint above resolved (a partial run leaves every
-        # later stage pending too, e.g. export/pack), the bins already
-        # computed are usable right now — surface that regardless.
-        print(f"     or bem {rel} plot freq"
-              f"    # the bins already computed are usable now")

@@ -417,6 +417,18 @@ class TestRunStage:
         _stage_run(model_dir)
         assert "solver warning" not in capsys.readouterr().out
 
+    def test_nothing_to_run_message_is_selection_aware(self, model_dir, capsys):
+        """Same fix as the CLI's _detach_run, on RunStage.run's own copy of
+        the message — a selection makes "all bins present" false."""
+        _make_npz(model_dir / "numcalc" / "tetra", [1, 2])
+
+        _stage_run(model_dir, bins=[1, 2])
+
+        out = capsys.readouterr().out
+        assert "all 2 selected bin(s) already present" in out
+        assert "drop the selector to compute the rest" in out
+        assert "all bins present" not in out
+
 
 def _run_args(argv):
     """Parse `run` flags through the real CLI parser, so these tests break if
@@ -541,6 +553,20 @@ class TestRunCommandBackground:
 
         assert spawned == []
         assert "Nothing to run" in capsys.readouterr().out
+
+    def test_nothing_to_run_message_is_selection_aware(self, model_dir, spawned,
+                                                       capsys):
+        """"all bins present" is false when only the *selected* bins are
+        present (2 of 4 here) — and --force is exactly what a selector
+        refuses, so pointing at it sent the user straight into an error."""
+        _make_npz(model_dir / "numcalc" / "tetra", [1, 2])
+
+        self._cmd_run(model_dir, ["--bins", "1", "2"])
+
+        out = capsys.readouterr().out
+        assert "all 2 selected bin(s) already present" in out
+        assert "drop the selector to compute the rest" in out
+        assert "all bins present" not in out
 
 
 class TestPsCommand:
