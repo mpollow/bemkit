@@ -752,6 +752,35 @@ def _parse_run_args(extra):
     return parser.parse_args(["run", *extra])
 
 
+def test_a_partial_run_is_reused_by_the_later_full_run(tmp_path):
+    """The whole point: bins computed by --bins survive into the full run."""
+    from bemkit.config import ModelConfig
+    from bemkit.pipeline import plan_run
+    from bemkit.sim.status import available_bins
+
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 9\n")
+    nc_dir = tmp_path / "numcalc" / "v"
+    nc_dir.mkdir(parents=True)
+    config = ModelConfig.from_dir(tmp_path)
+
+    # First: a partial run over bins 2 and 5.
+    _, jobs = plan_run(config, ["v"], bins=[2, 5], verbose=False)
+    assert sorted(j.steps for j in jobs) == [(2, 2), (5, 5)]
+
+    # Simulate NumCalc having written those bins.
+    for i in (2, 5):
+        d = nc_dir / "be.out" / f"be.{i}"
+        d.mkdir(parents=True)
+        (d / "pBoundary").write_text("h1\nh2\nh3\n0 1.0 2.0\n")
+    assert available_bins(nc_dir) == [2, 5]
+
+    # Then: a plain full run must plan only the other six bins.
+    _, jobs = plan_run(config, ["v"], verbose=False)
+    covered = sorted(b for j in jobs
+                     for b in range(j.steps[0], j.steps[1] + 1))
+    assert covered == [1, 3, 4, 6, 7, 8]
+
+
 def test_resolved_bins_reach_the_job_plan(tmp_path, monkeypatch):
     """--preview must survive resolution in the CLI and land in plan_run."""
     from bemkit.cli import _pipeline
