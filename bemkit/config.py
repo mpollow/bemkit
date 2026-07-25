@@ -349,14 +349,14 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
         non_integral = wanted[wanted != np.floor(wanted)]
         if non_integral.size:
             raise ValueError(
-                f"bin indices must be whole numbers, got "
+                f"bin indices must be whole numbers: "
                 f"{', '.join(f'{v:g}' for v in non_integral)}")
         wanted_bins = wanted.astype(int)
         outside = wanted_bins[(wanted_bins < 1) | (wanted_bins > nf)]
         if outside.size:
             raise ValueError(
-                f"bins {', '.join(str(b) for b in outside)} are outside "
-                f"the band: this model has {nf} bins, valid indices 1..{nf} "
+                f"outside the band: {', '.join(str(b) for b in outside)} — "
+                f"this model has {nf} bins, valid indices 1..{nf} "
                 f"(bins are 1-based, like NumCalc's -istart)")
         return sorted(set(wanted_bins.tolist()))
 
@@ -373,13 +373,13 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
         if bad_mask.any():
             bad = wanted_hz[bad_mask]
             raise ValueError(
-                f"frequencies {', '.join(f'{v:g}' for v in bad)} are not "
-                f"valid (must be finite and non-negative)")
+                f"not valid as a frequency (must be finite and non-negative): "
+                f"{', '.join(f'{v:g}' for v in bad)}")
         above = wanted_hz[wanted_hz > freqs[-1]]
         if above.size:
             raise ValueError(
-                f"{', '.join(f'{v:g}' for v in above)} Hz are above the "
-                f"simulated band (up to {freqs[-1]:g} Hz for sr={sr}, "
-                f"nbins={nbins})")
+                f"above the simulated band: "
+                f"{', '.join(f'{v:g}' for v in above)} Hz — the band reaches "
+                f"{freqs[-1]:g} Hz for sr={sr}, nbins={nbins}")
 
     return sorted({int(np.argmin(np.abs(freqs - f))) + 1 for f in wanted_hz})

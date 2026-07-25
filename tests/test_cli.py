@@ -210,11 +210,14 @@ class TestPartialBandForceConflict:
     @pytest.mark.parametrize("selector", [
         ["--freq", "500"], ["--bins", "4"], ["--preview", "8"],
     ])
-    def test_force_with_a_selector_exits(self, tmp_path, selector, capsys):
+    def test_force_with_a_selector_exits(self, tmp_path, selector):
         model = self._model(tmp_path)
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exit_info:
             main([str(model), "run", "--force", *selector])
-        assert "--force" in capsys.readouterr().err
+        # sys.exit(msg) is the file's convention: the message is the exit
+        # code object, which the interpreter prints to stderr at top level.
+        assert "--force" in str(exit_info.value)
+        assert "previous export" in str(exit_info.value)
 
     def test_force_alone_is_still_accepted(self, tmp_path):
         """Parsing must not reject the plain full-band recompute."""

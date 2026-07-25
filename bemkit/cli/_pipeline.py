@@ -118,18 +118,13 @@ def _reject_force_with_selection(args):
         return
     if args.freq is None and args.bins is None and args.preview is None:
         return
-    # Printed explicitly (rather than sys.exit(msg)) so the message reaches
-    # stderr even when this is invoked in-process (e.g. under test) rather
-    # than as the top-level program, where an uncaught SystemExit's string
-    # code would otherwise be the only thing that prints it.
-    print(
+    sys.exit(
         "--force discards every existing bin and cannot be combined with "
         "--freq/--bins/--preview: the bins you did not name would still "
         "come from the previous export.\n"
         "  Full recompute:  bem MODEL run --force\n"
         "  Fresh partial:   rm -r numcalc/<variant>/be.out  &&  "
-        "bem MODEL run --preview 8", file=sys.stderr)
-    sys.exit(1)
+        "bem MODEL run --preview 8")
 
 
 def _run_stage(name, config, **kwargs):
