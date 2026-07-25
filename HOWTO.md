@@ -477,7 +477,7 @@ and writes results into `be.out/`. Frequency bins are independent, so runs
 parallelize and resume trivially.
 
 ```bash
-bem examples/sphcap run                       # all variants, parallel, in the background
+bem examples/sphcap run                       # all variants, one NumCalc at a time, in the background
 bem examples/sphcap run -j 4                  # at most 4 concurrent NumCalc procs
 bem examples/sphcap run --force               # recompute all bins from scratch
 bem examples/sphcap run --foreground          # wait for it instead of detaching
@@ -516,9 +516,11 @@ reads model, variant and progress out of each one's working directory, so it
 works the same from any directory.
 
 `-j N` is the only load knob: N is the number of NumCalc processes allowed to
-run at once, whatever the model contains. With fewer variants than slots, the
-planner fans variants out over frequency ranges (`-istart`/`-iend`) until the
-slots are full — the busiest variant gets the most, and because cost grows with
+run at once, whatever the model contains — **default 1**, because BEM peak
+memory, not CPU, is the binding constraint: several concurrent DMLFMBEM solves
+on a large mesh exhaust RAM. With fewer variants than slots, the planner fans
+variants out over frequency ranges (`-istart`/`-iend`) until the slots are
+full — the busiest variant gets the most, and because cost grows with
 frequency the top-octave slices come out narrower than the bottom ones. Job
 order alternates big and small so that a heavyweight and a lightweight run side
 by side rather than two memory hogs at once.
@@ -559,6 +561,29 @@ killed mid-write fails the completeness check and is recomputed anyway — so ad
 
 You can also run NumCalc entirely outside bemkit:
 `cd numcalc/<variant> && NumCalc` (outputs `NC.out`, `be.out/`).
+
+### Fast look first: partial-band runs
+
+A full run solves every bin. To see whether a model behaves sensibly, solve a
+handful instead:
+
+```bash
+bem examples/sphcap run --preview 8      # 8 bins spread over the band
+bem examples/sphcap run --freq 1000 4000 # just these frequencies
+```
+
+The bins land on the model's normal frequency grid, so nothing is wasted: a
+later `bem examples/sphcap run` computes only what is still missing and the
+results merge into one set.
+
+`bem status` shows a partial run as `◐  (8/64 bins)`. Frequency-domain plots
+work on partial results and mark the computed bins; time-domain plots
+(`plot ir`, `plot etc`) need the whole band and are skipped with a message
+until you fill it in.
+
+`--force` cannot be combined with a selection — it discards every bin, so the
+bins you did not name would still come from the previous export. To restart a
+partial run from scratch, delete `numcalc/<variant>/be.out/` first.
 
 ---
 

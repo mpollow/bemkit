@@ -9,7 +9,8 @@ simulations from CAD geometry.
 bemkit/
 ├── bemkit/
 │   ├── __init__.py     # eager core exports; analysis/viz resolve lazily via __getattr__
-│   ├── config.py       # ModelConfig (single config object, dict-style access), freq_bin
+│   ├── config.py       # ModelConfig (single config object, dict-style access), freq_bin,
+│   │                      #   freq_grid, resolve_bins (Hz/preview/bins → 1-based bin list)
 │   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
 │   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
 │   │                      # generate.py — gmsh STEP/scan meshing (lazy gmsh):
@@ -115,10 +116,16 @@ bem newmodel init model.msh            # bootstrap config.toml from an existing 
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc in the background, return immediately
-bem examples/sphcap run -j 4           # at most 4 NumCalc processes (auto bin fan-out)
+bem examples/sphcap run -j 4           # at most 4 NumCalc processes (default 1; auto bin fan-out)
 bem examples/sphcap run --force        # recompute all bins (default only runs missing ones)
 bem examples/sphcap run --foreground   # wait for it (what `all` and CI want)
 bem examples/sphcap run --restart      # kill the running NumCalc first, then resume
+bem examples/sphcap run --preview 8    # 8 bins across the band, log-spaced
+bem examples/sphcap run --freq 1000 4000   # only the bins nearest these
+bem examples/sphcap run --bins 4 16 64     # literal 1-based bins
+#   A partial run merges into a later full run: `bem MODEL run` then computes
+#   only what is still missing. --force cannot be combined with these (it
+#   discards every bin, which would mix exports).
 bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink), then remove be.out/
 bem examples/sphcap pack --keep-original     # keep be.out/ after the verified pack
 bem ps                                 # every running NumCalc, any model: model/variant/bins/pid
@@ -406,15 +413,29 @@ needed — outputs just land in the same `be.out/`).
   a live NumCalc (skips, not aborts — the finished variants should still pack). The
   library-level `pack_variant(delete_original=False)` default is unchanged; only the
   pipeline stage and CLI default flipped.
-- `bem MODEL run -j N` is the single load knob: N = max concurrent NumCalc processes.
-  `plan_jobs(pairs, nf, max_jobs=N)` decides the rest — one job per variant, and when
-  variants would leave slots idle, variants are fanned out into bin ranges
-  (`-istart`/`-iend`) until N jobs exist. Slots go to the costliest variants, ranges are
-  cut for equal cost (bin cost ∝ frequency index, variant cost ∝ element count), and the
-  queue alternates heavy/light so concurrent jobs mix big and small rather than stacking
-  memory peaks. On a resume (the default) the cuts apply to the *missing* bins and never
-  span a bin that already has results, so a gap can yield more than N jobs. The cost model
-  is a scheduling heuristic only — results never depend on it.
+- `bem MODEL run -j N` is the single load knob: N = max concurrent NumCalc
+  processes, **default 1**. BEM peak memory, not CPU, is what limits a run —
+  several concurrent DMLFMBEM solves on a large mesh exhaust RAM, and the
+  heavy/light interleaving in `_queue_order` flattens that peak without
+  bounding it. `plan_jobs(pairs, nf, max_jobs=N)` decides the rest — one job
+  per variant, and when variants would leave slots idle, variants are fanned
+  out into bin ranges (`-istart`/`-iend`) until N jobs exist. Slots go to the
+  costliest variants, ranges are cut for equal cost (bin cost ∝ frequency
+  index, variant cost ∝ element count), and the queue alternates heavy/light
+  so concurrent jobs mix big and small rather than stacking memory peaks. On a
+  resume (the default) the cuts apply to the *missing* bins and never span a
+  bin that already has results, so a gap can yield more than N jobs. The cost
+  model is a scheduling heuristic only — results never depend on it.
+- **Partial-band runs.** `--freq HZ...`, `--bins N...` and `--preview N` on
+  `run`/`all` restrict a run to a subset of bins; `bemkit.config.resolve_bins`
+  snaps frequencies onto the model's grid (ties resolve low) and `plan_jobs`
+  intersects the result with the bins it would otherwise schedule. Because the
+  subset stays on the FFT grid, a later `bem MODEL run` fills in the rest and
+  the results merge with no extra step. `--force` refuses to combine with a
+  selection: it discards every bin, so the unnamed ones would come from the
+  previous export. Sparse results are usable — frequency plots mark the
+  computed bins — but anything crossing the whole band (`plot ir`, `plot etc`)
+  raises `IncompleteBand` and is skipped with a reason.
 - `bemkit.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
