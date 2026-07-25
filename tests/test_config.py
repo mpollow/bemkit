@@ -320,8 +320,17 @@ class TestResolveBins:
             self._r(bins=[0, 4, 99])
 
     def test_non_integral_bin_raises(self):
-        with pytest.raises(ValueError, match="3.9|whole number|integer"):
+        with pytest.raises(ValueError, match="whole numbers"):
             self._r(bins=[3.9])
+
+    def test_bins_accepts_a_numpy_array(self):
+        """The freq selector accepts arrays; the two must not disagree about
+        what an input may be."""
+        assert self._r(bins=np.array([16, 4])) == [4, 16]
+
+    def test_empty_numpy_bins_raises_cleanly(self):
+        with pytest.raises(ValueError, match="empty"):
+            self._r(bins=np.array([]))
 
     def test_frequency_snaps_to_nearest_bin(self):
         assert self._r(freq=[1000]) == [4]      # exactly on bin 4
@@ -344,15 +353,18 @@ class TestResolveBins:
 
     def test_nan_frequency_raises(self):
         """NaN passes a > comparison silently and would snap to bin 1."""
-        with pytest.raises(ValueError, match="not a valid frequency|finite"):
+        with pytest.raises(ValueError, match="not valid"):
             self._r(freq=[float("nan")])
 
     def test_negative_frequency_raises(self):
-        with pytest.raises(ValueError, match="not a valid frequency|negative"):
+        with pytest.raises(ValueError, match="not valid"):
             self._r(freq=[-500])
 
     def test_infinite_frequency_raises(self):
-        with pytest.raises(ValueError):
+        """Before the finiteness guard, inf already raised via the
+        above-band check — so this must pin the guard's own message, not
+        just any ValueError, or it can't tell the two apart."""
+        with pytest.raises(ValueError, match="not valid"):
             self._r(freq=[float("inf")])
 
     def test_preview_is_log_spaced(self):

@@ -63,7 +63,8 @@ class SimulationData:
         self._c0 = eff.get("speed_of_sound", 340.0)
         sr = eff["sr"]
         nbins = eff["nbins"]
-        self.frequencies = np.linspace(0, sr / 2, nbins)[1:]
+        from bemkit.config import freq_grid
+        self.frequencies = freq_grid(sr, nbins)
 
         # Prefer the packed be.npz when present; otherwise scan be.out/.
         # Quantities are cached decompressed on first access (an NpzFile

@@ -63,6 +63,13 @@ class TestSimulationDataNormalization:
         }
         return SimulationData(numcalc_dir, config)
 
+    def test_frequencies_match_freq_grid(self, sim):
+        """The results layer must label frequencies with the same grid the
+        runner selects bins from, or a merged partial run would be
+        mislabelled."""
+        from bemkit.config import freq_grid
+        np.testing.assert_array_equal(sim.frequencies, freq_grid(48000, 65))
+
     def test_pressure_default_is_normalized(self, sim):
         """Test that pressure() defaults to norm="acc"."""
         p_acc = sim.pressure("all")
