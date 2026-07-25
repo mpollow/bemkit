@@ -110,11 +110,31 @@ def _selected_bins(config, args):
     freqs = config.freq_array()
     nf = config.nbins - 1
     print(f"  Partial band: {len(bins)} of {nf} bins")
-    listed = ", ".join(f"{freqs[b - 1]:.1f} Hz (bin {b})" for b in bins)
-    print(f"    {listed}")
-    if args.freq is not None and len(bins) < len(set(args.freq)):
-        print(f"    ({len(set(args.freq))} frequencies requested, "
-              f"{len(bins)} distinct bins)")
+
+    if args.freq is not None:
+        # One line per request, showing what it snapped to. A requested
+        # frequency is almost never a bin frequency, and the substitution is
+        # the thing the user needs to see — a bare bin list hides it.
+        landed = {}
+        for f in args.freq:
+            b = resolve_bins(config.sr, config.nbins, freq=[f])[0]
+            landed.setdefault(b, []).append(f)
+        for b in sorted(landed):
+            asked = landed[b]
+            joined = " and ".join(f"{f:g}" for f in asked)
+            if len(asked) > 1:
+                every = "both" if len(asked) == 2 else "all"
+                print(f"    {joined} Hz {every} resolve to bin {b} "
+                      f"({freqs[b - 1]:.1f} Hz)")
+            else:
+                print(f"    {joined} Hz → bin {b} ({freqs[b - 1]:.1f} Hz)")
+    else:
+        # --bins/--preview name bins directly, so the list is the useful form
+        # — wrapped, because a 64-bin selection is otherwise one long line.
+        import textwrap
+        listed = ", ".join(f"{freqs[b - 1]:.1f} Hz (bin {b})" for b in bins)
+        print(textwrap.fill(listed, width=76, initial_indent="    ",
+                            subsequent_indent="    "))
     return bins
 
 

@@ -346,7 +346,10 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
         wanted = np.asarray(list(bins), dtype=float)
         if wanted.size == 0:
             raise ValueError("bins selector is empty")
-        non_integral = wanted[wanted != np.floor(wanted)]
+        # ~isfinite is part of the mask, not a separate check: floor(inf) == inf,
+        # so inf would pass an integrality test and then cast to INT_MIN, and
+        # the range error below would name -9223372036854775808.
+        non_integral = wanted[~np.isfinite(wanted) | (wanted != np.floor(wanted))]
         if non_integral.size:
             raise ValueError(
                 f"bin indices must be whole numbers: "

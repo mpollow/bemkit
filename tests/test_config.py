@@ -414,3 +414,11 @@ class TestResolveBins:
         nf = self.NBINS - 1
         for kwargs in ({"preview": 8}, {"freq": [500, 4000]}, {"bins": [1, 64]}):
             assert set(self._r(**kwargs)) <= set(range(1, nf + 1))
+
+
+def test_infinite_bin_index_is_rejected_as_non_integral():
+    """floor(inf) == inf, so inf passes an integrality test and then casts to
+    INT_MIN — the range error would name -9223372036854775808."""
+    from bemkit.config import resolve_bins
+    with pytest.raises(ValueError, match="whole numbers"):
+        resolve_bins(32000, 65, bins=[float("inf")])

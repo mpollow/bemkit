@@ -368,3 +368,35 @@ class TestJobsDefault:
 
     def test_explicit_j_still_wins(self):
         assert _parse(["run", "-j", "4"]).jobs == 4
+
+
+class TestPartialBandReporting:
+    """A requested frequency is snapped to the grid, never honoured exactly,
+    so the substitution has to be visible."""
+
+    def _cfg(self, tmp_path):
+        from bemkit.config import ModelConfig
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+        return ModelConfig.from_dir(tmp_path)
+
+    def _report(self, tmp_path, argv, capsys):
+        from bemkit.cli import _pipeline
+        _pipeline._selected_bins(self._cfg(tmp_path), _parse(argv))
+        return capsys.readouterr().out
+
+    def test_freq_reports_requested_and_actual(self, tmp_path, capsys):
+        out = self._report(tmp_path, ["run", "--freq", "1100", "4000"], capsys)
+        assert "1100 Hz → bin 4 (1000.0 Hz)" in out
+        assert "4000 Hz → bin 16 (4000.0 Hz)" in out
+
+    def test_collapsed_frequencies_are_named(self, tmp_path, capsys):
+        """Two requests, one bin — silently returning one line would look
+        like a frequency had been dropped."""
+        out = self._report(tmp_path, ["run", "--freq", "500", "600"], capsys)
+        assert "500 and 600 Hz both resolve to bin 2" in out
+        assert "Partial band: 1 of 64 bins" in out
+
+    def test_long_bin_lists_are_wrapped(self, tmp_path, capsys):
+        """64 bins on one line is unreadable in a terminal."""
+        out = self._report(tmp_path, ["run", "--preview", "40"], capsys)
+        assert max(len(line) for line in out.splitlines()) <= 80
