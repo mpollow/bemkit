@@ -195,3 +195,56 @@ class TestPartialBandFlags:
     def test_all_subcommand_takes_the_same_selectors(self, selector):
         args = _parse(["all", *selector])
         assert (args.freq, args.bins, args.preview) != (None, None, None)
+
+
+class TestPartialBandForceConflict:
+    """--force rmtree's be.out/; scoping it to a subset would leave fresh
+    bins beside stale ones from a previous export."""
+
+    def _model(self, tmp_path):
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+        (tmp_path / "mesh").mkdir()
+        (tmp_path / "mesh" / "v.stl").write_text("")
+        return tmp_path
+
+    @pytest.mark.parametrize("selector", [
+        ["--freq", "500"], ["--bins", "4"], ["--preview", "8"],
+    ])
+    def test_force_with_a_selector_exits(self, tmp_path, selector, capsys):
+        model = self._model(tmp_path)
+        with pytest.raises(SystemExit):
+            main([str(model), "run", "--force", *selector])
+        assert "--force" in capsys.readouterr().err
+
+    def test_force_alone_is_still_accepted(self, tmp_path):
+        """Parsing must not reject the plain full-band recompute."""
+        args = _parse(["run", "--force"])
+        assert args.force is True and args.preview is None
+
+
+def test_detached_run_forwards_the_band_selection(tmp_path, monkeypatch):
+    """The background supervisor is this same CLI re-invoked, so it must be
+    told which bins to run or it would silently compute the whole band."""
+    from bemkit.cli import _pipeline
+
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    (tmp_path / "numcalc" / "v").mkdir(parents=True)
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "v.stl").write_text("")
+
+    recorded = {}
+
+    class FakePopen:
+        pid = 4242
+
+        def __init__(self, argv, **kwargs):
+            recorded["argv"] = argv
+
+    monkeypatch.setattr(_pipeline.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr("bemkit.pipeline.require_numcalc", lambda: None)
+
+    main([str(tmp_path), "run", "--preview", "8"])
+
+    argv = recorded["argv"]
+    assert "--preview" in argv and argv[argv.index("--preview") + 1] == "8"
+    assert "--foreground" in argv

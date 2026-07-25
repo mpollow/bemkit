@@ -78,6 +78,60 @@ def _add_band(p):
                         "a fast look at the model; a later run fills in the rest")
 
 
+def _selected_bins(config, args):
+    """Resolve --freq/--bins/--preview to bin indices, or None for the full band.
+
+    Prints what was resolved, with the actual bin frequencies, because a
+    requested frequency is snapped to the grid rather than honoured exactly.
+    """
+    from bemkit.config import resolve_bins
+
+    if args.freq is None and args.bins is None and args.preview is None:
+        return None
+
+    try:
+        bins = resolve_bins(config.sr, config.nbins, freq=args.freq,
+                            bins=args.bins, preview=args.preview)
+    except ValueError as e:
+        sys.exit(str(e))
+
+    freqs = config.freq_array()
+    nf = config.nbins - 1
+    print(f"  Partial band: {len(bins)} of {nf} bins")
+    listed = ", ".join(f"{freqs[b - 1]:.1f} Hz (bin {b})" for b in bins)
+    print(f"    {listed}")
+    if args.freq is not None and len(bins) < len(set(args.freq)):
+        print(f"    ({len(set(args.freq))} frequencies requested, "
+              f"{len(bins)} distinct bins)")
+    return bins
+
+
+def _reject_force_with_selection(args):
+    """--force and a bin selection cannot be combined.
+
+    --force discards every existing bin because bin presence says nothing
+    about which export produced it. Scoping it to a subset would leave the
+    unnamed bins in place — results from two different exports in one
+    be.out/, which is the corruption --force exists to prevent.
+    """
+    if not args.force:
+        return
+    if args.freq is None and args.bins is None and args.preview is None:
+        return
+    # Printed explicitly (rather than sys.exit(msg)) so the message reaches
+    # stderr even when this is invoked in-process (e.g. under test) rather
+    # than as the top-level program, where an uncaught SystemExit's string
+    # code would otherwise be the only thing that prints it.
+    print(
+        "--force discards every existing bin and cannot be combined with "
+        "--freq/--bins/--preview: the bins you did not name would still "
+        "come from the previous export.\n"
+        "  Full recompute:  bem MODEL run --force\n"
+        "  Fresh partial:   rm -r numcalc/<variant>/be.out  &&  "
+        "bem MODEL run --preview 8", file=sys.stderr)
+    sys.exit(1)
+
+
 def _run_stage(name, config, **kwargs):
     from bemkit.pipeline import STAGES
     try:
@@ -103,16 +157,18 @@ def cmd_export(model_dir, args):
 def cmd_run(model_dir, args):
     from bemkit.cli import load_model_config
     config = load_model_config(model_dir)
+    _reject_force_with_selection(args)
+    bins = _selected_bins(config, args)
     if not args.foreground:
-        return _detach_run(model_dir, config, args)
+        return _detach_run(model_dir, config, args, bins)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        force=args.force, restart=args.restart)
+        force=args.force, restart=args.restart, bins=bins)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
 
 
-def _detach_run(model_dir, config, args):
+def _detach_run(model_dir, config, args, bins=None):
     """Start the run in a background copy of this CLI and return.
 
     NumCalc runs for hours, so the terminal should not be held for it. The
@@ -142,7 +198,8 @@ def _detach_run(model_dir, config, args):
         if msg:
             sys.exit(msg)
 
-    _, jobs = plan_run(config, variants, max_jobs=args.jobs, force=args.force)
+    _, jobs = plan_run(config, variants, max_jobs=args.jobs, force=args.force,
+                       bins=bins)
     if not jobs:
         print("  Nothing to run (all bins present — use --force to recompute).")
         return
@@ -157,6 +214,12 @@ def _detach_run(model_dir, config, args):
         argv.append("--force")
     if args.restart:
         argv.append("--restart")
+    if args.freq:
+        argv += ["--freq", *(str(f) for f in args.freq)]
+    if args.bins:
+        argv += ["--bins", *(str(b) for b in args.bins)]
+    if args.preview:
+        argv += ["--preview", str(args.preview)]
 
     log_path = model_dir / "numcalc" / "run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -236,11 +299,13 @@ def cmd_ps(model_dir, args):
 def cmd_all(model_dir, args):
     from bemkit.cli import load_model_config
     config = load_model_config(model_dir)
+    _reject_force_with_selection(args)
+    bins = _selected_bins(config, args)
     _run_stage("mesh", config)
     _run_stage("export", config, prefixes=args.variant)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        force=args.force)
+        force=args.force, bins=bins)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
     print("\nDone.")

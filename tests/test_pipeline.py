@@ -739,3 +739,35 @@ def test_run_stage_does_not_swallow_the_bin_selection(tmp_path, monkeypatch):
     pipeline.STAGES["run"].run(ModelConfig.from_dir(tmp_path), bins=[2, 5])
 
     assert sorted(j.steps for j in planned["jobs"]) == [(2, 2), (5, 5)]
+
+
+def _parse_run_args(extra):
+    """Parse `run` arguments through a parser built like the real CLI."""
+    import argparse
+    from bemkit.cli import _pipeline
+
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    _pipeline.register(sub)
+    return parser.parse_args(["run", *extra])
+
+
+def test_resolved_bins_reach_the_job_plan(tmp_path, monkeypatch):
+    """--preview must survive resolution in the CLI and land in plan_run."""
+    from bemkit.cli import _pipeline
+
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    (tmp_path / "numcalc" / "v").mkdir(parents=True)
+
+    seen = {}
+
+    def fake_run_stage(name, config, **kwargs):
+        seen.update(kwargs)
+        return [], []
+
+    monkeypatch.setattr(_pipeline, "_run_stage", fake_run_stage)
+
+    args = _parse_run_args(["--foreground", "--preview", "8"])
+    _pipeline.cmd_run(tmp_path, args)
+
+    assert seen["bins"] == [1, 2, 3, 6, 11, 20, 35, 64]
