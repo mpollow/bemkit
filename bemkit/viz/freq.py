@@ -71,6 +71,10 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
     else:
         fsl = slice(None)
 
+    # A partial-band run leaves gaps; matplotlib breaks the line at NaN, which
+    # looks like a plotting artefact. Markers say "these are the measurements".
+    sparse = bool(result.missing_bins)
+
     lines = []
     for ci, idx in enumerate(indices):
         if db:
@@ -79,6 +83,9 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
             vals = result.magnitude(quantity, norm)[idx, fsl]
 
         kw = {"color": colors[ci], "alpha": 0.8}
+        if sparse:
+            kw["marker"] = "o"
+            kw["markersize"] = 4
         kw.update(kwargs)
 
         label = make_point_label(label_fmt, idx, result.eval_points[idx])
