@@ -4,6 +4,8 @@ Only the data the plots put on the axes is checked — what the figure looks
 like is not asserted on, for the reason given in tests/viz/test_symmetry.py.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -114,6 +116,23 @@ class TestDirectivityLevels:
         assert "on-axis" in level_label("onaxis")
         assert "peak" in level_label("max")
         assert "1 Pa" in level_label(1.0)
+
+    def test_max_reference_does_not_warn_on_an_all_nan_frequency(self):
+        # A partial-band run leaves whole frequency columns all-NaN; "max"
+        # takes nanmax over angle per frequency, which used to raise a raw
+        # RuntimeWarning ("All-NaN slice encountered") straight to the user.
+        mag = np.array([[1.0, np.nan], [0.5, np.nan]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            levels = directivity_levels(mag, np.array([0.0, 90.0]), "max")
+        assert np.isnan(levels[:, 1]).all()
+
+    def test_globalmax_reference_does_not_warn_when_entirely_nan(self):
+        mag = np.full((2, 2), np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            levels = directivity_levels(mag, np.array([0.0, 90.0]), "globalmax")
+        assert np.isnan(levels).all()
 
 
 class TestContourLevels:

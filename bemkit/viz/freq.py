@@ -10,6 +10,16 @@ from bemkit.viz._style import (
 )
 
 
+def _sparse_kw(result):
+    """Marker kwargs when the band has gaps, empty otherwise.
+
+    A partial-band run leaves isolated computed bins with no neighbour to
+    draw a line segment to, so without a marker they render as nothing at
+    all — the data looks absent rather than sparse.
+    """
+    return {"marker": "o", "markersize": 4} if result.missing_bins else {}
+
+
 def _resolve_points(result, points):
     """Resolve the ``points`` parameter into an index array.
 
@@ -71,10 +81,6 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
     else:
         fsl = slice(None)
 
-    # A partial-band run leaves gaps; matplotlib breaks the line at NaN, which
-    # looks like a plotting artefact. Markers say "these are the measurements".
-    sparse = bool(result.missing_bins)
-
     lines = []
     for ci, idx in enumerate(indices):
         if db:
@@ -83,9 +89,7 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
             vals = result.magnitude(quantity, norm)[idx, fsl]
 
         kw = {"color": colors[ci], "alpha": 0.8}
-        if sparse:
-            kw["marker"] = "o"
-            kw["markersize"] = 4
+        kw.update(_sparse_kw(result))
         kw.update(kwargs)
 
         label = make_point_label(label_fmt, idx, result.eval_points[idx])
@@ -143,6 +147,7 @@ def freq_phase(ax, result, *, points=None, quantity="pressure", norm="acc",
             vals = np.degrees(vals)
 
         kw = {"color": colors[ci], "alpha": 0.8}
+        kw.update(_sparse_kw(result))
         kw.update(kwargs)
         label = make_point_label(label_fmt, idx, result.eval_points[idx])
         ln = ax.plot(freqs / 1000, vals, label=label, **kw)
@@ -221,6 +226,7 @@ def angle_response(ax, result, *, angles=DEFAULT_ANGLES, quantity="pressure",
     for ci, ang in enumerate(matched):
         kw = {"alpha": 0.9}
         kw.update(styles[ci])
+        kw.update(_sparse_kw(result))
         kw.update(kwargs)
         plot = ax.plot if db else ax.semilogy
         lines.extend(plot(freqs, vals[ci], label=f"{ang:+.0f}°", **kw))
@@ -292,6 +298,7 @@ def onaxis_response(ax, result, *, quantity="pressure", norm="acc", db=True,
     lines = []
     for ci, idx in enumerate(order):
         kw = {"color": colors[ci], "alpha": 0.9}
+        kw.update(_sparse_kw(result))
         kw.update(kwargs)
         label = f"{AXES[axis]}={positions[idx]:+.2f} m"
         plot = ax.plot if db else ax.semilogy

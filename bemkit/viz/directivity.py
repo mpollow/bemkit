@@ -6,6 +6,8 @@ level in color.  Beamwidth narrowing with frequency, off-axis nulls and lobing
 all read directly off it, where a stack of polar plots only samples them.
 """
 
+import warnings
+
 import numpy as np
 
 from bemkit.viz._angles import circle_angles
@@ -57,10 +59,19 @@ def directivity_levels(mag, angles_deg, ref="onaxis"):
     if ref == "onaxis":
         on = int(np.argmin(np.abs((angles_deg + 180.0) % 360.0 - 180.0)))
         ref_vals = mag[on][None, :]
-    elif ref == "max":
-        ref_vals = np.nanmax(mag, axis=0, keepdims=True)
-    elif ref == "globalmax":
-        ref_vals = np.nanmax(mag)
+    elif ref in ("max", "globalmax"):
+        # A partial-band run can leave a frequency column — or the whole
+        # map — entirely NaN. nanmax over an all-NaN slice is a legitimate
+        # "no data yet" outcome here (the plot renders it as a gap), not
+        # something that should surface a raw RuntimeWarning to the user.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=".*All-NaN (slice|axis) encountered.*",
+                category=RuntimeWarning)
+            if ref == "max":
+                ref_vals = np.nanmax(mag, axis=0, keepdims=True)
+            else:
+                ref_vals = np.nanmax(mag)
     else:
         ref_vals = float(ref)
     with np.errstate(divide="ignore", invalid="ignore"):

@@ -135,6 +135,39 @@ def _save_fig(fig, output_file):
     plt.show()
 
 
+def _nearest_available_freq(result, freq_hz):
+    """Nearest computed (non-missing) frequency to ``freq_hz``, or None."""
+    missing = set(result.missing_bins)
+    available = [f for i, f in enumerate(result.frequencies, start=1)
+                 if i not in missing]
+    if not available:
+        return None
+    return min(available, key=lambda f: abs(f - freq_hz))
+
+
+def _require_computed(result, freq_hz):
+    """Raise IncompleteBand if ``freq_hz``'s nearest bin has no data.
+
+    A partial-band run (``bem MODEL run --preview 8``) leaves most bins
+    absent; asking a plot for one of them by frequency silently snaps to the
+    nearest bin and plots NaN (an invisible curve, sometimes with a raw
+    RuntimeWarning) rather than saying so.
+    """
+    from bemkit.analysis.result import IncompleteBand
+
+    bin_no = result.at_freq(freq_hz) + 1
+    if bin_no not in result.missing_bins:
+        return
+    nearest = _nearest_available_freq(result, freq_hz)
+    if nearest is None:
+        raise IncompleteBand(
+            f"{freq_hz:g} Hz (bin {bin_no}) was not computed — no bins are "
+            f"available yet (run `bem MODEL run` first)")
+    raise IncompleteBand(
+        f"{freq_hz:g} Hz was not computed (bin {bin_no}) — nearest available "
+        f"is {nearest:g} Hz (run `bem MODEL run` to fill in the band)")
+
+
 def _run_plot(plot_type, model_dir, set_name, args):
     """Unified plot dispatcher."""
     import matplotlib.pyplot as plt
@@ -168,6 +201,7 @@ def _run_plot(plot_type, model_dir, set_name, args):
             raise SystemExit(
                 f"Frequency {freq} Hz out of range "
                 f"[{result.frequencies[0]:.0f}, {result.frequencies[-1]:.0f}] Hz")
+        _require_computed(result, freq)
 
     # Grid validation for spatial plots
     if plot_type in ('plane', 'contour'):
@@ -240,6 +274,8 @@ def _run_plot(plot_type, model_dir, set_name, args):
                 raise SystemExit(
                     f"None of the requested frequencies {freqs_list} are in range "
                     f"[{result.frequencies[0]:.0f}, {result.frequencies[-1]:.0f}] Hz")
+            for f in valid_freqs:
+                _require_computed(result, f)
             ref = _parse_ref(args.ref, "onaxis")
             clim = tuple(args.clim) if args.clim else (-30.0, 0.0)
             print(f"Plotting polar directivity at {len(valid_freqs)} frequencies: {valid_freqs} Hz")
