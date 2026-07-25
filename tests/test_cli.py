@@ -113,6 +113,49 @@ def test_status_on_model_without_vars_toml(tmp_path):
         main([str(tmp_path)])
 
 
+def test_status_marks_a_partial_run_distinctly(tmp_path, capsys):
+    """A partial run is neither done nor untouched; ✗ alone reads as failure."""
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "v.stl").write_text("")
+    be = tmp_path / "numcalc" / "v" / "be.out" / "be.4"
+    be.mkdir(parents=True)
+    (be / "pBoundary").write_text("h1\nh2\nh3\n0 1.0 2.0\n")
+
+    main([str(tmp_path), "status"])
+
+    out = capsys.readouterr().out
+    assert "◐" in out
+    assert "1/64 bins" in out
+    assert "plot" in out          # the usable-now hint
+
+
+def test_status_marks_untouched_and_complete_runs_distinctly_from_partial(tmp_path, capsys):
+    """Neither end of the spectrum should read as the ◐ partial state: an
+    untouched variant stays a plain ✗ (no bin count), and a fully computed
+    one flips to ✓ — the partial glyph is reserved for the state in between."""
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 2\n")
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "untouched.stl").write_text("")
+    (tmp_path / "mesh" / "done.stl").write_text("")
+
+    be = tmp_path / "numcalc" / "done" / "be.out" / "be.1"
+    be.mkdir(parents=True)
+    (be / "pBoundary").write_text("h1\nh2\nh3\n0 1.0 2.0\n")
+
+    main([str(tmp_path), "status"])
+
+    out = capsys.readouterr().out
+    assert "◐" not in out
+
+    untouched_block = out.split("untouched:")[1].split("done:")[0]
+    assert "run     ✗" in untouched_block
+    assert "bins" not in untouched_block
+
+    done_block = out.split("done:")[1]
+    assert "run     ✓" in done_block
+
+
 def test_python_dash_m_invocation():
     """`python -m bemkit.cli` works without installing the bem entry point."""
     import subprocess

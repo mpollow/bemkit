@@ -332,17 +332,24 @@ def show_status(model_dir):
     order = ["mesh", "export", "run", "pack"]
     needs = {name: [] for name in order}
     running = []
+    partial_runs = []
     for v in variants:
         print(f"  {v}:")
         nc_dir = model_dir / "numcalc" / v
         for name in order:
             done = STAGES[name].check(config, v)
+            mark = "✓" if done else "✗"
             extra = ""
+            partial = False
             if name == "run":
                 n_avail = len(available_bins(nc_dir))
                 if 0 < n_avail < nf:
                     extra = f"  ({n_avail}/{nf} bins)"
                     done = False
+                    partial = True
+                    mark = "◐"
+                if partial:
+                    partial_runs.append(v)
                 pids = numcalc_pids(nc_dir)
                 if pids:
                     running.append(v)
@@ -355,7 +362,7 @@ def show_status(model_dir):
                     bins = sorted({b for _, b, _ in issues if b is not None})
                     where = f": bins {', '.join(map(str, bins))}" if bins else ""
                     extra += f"  ⚠ {len(issues)} solver warning(s){where}"
-            print(f"    {name:<7} {'✓' if done else '✗'}{extra}")
+            print(f"    {name:<7} {mark}{extra}")
             if not done:
                 needs[name].append(v)
         print()
@@ -405,3 +412,10 @@ def show_status(model_dir):
             break
     else:
         print("  All stages complete.")
+
+    if partial_runs:
+        # However the "Next" hint above resolved (a partial run leaves every
+        # later stage pending too, e.g. export/pack), the bins already
+        # computed are usable right now — surface that regardless.
+        print(f"     or bem {rel} plot freq"
+              f"    # the bins already computed are usable now")
