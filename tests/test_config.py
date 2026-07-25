@@ -280,3 +280,81 @@ class TestDictAccessFallback:
         assert cfg.get("no_such_key", 7) == 7
         with pytest.raises(KeyError):
             cfg["no_such_key"]
+
+
+# ── resolve_bins ────────────────────────────────────────────────────────────
+
+from bemkit.config import resolve_bins
+
+
+class TestResolveBins:
+    """sphcap's grid: sr=32000, nbins=65 → 64 bins, 250 Hz apart."""
+
+    SR, NBINS = 32000, 65
+
+    def _r(self, **kw):
+        return resolve_bins(self.SR, self.NBINS, **kw)
+
+    def test_literal_bins_sorted_and_deduped(self):
+        assert self._r(bins=[16, 4, 16]) == [4, 16]
+
+    def test_bin_index_above_the_band_raises(self):
+        with pytest.raises(ValueError, match="65"):
+            self._r(bins=[65])
+
+    def test_bin_index_zero_raises(self):
+        """Bins are 1-based because NumCalc's -istart is."""
+        with pytest.raises(ValueError, match="1-based|valid indices"):
+            self._r(bins=[0])
+
+    def test_frequency_snaps_to_nearest_bin(self):
+        assert self._r(freq=[1000]) == [4]      # exactly on bin 4
+        assert self._r(freq=[1100]) == [4]      # 1100 → 1000 is nearest
+
+    def test_tie_resolves_to_the_lower_bin(self):
+        """875 Hz is equidistant from 750 (bin 3) and 1000 (bin 4)."""
+        assert self._r(freq=[875]) == [3]
+
+    def test_frequencies_landing_on_one_bin_collapse(self):
+        assert self._r(freq=[500, 600]) == [2]
+
+    def test_frequency_above_the_band_raises(self):
+        """Silently snapping 30 kHz to the 16 kHz top bin would be a lie."""
+        with pytest.raises(ValueError, match="above the simulated band"):
+            self._r(freq=[30000])
+
+    def test_frequency_below_the_first_bin_snaps_up(self):
+        assert self._r(freq=[10]) == [1]
+
+    def test_preview_is_log_spaced(self):
+        assert self._r(preview=8) == [1, 2, 3, 6, 11, 20, 35, 64]
+
+    def test_preview_deduplicates_at_the_low_end(self):
+        """Log spacing crowds the bottom of a linear grid, so a big N yields
+        fewer bins than asked — the caller reports the real count."""
+        bins = self._r(preview=20)
+        assert len(bins) == 17
+        assert bins == sorted(set(bins))
+
+    def test_preview_covers_both_ends_of_the_band(self):
+        assert self._r(preview=8)[0] == 1
+        assert self._r(preview=8)[-1] == 64
+
+    def test_preview_of_one_is_the_lowest_bin(self):
+        assert self._r(preview=1) == [1]
+
+    def test_preview_below_one_raises(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            self._r(preview=0)
+
+    def test_two_selectors_raise(self):
+        with pytest.raises(ValueError, match="exactly one"):
+            self._r(freq=[1000], preview=4)
+
+    def test_no_selector_raises(self):
+        with pytest.raises(ValueError, match="exactly one"):
+            self._r()
+
+    def test_empty_selector_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            self._r(freq=[])

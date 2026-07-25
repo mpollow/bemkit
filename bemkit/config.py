@@ -290,3 +290,70 @@ def freq_bin(freq_hz, sr, nbins):
     freqs = np.linspace(0, sr / 2, nbins)[1:]
     idx = int(np.argmin(np.abs(freqs - freq_hz)))
     return idx, idx + 1, freqs[idx]
+
+
+def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
+    """Resolve a partial-band selection to sorted unique 1-based bin indices.
+
+    A partial run computes a subset of the same linear grid a full run would,
+    which is what lets its results merge into a later full run. Requested
+    frequencies are therefore snapped onto that grid, never honoured exactly.
+
+    Exactly one selector must be given:
+
+    freq : sequence of float
+        Frequencies in Hz, each snapped to the nearest bin. Ties resolve to
+        the lower bin. A frequency above sr/2 raises rather than snapping
+        silently to the top bin.
+    bins : sequence of int
+        Literal 1-based bin indices.
+    preview : int
+        N bins spread logarithmically over the band. Log spacing because a
+        linear pick from a linear grid says nothing about the bottom octaves.
+        Bins that coincide after snapping collapse, so the result may be
+        shorter than N.
+
+    Returns
+    -------
+    list of int
+        Sorted, unique, 1-based bin indices.
+    """
+    given = [name for name, val in
+             (("freq", freq), ("bins", bins), ("preview", preview))
+             if val is not None]
+    if len(given) != 1:
+        raise ValueError(
+            f"resolve_bins needs exactly one of freq/bins/preview, got "
+            f"{', '.join(given) if given else 'none'}")
+
+    freqs = np.linspace(0, sr / 2, nbins)[1:]
+    nf = len(freqs)
+
+    if bins is not None:
+        wanted_bins = [int(b) for b in bins]
+        if not wanted_bins:
+            raise ValueError("bins selector is empty")
+        outside = [b for b in wanted_bins if not 1 <= b <= nf]
+        if outside:
+            raise ValueError(
+                f"bin {outside[0]} is outside the band: this model has {nf} "
+                f"bins, valid indices 1..{nf} (bins are 1-based, like "
+                f"NumCalc's -istart)")
+        return sorted(set(wanted_bins))
+
+    if preview is not None:
+        n = int(preview)
+        if n < 1:
+            raise ValueError(f"preview needs at least 1 bin, got {n}")
+        wanted_hz = np.geomspace(freqs[0], freqs[-1], n)
+    else:
+        wanted_hz = np.asarray([float(f) for f in freq], dtype=float)
+        if wanted_hz.size == 0:
+            raise ValueError("freq selector is empty")
+        above = wanted_hz[wanted_hz > freqs[-1]]
+        if above.size:
+            raise ValueError(
+                f"{above[0]:g} Hz is above the simulated band "
+                f"(up to {freqs[-1]:g} Hz for sr={sr}, nbins={nbins})")
+
+    return sorted({int(np.argmin(np.abs(freqs - f))) + 1 for f in wanted_hz})
