@@ -167,3 +167,31 @@ def test_model_dir_named_like_subcommand_needs_path_prefix(tmp_path, monkeypatch
     main(["./mesh"])
     out = capsys.readouterr().out
     assert str(mesh_dir.resolve()) in out
+
+
+class TestPartialBandFlags:
+    """--freq/--bins/--preview select a subset of the frequency band."""
+
+    def test_all_three_default_to_none(self):
+        args = _parse(["run"])
+        assert (args.freq, args.bins, args.preview) == (None, None, None)
+
+    def test_freq_takes_several_values(self):
+        assert _parse(["run", "--freq", "500", "1000"]).freq == [500.0, 1000.0]
+
+    def test_bins_takes_several_values(self):
+        assert _parse(["run", "--bins", "4", "16"]).bins == [4, 16]
+
+    def test_preview_takes_a_count(self):
+        assert _parse(["run", "--preview", "8"]).preview == 8
+
+    def test_selectors_are_mutually_exclusive(self):
+        with pytest.raises(SystemExit):
+            _parse(["run", "--freq", "500", "--preview", "8"])
+
+    @pytest.mark.parametrize("selector", [
+        ["--freq", "500"], ["--bins", "4"], ["--preview", "8"],
+    ])
+    def test_all_subcommand_takes_the_same_selectors(self, selector):
+        args = _parse(["all", *selector])
+        assert (args.freq, args.bins, args.preview) != (None, None, None)

@@ -20,6 +20,7 @@ def register(sub):
     p = sub.add_parser("run", help="Run NumCalc (parallel; computes missing "
                                    "bins only — resumes interrupted runs)")
     _add_variant(p)
+    _add_band(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
                    help="Max NumCalc processes at once (default: one per "
                         "variant). Variants are fanned out over bin ranges "
@@ -50,6 +51,7 @@ def register(sub):
 
     p = sub.add_parser("all", help="mesh -> export -> run")
     _add_variant(p)
+    _add_band(p)
     p.add_argument("-j", "--jobs", type=int, default=None, metavar="N")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_all)
@@ -61,6 +63,19 @@ def _add_variant(p):
                    action=VariantAction,
                    help="Only process variants matching these prefixes "
                         "(repeatable, and space-separated)")
+
+
+def _add_band(p):
+    """Selectors for a partial-band run (mutually exclusive)."""
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("-f", "--freq", nargs="+", type=float, metavar="HZ",
+                   help="Run only the bins nearest these frequencies "
+                        "(snapped to the model's frequency grid)")
+    g.add_argument("--bins", nargs="+", type=int, metavar="N",
+                   help="Run only these bins (1-based)")
+    g.add_argument("--preview", type=int, metavar="N",
+                   help="Run N bins spread logarithmically over the band — "
+                        "a fast look at the model; a later run fills in the rest")
 
 
 def _run_stage(name, config, **kwargs):
