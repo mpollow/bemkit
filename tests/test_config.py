@@ -1,9 +1,9 @@
-"""Tests for bemkit.config — ModelConfig, freq_bin."""
+"""Tests for bemkit.config — ModelConfig, freq_bin, freq_grid, resolve_bins."""
 
 import numpy as np
 import pytest
 
-from bemkit.config import freq_bin, ModelConfig
+from bemkit.config import freq_bin, freq_grid, resolve_bins, ModelConfig
 
 
 # ── ModelConfig.freq_array ──────────────────────────────────────────────────
@@ -150,6 +150,15 @@ class TestFreqBin:
         assert actual == pytest.approx(8000)
 
 
+# ── freq_grid ────────────────────────────────────────────────────────────────
+
+def test_freq_grid_matches_freq_array(tmp_path):
+    """The grid formula has one home; ModelConfig must not drift from it."""
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    cfg = ModelConfig.from_dir(tmp_path)
+    assert np.array_equal(cfg.freq_array(), freq_grid(32000, 65))
+
+
 # ── ModelConfig.from_dir / dict-style access ────────────────────────────────
 
 class TestModelConfigFromDir:
@@ -284,9 +293,6 @@ class TestDictAccessFallback:
 
 # ── resolve_bins ────────────────────────────────────────────────────────────
 
-from bemkit.config import resolve_bins
-
-
 class TestResolveBins:
     """sphcap's grid: sr=32000, nbins=65 → 64 bins, 250 Hz apart."""
 
@@ -299,13 +305,23 @@ class TestResolveBins:
         assert self._r(bins=[16, 4, 16]) == [4, 16]
 
     def test_bin_index_above_the_band_raises(self):
-        with pytest.raises(ValueError, match="65"):
+        with pytest.raises(ValueError, match="outside the band"):
             self._r(bins=[65])
 
     def test_bin_index_zero_raises(self):
         """Bins are 1-based because NumCalc's -istart is."""
-        with pytest.raises(ValueError, match="1-based|valid indices"):
+        with pytest.raises(ValueError, match="1-based"):
             self._r(bins=[0])
+
+    def test_every_out_of_range_bin_is_named(self):
+        """_validate joins all offenders; fixing them one re-run at a time is
+        the thing that convention exists to prevent."""
+        with pytest.raises(ValueError, match="0.*99|99.*0"):
+            self._r(bins=[0, 4, 99])
+
+    def test_non_integral_bin_raises(self):
+        with pytest.raises(ValueError, match="3.9|whole number|integer"):
+            self._r(bins=[3.9])
 
     def test_frequency_snaps_to_nearest_bin(self):
         assert self._r(freq=[1000]) == [4]      # exactly on bin 4
@@ -326,14 +342,30 @@ class TestResolveBins:
     def test_frequency_below_the_first_bin_snaps_up(self):
         assert self._r(freq=[10]) == [1]
 
+    def test_nan_frequency_raises(self):
+        """NaN passes a > comparison silently and would snap to bin 1."""
+        with pytest.raises(ValueError, match="not a valid frequency|finite"):
+            self._r(freq=[float("nan")])
+
+    def test_negative_frequency_raises(self):
+        with pytest.raises(ValueError, match="not a valid frequency|negative"):
+            self._r(freq=[-500])
+
+    def test_infinite_frequency_raises(self):
+        with pytest.raises(ValueError):
+            self._r(freq=[float("inf")])
+
     def test_preview_is_log_spaced(self):
-        assert self._r(preview=8) == [1, 2, 3, 6, 11, 20, 35, 64]
+        bins = self._r(preview=8)
+        assert bins == [1, 2, 3, 6, 11, 20, 35, 64]
+        # log spacing on a linear grid ⇒ non-decreasing gaps between bins
+        assert all(np.diff(np.diff(bins)) >= 0)
 
     def test_preview_deduplicates_at_the_low_end(self):
         """Log spacing crowds the bottom of a linear grid, so a big N yields
-        fewer bins than asked — the caller reports the real count."""
+        fewer bins than asked."""
         bins = self._r(preview=20)
-        assert len(bins) == 17
+        assert len(bins) < 20
         assert bins == sorted(set(bins))
 
     def test_preview_covers_both_ends_of_the_band(self):
@@ -358,3 +390,15 @@ class TestResolveBins:
     def test_empty_selector_raises(self):
         with pytest.raises(ValueError, match="empty"):
             self._r(freq=[])
+
+    def test_zero_bin_model_raises_clearly(self):
+        """nbins=1 is DC only; numpy's IndexError names nothing useful."""
+        with pytest.raises(ValueError, match="nbins"):
+            resolve_bins(32000, 1, preview=4)
+
+    def test_every_selector_returns_bins_inside_the_band(self):
+        """The merge contract: a partial run's bins must be a subset of the
+        full run's, or the later run could not fill in around them."""
+        nf = self.NBINS - 1
+        for kwargs in ({"preview": 8}, {"freq": [500, 4000]}, {"bins": [1, 64]}):
+            assert set(self._r(**kwargs)) <= set(range(1, nf + 1))

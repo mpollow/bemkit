@@ -237,7 +237,7 @@ class ModelConfig:
 
     def freq_array(self):
         """Frequency array excluding DC, shape (nbins-1,)."""
-        return np.linspace(0, self.sr / 2, self.nbins)[1:]
+        return freq_grid(self.sr, self.nbins)
 
     def vibrating_group(self):
         """Physical-group name holding the driven elements, or None.
@@ -285,9 +285,20 @@ class ModelConfig:
         return None
 
 
+def freq_grid(sr, nbins):
+    """The simulated frequency grid, DC excluded — shape (nbins-1,).
+
+    Every bin index in the toolkit refers to a position in this array. A
+    partial-band run and the full run that later fills it in must resolve
+    against the identical grid, or their results would merge at mismatched
+    frequencies — so the formula lives in exactly one place.
+    """
+    return np.linspace(0, sr / 2, nbins)[1:]
+
+
 def freq_bin(freq_hz, sr, nbins):
     """Return (0-based index, 1-based be.out index, actual_freq_hz) of nearest bin."""
-    freqs = np.linspace(0, sr / 2, nbins)[1:]
+    freqs = freq_grid(sr, nbins)
     idx = int(np.argmin(np.abs(freqs - freq_hz)))
     return idx, idx + 1, freqs[idx]
 
@@ -298,24 +309,22 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
     A partial run computes a subset of the same linear grid a full run would,
     which is what lets its results merge into a later full run. Requested
     frequencies are therefore snapped onto that grid, never honoured exactly.
+    Exactly one selector must be given.
 
-    Exactly one selector must be given:
+    Args:
+        sr: Sample rate in Hz.
+        nbins: Bin count as configured in [bem] (n_frequencies = nbins - 1).
+        freq: Sequence of frequencies in Hz, each snapped to the nearest bin.
+            Ties resolve to the lower bin. A frequency that is negative,
+            non-finite, or above sr/2 raises rather than snapping silently.
+        bins: Sequence of literal 1-based bin indices.
+        preview: N bins spread logarithmically over the band. Log spacing
+            because a linear pick from a linear grid says nothing about the
+            bottom octaves; preview=1 resolves to the lowest bin. Bins that
+            coincide after snapping collapse, so the result may be shorter
+            than N.
 
-    freq : sequence of float
-        Frequencies in Hz, each snapped to the nearest bin. Ties resolve to
-        the lower bin. A frequency above sr/2 raises rather than snapping
-        silently to the top bin.
-    bins : sequence of int
-        Literal 1-based bin indices.
-    preview : int
-        N bins spread logarithmically over the band. Log spacing because a
-        linear pick from a linear grid says nothing about the bottom octaves.
-        Bins that coincide after snapping collapse, so the result may be
-        shorter than N.
-
-    Returns
-    -------
-    list of int
+    Returns:
         Sorted, unique, 1-based bin indices.
     """
     given = [name for name, val in
@@ -326,19 +335,28 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
             f"resolve_bins needs exactly one of freq/bins/preview, got "
             f"{', '.join(given) if given else 'none'}")
 
-    freqs = np.linspace(0, sr / 2, nbins)[1:]
+    freqs = freq_grid(sr, nbins)
     nf = len(freqs)
+    if nf == 0:
+        raise ValueError(
+            f"nbins={nbins} leaves no frequency bins to select from (must "
+            f"be at least 2: the DC bin plus one simulated bin)")
 
     if bins is not None:
-        wanted_bins = [int(b) for b in bins]
-        if not wanted_bins:
+        if not bins:
             raise ValueError("bins selector is empty")
+        non_integral = [b for b in bins if not float(b).is_integer()]
+        if non_integral:
+            raise ValueError(
+                f"bin index/indices {', '.join(str(b) for b in non_integral)} "
+                f"must be a whole number (bins are 1-based integer indices)")
+        wanted_bins = [int(b) for b in bins]
         outside = [b for b in wanted_bins if not 1 <= b <= nf]
         if outside:
             raise ValueError(
-                f"bin {outside[0]} is outside the band: this model has {nf} "
-                f"bins, valid indices 1..{nf} (bins are 1-based, like "
-                f"NumCalc's -istart)")
+                f"bin(s) {', '.join(str(b) for b in outside)} outside the "
+                f"band: this model has {nf} bins, valid indices 1..{nf} "
+                f"(bins are 1-based, like NumCalc's -istart)")
         return sorted(set(wanted_bins))
 
     if preview is not None:
@@ -350,10 +368,17 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
         wanted_hz = np.asarray([float(f) for f in freq], dtype=float)
         if wanted_hz.size == 0:
             raise ValueError("freq selector is empty")
+        bad_mask = ~np.isfinite(wanted_hz) | (wanted_hz < 0)
+        if bad_mask.any():
+            bad = wanted_hz[bad_mask]
+            raise ValueError(
+                f"{', '.join(f'{v:g}' for v in bad)} not a valid frequency "
+                f"(must be finite and non-negative)")
         above = wanted_hz[wanted_hz > freqs[-1]]
         if above.size:
             raise ValueError(
-                f"{above[0]:g} Hz is above the simulated band "
-                f"(up to {freqs[-1]:g} Hz for sr={sr}, nbins={nbins})")
+                f"{', '.join(f'{v:g}' for v in above)} Hz above the "
+                f"simulated band (up to {freqs[-1]:g} Hz for sr={sr}, "
+                f"nbins={nbins})")
 
     return sorted({int(np.argmin(np.abs(freqs - f))) + 1 for f in wanted_hz})
