@@ -699,3 +699,43 @@ class TestPackStage:
         assert "good" in packed and "empty" not in packed
         assert (model / "numcalc" / "good" / "be.npz").exists()
         assert not (model / "numcalc" / "empty" / "be.npz").exists()
+
+
+def test_plan_run_restricts_to_requested_bins(tmp_path):
+    """plan_run is what the CLI pre-flight and the run stage both call, so a
+    bin selection has to survive that hop."""
+    from bemkit.config import ModelConfig
+    from bemkit.pipeline import plan_run
+
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 65\n")
+    nc_dir = tmp_path / "numcalc" / "v"
+    nc_dir.mkdir(parents=True)
+    config = ModelConfig.from_dir(tmp_path)
+
+    pairs, jobs = plan_run(config, ["v"], bins=[4, 16], verbose=False)
+
+    assert [j.steps for j in sorted(jobs, key=lambda j: j.steps)] == [(4, 4), (16, 16)]
+
+
+def test_run_stage_does_not_swallow_the_bin_selection(tmp_path, monkeypatch):
+    """RunStage.run ends in **kwargs, so an unnamed bins= would vanish there
+    and the whole band would run with nothing to show for it."""
+    from bemkit import pipeline
+    from bemkit.config import ModelConfig
+
+    (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 9\n")
+    (tmp_path / "mesh").mkdir()
+    (tmp_path / "mesh" / "v.stl").write_text("")
+    (tmp_path / "numcalc" / "v").mkdir(parents=True)
+
+    planned = {}
+
+    def fake_run_jobs(jobs, **kwargs):
+        planned["jobs"] = jobs
+        return jobs, []
+
+    monkeypatch.setattr(pipeline, "run_jobs", fake_run_jobs)
+
+    pipeline.STAGES["run"].run(ModelConfig.from_dir(tmp_path), bins=[2, 5])
+
+    assert sorted(j.steps for j in planned["jobs"]) == [(2, 2), (5, 5)]

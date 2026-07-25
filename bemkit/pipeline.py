@@ -270,12 +270,17 @@ class ExportStage(PipelineStage):
         return results
 
 
-def plan_run(config, variants, *, max_jobs=None, force=False, verbose=True):
+def plan_run(config, variants, *, max_jobs=None, force=False, bins=None,
+             verbose=True):
     """Work out what a run would do, without doing any of it.
 
     Shared by ``RunStage.run`` and the CLI's pre-flight: a backgrounded run
     has to know the job count before it detaches, and must not spawn a
     supervisor whose only act would be to report that there is nothing to do.
+
+    ``bins`` restricts the run to a partial band (e.g. a fast preview) —
+    intersected with whatever would otherwise be scheduled, so it never
+    conjures up bins that resume/force wouldn't already have picked.
 
     Returns (pairs, jobs): the (variant, nc_dir) pairs that are exported, and
     the planned jobs.
@@ -289,7 +294,7 @@ def plan_run(config, variants, *, max_jobs=None, force=False, verbose=True):
             continue
         pairs.append((v, nc_dir))
     jobs = plan_jobs(pairs, config.nbins - 1, max_jobs=max_jobs,
-                     missing_only=not force)
+                     missing_only=not force, bins=bins)
     return pairs, jobs
 
 
@@ -298,7 +303,13 @@ class RunStage(PipelineStage):
         return has_results(config.model_dir / "numcalc" / variant)
 
     def run(self, config, *, prefixes=None, max_jobs=None, force=False,
-            restart=False, **kwargs):
+            restart=False, bins=None, **kwargs):
+        # `bins` must be named explicitly here, not left to **kwargs: this
+        # method ends in **kwargs (STAGES.run callers pass a shared kwarg
+        # set), and an unnamed bins= would be silently absorbed there,
+        # running the full band with no error and no partial-run to show
+        # for it. plan_run/plan_jobs intersect it with the missing bins, so
+        # a preview never re-runs work a prior full run already completed.
         if max_jobs is not None and max_jobs < 1:
             raise ValueError(f"-j must be at least 1, got {max_jobs}")
         # Default is resume: only bins absent from be.out//be.npz are
@@ -325,7 +336,8 @@ class RunStage(PipelineStage):
         if busy:
             raise RuntimeError(busy_error(busy))
 
-        pairs, jobs = plan_run(config, variants, max_jobs=max_jobs, force=force)
+        pairs, jobs = plan_run(config, variants, max_jobs=max_jobs, force=force,
+                               bins=bins)
         if not jobs:
             print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
