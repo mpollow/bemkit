@@ -26,8 +26,13 @@ Mesh2HRTF 1.0.0
 ##
 ## 2. Main Parameters II
 {n_planewaves} {n_pointsources} {is_internal} 0.0000e+00 0 0 0
-# forth value is a NumCalc parameter (test 0.05 if issues)
-# https://sourceforge.net/p/mesh2hrtf/wiki/Most%20common%20errors/
+# NumCalc reads five fields here (NC_Input.cpp:292); the trailing two are
+# ignored. 4th = ClusEdgL0, the FMM initial bounding-box edge length in m:
+# 0 means NumCalc's default of (sqrt(N)*A0)^0.5. Shrinking it gives smaller
+# cluster radii, a shorter multipole expansion L, and lower peak memory --
+# the documented remedy when a large mesh exhausts RAM or L exceeds ~30
+# (arXiv:2312.00005 Sec. 3.3.2, 4.2). Try e.g. 0.05 in that case.
+# 5th = IPRECOND in [-3,2]: 0 none, negative selects incomplete-LU depth.
 ##
 ## 3. Main Parameters III
 0 0 0 0

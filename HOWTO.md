@@ -326,14 +326,30 @@ Elements with no BC are implicitly sound-hard (`VELO = 0`). NumCalc also support
 Instead of (or in addition to) a vibrating surface, incident fields pass
 straight through to `NC.inp` as 8-value rows:
 
+**The middle three values mean different things in the two sections.** A plane
+wave has no location — it is defined by the *direction* it travels in. A point
+source has no direction — it is defined by its *position*. The row layout is
+identical, so a row copied from one section to the other is accepted and wrong.
+
 ```toml
 ["PLANE WAVES"]
-#     nr, x0, y0, z0, ampl_real, -1, ampl_imag, -1
-1 = [  1,  0, -1,  0,     1,     -1,     0,     -1]
+#     nr, dx, dy, dz, ampl_real, -1, ampl_imag, -1
+1 = [  1,  0,  1,  0,     1,     -1,     0,     -1]   # travelling towards +y
 
 ["POINT SOURCES"]
-1 = [  1,  0, -1,  0,     1,     -1,     0,     -1]
+#     nr, x0, y0, z0, ampl_real, -1, ampl_imag, -1
+1 = [  1,  0, -1,  0,     1,     -1,     0,     -1]   # source at y = -1 m
 ```
+
+The plane-wave direction need not be a unit vector — NumCalc normalizes it —
+but it must not be all zeros. Point-source positions are in meters, like
+fieldpoints.
+
+Keep a point source at least one average element edge length away from the
+surface (arXiv:2312.00005, Hint 3): the free-field Green's function has a
+singularity at zero distance, so a source on or near the surface causes the
+element-subdivision loop to fail or return nonsense. To drive the surface
+itself, use a velocity boundary condition instead.
 
 Amplitudes are frequency-independent (`CURVES` are not supported; the curve-ref
 slots are always written as `-1`). Note the default result normalization

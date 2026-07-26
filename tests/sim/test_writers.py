@@ -205,6 +205,27 @@ class TestWriteNcInp:
         with pytest.raises(ValueError, match="PLANE WAVES"):
             write_nc_inp(config, "tiny", tmp_path, verbose=False)
 
+    @pytest.mark.parametrize("section, wanted, unwanted", [
+        ("PLANE WAVES", "direction", "position in meters"),
+        ("POINT SOURCES", "position in meters", "direction"),
+    ])
+    def test_source_error_names_the_right_triple(self, tmp_path, section,
+                                                 wanted, unwanted):
+        """The two sections share a row layout but not a meaning for fields
+        1-3: a plane wave travels along a direction, a point source sits at a
+        position. A row copied between them is accepted and silently wrong, so
+        the message must name the triple the section actually wants."""
+        self._counts(tmp_path)
+        config = {
+            "modelname": "tiny", "sr": 8000, "nbins": 5, "bem_type": 4,
+            "air_density": 1.2, "speed_of_sound": 340.0,
+            section: {"1": [1, 0, -1]},  # not 8 values
+        }
+        with pytest.raises(ValueError) as exc:
+            write_nc_inp(config, "tiny", tmp_path, verbose=False)
+        assert wanted in str(exc.value)
+        assert unwanted not in str(exc.value)
+
     def test_modelconfig_typed_defaults_fill_omitted_keys(self, tmp_path):
         from bemkit.config import ModelConfig
         self._counts(tmp_path)

@@ -550,10 +550,26 @@ matched against `[BOUNDARY.<name>]` first with its full name, then with the
 ### PLANE WAVES / POINT SOURCES (incident fields)
 
 `["PLANE WAVES"]` / `["POINT SOURCES"]` tables in config.toml pass through to
-NC.inp; each entry is an 8-value row `[nr, x, y, z, ampl_real, -1, ampl_imag, -1]`
-(malformed rows raise at export — header counts must match emitted lines).
+NC.inp as 8-value rows (malformed rows raise at export — header counts must
+match emitted lines). The two sections share a layout but **not** a meaning for
+fields 1-3:
+
+- `["PLANE WAVES"]` → `[nr, dx, dy, dz, ampl_real, -1, ampl_imag, -1]` — a
+  travel **direction**, normalized by NumCalc itself (`NC_Input.cpp:1024`), so
+  it need not be a unit vector but must not be all zeros.
+- `["POINT SOURCES"]` → `[nr, x0, y0, z0, ampl_real, -1, ampl_imag, -1]` — a
+  **position** in meters.
+
+A row copied between the sections is therefore accepted and silently wrong;
+`_SOURCE_TRIPLE` in `sim/writers.py` keeps the error message honest about which
+triple the section wants. Keep point sources ≥1 average edge length off the
+surface (arXiv:2312.00005, Hint 3) — the Green's function is singular at zero
+distance.
+
 Curve refs are always written as `-1`: frequency-dependent amplitudes (CURVES)
-are not supported. `pressure_acc` normalization assumes a velocity BC; use
+are not supported. NumCalc requires curve refs to be all `-1` or all non-`-1`
+within one line, for sources and boundary conditions alike
+(`NC_Input.cpp:1244`). `pressure_acc` normalization assumes a velocity BC; use
 `norm="raw"` for pure scattering setups.
 
 ## Analytic Solution

@@ -162,6 +162,20 @@ def _contiguous_ranges(indices):
     return [tuple(r) for r in ranges]
 
 
+#: Fields 1-3 of a source row mean different things per section: a plane wave
+#: travels along a *direction*, a point source sits at a *position*. Same
+#: layout, so a row copied between the two sections is silently accepted and
+#: silently wrong — the error message names the right triple for the section.
+#: (NumCalc normalises the plane-wave direction itself, NC_Input.cpp:1024.)
+_SOURCE_TRIPLE = {
+    "PLANE WAVES": ("dx, dy, dz",
+                    "dx, dy, dz is the direction the wave travels in, not a "
+                    "position (NumCalc normalises it)"),
+    "POINT SOURCES": ("x0, y0, z0",
+                      "x0, y0, z0 is the source position in meters"),
+}
+
+
 def _source_entries(cfg, section):
     """Validate a PLANE WAVES / POINT SOURCES table into 8-value rows.
 
@@ -170,12 +184,14 @@ def _source_entries(cfg, section):
     claiming a source line that never appears and NumCalc would misparse.
     """
     entries = cfg.get(section) or {}
+    triple, meaning = _SOURCE_TRIPLE.get(section, ("x, y, z", ""))
     rows = []
     for key, val in entries.items():
         if not (isinstance(val, list) and len(val) == 8):
             raise ValueError(
                 f'["{section}"] entry {key!r} must be a list of 8 values '
-                f"[nr, x, y, z, ampl_real, -1, ampl_imag, -1], got: {val!r}")
+                f"[nr, {triple}, ampl_real, -1, ampl_imag, -1], "
+                f"got: {val!r}\n  {meaning}.")
         rows.append(val)
     return rows
 
