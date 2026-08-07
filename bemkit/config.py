@@ -310,13 +310,15 @@ class ModelConfig:
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_dir(cls, model_dir):
-        """Load config.toml; modelname defaults to the directory name."""
+    def from_dict(cls, raw, model_dir, source=None):
+        """Build a validated ModelConfig from an in-memory dict.
+
+        The seam for driving bemkit programmatically from another package:
+        identical validation to config.toml loading, no file required.
+        ``source`` names the origin in error messages.
+        """
         model_dir = Path(model_dir).resolve()
-        cfg_path = model_dir / "config.toml"
-        with open(cfg_path, "rb") as f:
-            raw = tomllib.load(f)
-        _validate(raw, cfg_path)
+        _validate(raw, source or f"<config for {model_dir.name}>")
         bem = raw["bem"]
         raw.setdefault("modelname", model_dir.name)
         return cls(
@@ -335,6 +337,15 @@ class ModelConfig:
             groups_cfg=raw.get("groups", {}),
             raw=raw,
         )
+
+    @classmethod
+    def from_dir(cls, model_dir):
+        """Load config.toml; modelname defaults to the directory name."""
+        model_dir = Path(model_dir).resolve()
+        cfg_path = model_dir / "config.toml"
+        with open(cfg_path, "rb") as f:
+            raw = tomllib.load(f)
+        return cls.from_dict(raw, model_dir, source=str(cfg_path))
 
     # -- dict-style access (backward compatible with raw-dict callers) --
     #
@@ -364,6 +375,27 @@ class ModelConfig:
     def freq_array(self):
         """Frequency array excluding DC, shape (nbins-1,)."""
         return freq_grid(self.sr, self.nbins)
+
+    @property
+    def boundary_cfg(self):
+        """Validated [BOUNDARY] table ({} when absent)."""
+        return self.raw.get("BOUNDARY", {})
+
+    @property
+    def symmetry_cfg(self):
+        """Validated [SYMMETRY] table ({} when absent)."""
+        return self.raw.get("SYMMETRY", {})
+
+    @property
+    def sources_cfg(self):
+        """Validated incident-field tables, keyed by NC.inp section name."""
+        return {s: self.raw.get(s, {})
+                for s in ("PLANE WAVES", "POINT SOURCES")}
+
+    @property
+    def default_velocity(self):
+        """Top-level ``velocity`` key: default velocity for BC ranges (1.0)."""
+        return self.raw.get("velocity", 1.0)
 
     def vibrating_group(self):
         """Physical-group name holding the driven elements, or None.

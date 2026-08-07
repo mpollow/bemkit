@@ -530,3 +530,46 @@ class TestPhysicsSectionValidation:
     def test_user_extension_tables_still_pass_through(self, tmp_path):
         d = self._write(tmp_path, "[cad]\nwidth = 120\n")
         assert ModelConfig.from_dir(d)["cad"] == {"width": 120}
+
+
+# ── from_dict seam + typed physics accessors ────────────────────────────────
+
+class TestFromDictAndTypedAccessors:
+    def test_from_dict_runs_validation(self, tmp_path):
+        raw = {"bem": {"sr": 32000, "nbins": 65},
+               "BOUNDARY": {"cap": [100, 100]}}      # malformed → must raise
+        with pytest.raises(ValueError, match="BOUNDARY"):
+            ModelConfig.from_dict(raw, tmp_path)
+
+    def test_from_dict_valid(self, tmp_path):
+        cfg = ModelConfig.from_dict({"bem": {"sr": 32000, "nbins": 65}}, tmp_path)
+        assert cfg.sr == 32000
+        assert cfg.model_dir == tmp_path.resolve()
+        assert cfg.modelname == tmp_path.name
+
+    def test_from_dir_delegates_to_from_dict(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 48000\nnbins = 33\n")
+        cfg = ModelConfig.from_dir(tmp_path)
+        assert cfg.sr == 48000 and cfg.nbins == 33
+
+    def test_typed_physics_accessors(self, tmp_path):
+        (tmp_path / "config.toml").write_text(
+            'velocity = 0.5\n'
+            '[bem]\nsr = 32000\nnbins = 65\n'
+            '[BOUNDARY]\ncap = [100, 100, 1.0]\n'
+            '[SYMMETRY]\nplanes = [1, 0, 0]\n'
+            '["PLANE WAVES"]\nw = [1, 0.0, 0.0, 1.0, 1.0, -1, 0.0, -1]\n')
+        cfg = ModelConfig.from_dir(tmp_path)
+        assert cfg.default_velocity == 0.5
+        assert cfg.boundary_cfg == {"cap": [100, 100, 1.0]}
+        assert cfg.symmetry_cfg == {"planes": [1, 0, 0]}
+        assert cfg.sources_cfg["PLANE WAVES"] == {
+            "w": [1, 0.0, 0.0, 1.0, 1.0, -1, 0.0, -1]}
+        assert cfg.sources_cfg["POINT SOURCES"] == {}
+
+    def test_typed_accessors_default_empty(self, tmp_path):
+        cfg = ModelConfig.from_dict({"bem": {"sr": 32000, "nbins": 65}}, tmp_path)
+        assert cfg.boundary_cfg == {}
+        assert cfg.symmetry_cfg == {}
+        assert cfg.default_velocity == 1.0
