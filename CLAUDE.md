@@ -8,15 +8,19 @@ simulations from CAD geometry.
 ```
 bemkit/
 ├── bemkit/
-│   ├── __init__.py     # eager core exports; analysis/viz resolve lazily via __getattr__
-│   ├── config.py       # ModelConfig (single config object, dict-style access), freq_bin,
-│   │                      #   freq_grid, resolve_bins (Hz/preview/bins → 1-based bin list)
+│   ├── __init__.py     # curated user API only (plumbing stays importable from
+│   │                      #   submodules); analysis/viz resolve lazily via __getattr__
+│   ├── config.py       # ModelConfig (typed config object; from_dir/from_dict,
+│   │                      #   validates every known section incl. BOUNDARY/SYMMETRY/
+│   │                      #   sources), freq_bin, freq_grid, resolve_bins
 │   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
 │   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
 │   │                      # generate.py — gmsh STEP/scan meshing (lazy gmsh):
 │   │                      #   mesh_from_step, mesh_from_surface (.ply/.stl/.obj)
 │   │                      # geodesic.py — over-surface distance for sizing
 │   │                      #   (pure numpy/scipy, no gmsh; STEP path only)
+│   │                      # sizing.py — size-field builders (uniform/threshold/
+│   │                      #   geodesic two-pass), sizing_from_config
 │   ├── sim/              # NumCalc layer (no analysis/viz deps)
 │   │                      # fields.py      — make_fields_onaxis/polar/plane generators
 │   │                      # fieldpoints.py — validation, loading, offsets
@@ -31,9 +35,12 @@ bemkit/
 │   │                      #                  solver_warnings (NC*.out health scan)
 │   │                      # packing.py     — be.out/ <-> be.npz, clear_pack
 │   │                      # discovery.py   — discover_variants, numcalc_dir
+│   │                      # config_snapshot.py — snapshot.json per bundle
+│   │                      #   (effective config at export; drift warning)
 │   ├── analysis/         # Results layer (depends on sim, not vice versa)
 │   │                      # simulation.py  — SimulationData lazy result accessor
-│   │                      # result.py      — BEMResult, load_result
+│   │                      #   (the public results API; raw norm default)
+│   │                      # result.py      — BEMResult adapter for viz (internal)
 │   │                      # normalization.py — normalize_pressure
 │   │                      # _grid.py       — grid detection (private)
 │   │                      # analytic.py    — spherical cap solver (optional: scipy)
@@ -41,6 +48,8 @@ bemkit/
 │   │                      # freq.py, time.py, polar.py, field.py — 2D plots
 │   │                      # directivity.py — isobaric map (angle x freq)
 │   │                      # _angles.py    — circular/on-axis set geometry
+│   │                      # _symmetry.py  — ghost geometry for [SYMMETRY]
+│   │                      #   models in the 3D viewers (mirror_mesh-derived)
 │   │                      # scene.py       — BEMScene 3D rendering (lazy pyvista, no I/O)
 │   │                      # results_viewer.py — interactive 3D viewer (owns data loading)
 │   │                      # _style.py      — colormaps, formatting
@@ -194,31 +203,33 @@ sim.set_names             # ['onaxis', 'polar', 'planeXZ', ...]
 sim.frequencies           # (nf,) Hz array
 sim.available_bins        # [1, 2, ..., 64]
 
-# Fieldpoint data — dynamic attrs: sim.p_<set>, sim.v_<set>, sim.nodes_<set>
-sim.p_onaxis              # (N, nf) complex — normalized pressure (pressure_acc, default)
-sim.p_raw_onaxis          # (N, nf) complex — raw pressure (velocity BC output)
-sim.v_onaxis              # (N, nf, 3) complex — normalized 3D velocity (velocity_acc, default)
-sim.v_raw_onaxis          # (N, nf, 3) complex — raw 3D velocity (velocity BC output)
+# Fieldpoint data — dynamic attrs: sim.p_<set>, sim.v_<set>, sim.nodes_<set>.
+# Raw (NumCalc's velocity-BC output) is the base everywhere; the acc
+# normalization (assumes a velocity BC + A_vib) is opt-in via _acc_/norm="acc".
+sim.p_onaxis              # (N, nf) complex — raw pressure (NumCalc output, default)
+sim.p_acc_onaxis          # (N, nf) complex — normalized ÷ (j·rho0·ω·A_vib)
+sim.v_onaxis              # (N, nf, 3) complex — raw 3D velocity (default)
+sim.v_acc_onaxis          # (N, nf, 3) complex — normalized 3D velocity
 sim.nodes_onaxis          # (N, 3) — coordinates in meters
 # Or via methods:
-sim.pressure("onaxis")              # normalized (norm="acc" default)
-sim.pressure("onaxis", norm="raw")  # raw pressure
-sim.velocity("onaxis")              # normalized 3D velocity (norm="acc" default)
-sim.velocity("onaxis", norm="raw")  # raw 3D velocity
+sim.pressure("onaxis")              # raw (norm="raw" default)
+sim.pressure("onaxis", norm="acc")  # normalized
+sim.velocity("onaxis")              # raw 3D velocity (norm="raw" default)
+sim.velocity("onaxis", norm="acc")  # normalized 3D velocity
 sim.nodes("onaxis")                 # coordinates
 
 # Boundary (surface mesh)
-sim.boundary_pressure()             # (M, nf) complex — normalized surface pressure (norm="acc" default)
-sim.boundary_pressure(norm="raw")   # (M, nf) complex — raw surface pressure
-sim.boundary_velocity()             # (M, nf) complex — normalized normal velocity (norm="acc" default)
-sim.boundary_velocity(norm="raw")   # (M, nf) complex — normal velocity (raw)
+sim.boundary_pressure()             # (M, nf) complex — raw surface pressure (default)
+sim.boundary_pressure(norm="acc")   # (M, nf) complex — normalized surface pressure
+sim.boundary_velocity()             # (M, nf) complex — normal velocity (raw, default)
+sim.boundary_velocity(norm="acc")   # (M, nf) complex — normalized normal velocity
 sim.boundary_pressure_acc           # (M, nf) alias for boundary_pressure(norm="acc")
 sim.boundary_velocity_acc           # (M, nf) alias for boundary_velocity(norm="acc")
 sim.boundary_nodes                  # (M, 3)
 sim.boundary_elements               # (T, 3) int — triangle connectivity
 
-# BEMResult bridge (for existing viz functions)
-result = sim.result("onaxis")  # returns BEMResult with pressure_acc normalized
+# Adapter for the viz functions (BEMResult is internal; carries raw + acc)
+result = sim.result("onaxis")
 
 # Single-bin access (no full load, for interactive viewers)
 sim.pressure_at(12, domain="boundary")  # (M,) complex
@@ -230,9 +241,14 @@ sim.velocity_at(12, domain="eval")      # (N_total, 3) complex
 Per-model config in `examples/<name>/config.toml`. Solver settings live in the
 required `[bem]` section; `modelname` is optional top-level (defaults to
 directory name). Old configs with flat top-level solver keys fail with a
-migration error. Unknown keys in known sections are rejected (typo guard);
-extra user tables (e.g. `[cad]` data read by the model's own scripts) pass
-through untouched.
+migration error. Unknown keys in known sections are rejected (typo guard) —
+including the physics sections `[BOUNDARY]`, `[SYMMETRY]`, `["PLANE WAVES"]`,
+`["POINT SOURCES"]` and the top-level `velocity` key, where a silent typo
+used to mean plausible-but-wrong physics. Extra user tables (e.g. `[cad]`
+data read by the model's own scripts) pass through untouched.
+`ModelConfig.from_dict(raw, model_dir)` builds a validated config without a
+file on disk (the seam for driving bemkit from another package); `[SYMMETRY]`
+mirror planes are documented in HOWTO.md §4.
 
 ```toml
 modelname = "sphcap"      # optional
@@ -322,7 +338,7 @@ All NumCalc data lives under `numcalc/{variant}/` where variant = mesh file stem
 - Multiple meshes (e.g. `mesh/left.meshA.stl`, `mesh/right.meshB.stl`) → `numcalc/left.meshA/`, `numcalc/right.meshB/`
 
 Fieldpoint offsets: `numcalc/{variant}/eval_offsets.json`. Results read directly from
-`be.out/` (or packed `be.npz`) via `BEMResult.from_numcalc()` / `SimulationData`.
+`be.out/` (or packed `be.npz`) via `SimulationData`.
 
 ### Explicit variants — `[variants]` table
 
@@ -569,8 +585,9 @@ distance.
 Curve refs are always written as `-1`: frequency-dependent amplitudes (CURVES)
 are not supported. NumCalc requires curve refs to be all `-1` or all non-`-1`
 within one line, for sources and boundary conditions alike
-(`NC_Input.cpp:1244`). `pressure_acc` normalization assumes a velocity BC; use
-`norm="raw"` for pure scattering setups.
+(`NC_Input.cpp:1244`). Results default to NumCalc's raw output (the natural
+reading for scattering); the acc normalization, which assumes a velocity BC,
+is opt-in via `norm="acc"` / `p_acc_<set>`.
 
 ## Analytic Solution
 

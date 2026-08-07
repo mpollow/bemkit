@@ -322,6 +322,16 @@ cap = [[0, 24, 1.0], [80, 95, 1.0]]
 Elements with no BC are implicitly sound-hard (`VELO = 0`). NumCalc also supports
 `PRES` (sound-soft) and `ADMI` (absorbing/impedance) — see CLAUDE.md.
 
+A top-level `velocity = 0.5` in `config.toml` sets the default velocity for
+geometric entries that don't carry their own `velocity`/`v` (it defaults
+to 1.0).
+
+`[BOUNDARY]`, `[SYMMETRY]`, `["PLANE WAVES"]` and `["POINT SOURCES"]` are
+validated when the config loads, exactly like `[bem]`/`[mesh]`: a malformed
+entry (`cap = [100, 100]` missing its velocity) or a typo'd key
+(`radios = 0.01`) fails immediately, naming the offending entry — it can
+never again silently export a rigid surface that solves to silence.
+
 ### Incident sources (scattering) — plane waves / point sources
 Instead of (or in addition to) a vibrating surface, incident fields pass
 straight through to `NC.inp` as 8-value rows:
@@ -352,9 +362,9 @@ element-subdivision loop to fail or return nonsense. To drive the surface
 itself, use a velocity boundary condition instead.
 
 Amplitudes are frequency-independent (`CURVES` are not supported; the curve-ref
-slots are always written as `-1`). Note the default result normalization
-(`pressure_acc`) assumes a velocity BC — for pure scattering setups read
-results with `norm="raw"`.
+slots are always written as `-1`). Results default to NumCalc's raw output,
+which is the natural reading for scattering setups; the acceleration-BC
+normalization (`norm="acc"`, which assumes a velocity BC) is opt-in.
 
 Sanity-check the setup in 3D **before** running:
 
@@ -666,12 +676,18 @@ sim.set_names            # ['onaxis', 'polar', 'planeXZ', ...]
 sim.frequencies          # (nf,) Hz
 sim.available_bins       # [1, 2, ..., 64]
 
-sim.p_onaxis             # (N, nf) complex — normalized pressure (÷ rho0·ω, the default)
-sim.p_raw_onaxis         # (N, nf) complex — raw Pascals
+sim.p_onaxis             # (N, nf) complex — raw pressure (NumCalc output, the default)
+sim.p_acc_onaxis         # (N, nf) complex — normalized ÷ (j·rho0·ω·A_vib), opt-in
 sim.nodes_onaxis         # (N, 3) meters
-sim.boundary_pressure()  # (M, nf) surface pressure
-result = sim.result("onaxis")   # BEMResult bridge for the viz functions
+sim.boundary_pressure()  # (M, nf) surface pressure (raw; norm="acc" opt-in)
+result = sim.result("onaxis")   # adapter for the viz functions
 ```
+
+The base data is always what NumCalc computed (raw, velocity-BC output).
+The `acc` normalization — which assumes a velocity BC and a vibrating
+area — is requested explicitly via `norm="acc"` or the `p_acc_<set>` /
+`v_acc_<set>` attributes. `SimulationData` is the public results API;
+the `BEMResult` class it hands to viz functions is internal.
 
 ---
 
