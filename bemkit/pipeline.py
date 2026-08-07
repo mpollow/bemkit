@@ -82,8 +82,13 @@ class PipelineStage(ABC):
     """Base class for BEM pipeline stages."""
 
     @abstractmethod
-    def run(self, config: ModelConfig, **kwargs):
-        """Execute the stage. Returns stage output data object(s)."""
+    def run(self, config: ModelConfig, **options):
+        """Execute the stage. Returns stage output data object(s).
+
+        Concrete stages declare their options explicitly (no **kwargs
+        catch-all): an unknown or typo'd option raises TypeError instead
+        of being silently absorbed.
+        """
 
     @abstractmethod
     def check(self, config: ModelConfig, variant: str) -> bool:
@@ -173,7 +178,7 @@ class MeshStage(PipelineStage):
         except FileNotFoundError:
             return False
 
-    def run(self, config, **kwargs):
+    def run(self, config):
         from bemkit.meshing.generate import SURFACE_EXTENSIONS
 
         model_dir = config.model_dir
@@ -253,7 +258,7 @@ class ExportStage(PipelineStage):
     def check(self, config, variant):
         return (config.model_dir / "numcalc" / variant / "NC.inp").exists()
 
-    def run(self, config, *, prefixes=None, **kwargs):
+    def run(self, config, *, prefixes=None):
         _run_exec_scripts(config.model_dir, config.fieldpoints_cfg.get("exec"))
         variants = config.variants(prefixes)
         if not variants:
@@ -303,13 +308,9 @@ class RunStage(PipelineStage):
         return has_results(config.model_dir / "numcalc" / variant)
 
     def run(self, config, *, prefixes=None, max_jobs=None, force=False,
-            restart=False, bins=None, **kwargs):
-        # `bins` must be named explicitly here, not left to **kwargs: this
-        # method ends in **kwargs (STAGES.run callers pass a shared kwarg
-        # set), and an unnamed bins= would be silently absorbed there,
-        # running the full band with no error and no partial-run to show
-        # for it. plan_run/plan_jobs intersect it with the missing bins, so
-        # a preview never re-runs work a prior full run already completed.
+            restart=False, bins=None):
+        # plan_run/plan_jobs intersect bins with the missing ones, so a
+        # preview never re-runs work a prior full run already completed.
         if max_jobs is not None and max_jobs < 1:
             raise ValueError(f"-j must be at least 1, got {max_jobs}")
         # Default is resume: only bins absent from be.out//be.npz are
@@ -384,7 +385,7 @@ class PackStage(PipelineStage):
     def check(self, config, variant):
         return is_packed(config.model_dir / "numcalc" / variant)
 
-    def run(self, config, *, prefixes=None, delete_original=True, **kwargs):
+    def run(self, config, *, prefixes=None, delete_original=True):
         from bemkit.sim.discovery import discover_variants
         from bemkit.sim.readers import list_bins
         from bemkit.sim.status import running_variants

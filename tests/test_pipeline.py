@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from bemkit.config import ModelConfig
-from bemkit.pipeline import MeshStage, RunStage
+from bemkit.pipeline import ExportStage, MeshStage, RunStage
 
 GOLDEN_MODEL = Path(__file__).parent / "golden" / "model"
 
@@ -826,3 +826,22 @@ def test_resolved_bins_reach_the_job_plan(tmp_path, monkeypatch):
     _pipeline.cmd_run(tmp_path, args)
 
     assert seen["bins"] == [1, 2, 3, 6, 11, 20, 35, 64]
+
+
+# ── Explicit stage signatures ───────────────────────────────────────────────
+
+class TestStageSignatures:
+    """A typo'd option must raise, never be silently absorbed by **kwargs —
+    that failure mode once swallowed a bins= selection and ran the full band."""
+
+    def test_unknown_run_option_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 5\n")
+        cfg = ModelConfig.from_dir(tmp_path)
+        with pytest.raises(TypeError):
+            RunStage().run(cfg, binz=[1, 2])
+
+    def test_unknown_export_option_raises(self, tmp_path):
+        (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 5\n")
+        cfg = ModelConfig.from_dir(tmp_path)
+        with pytest.raises(TypeError):
+            ExportStage().run(cfg, prefixxes=["a"])
