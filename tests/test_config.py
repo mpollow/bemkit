@@ -422,3 +422,111 @@ def test_infinite_bin_index_is_rejected_as_non_integral():
     from bemkit.config import resolve_bins
     with pytest.raises(ValueError, match="whole numbers"):
         resolve_bins(32000, 65, bins=[float("inf")])
+
+
+# ── Physics-section validation (BOUNDARY / SYMMETRY / sources) ──────────────
+
+class TestPhysicsSectionValidation:
+    """The sections whose silent breakage yields plausible-but-wrong physics
+    must be rejected at load, same as the solver/mesh sections already are."""
+
+    def _write(self, tmp_path, body):
+        # body first: top-level keys (velocity = ...) must precede any table.
+        (tmp_path / "config.toml").write_text(
+            body + "\n[bem]\nsr = 32000\nnbins = 65\n")
+        return tmp_path
+
+    def test_boundary_missing_velocity_rejected(self, tmp_path):
+        d = self._write(tmp_path, "[BOUNDARY]\ncap = [100, 100]\n")
+        with pytest.raises(ValueError, match=r"BOUNDARY.*cap"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_string_entry_rejected(self, tmp_path):
+        d = self._write(tmp_path, '[BOUNDARY]\ncap = "oops"\n')
+        with pytest.raises(ValueError, match=r"BOUNDARY.*cap"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_radius_typo_rejected(self, tmp_path):
+        d = self._write(
+            tmp_path,
+            "[BOUNDARY.v1]\nspot = { near = [0.0, 0.0, 0.05], radios = 0.01 }\n")
+        with pytest.raises(ValueError, match=r"radios"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_bad_near_rejected(self, tmp_path):
+        d = self._write(tmp_path,
+                        "[BOUNDARY.v1]\nspot = { near = [0.0, 0.0] }\n")
+        with pytest.raises(ValueError, match=r"near"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_negative_radius_rejected(self, tmp_path):
+        d = self._write(
+            tmp_path,
+            "[BOUNDARY.v1]\nspot = { near = [0.0, 0.0, 0.05], radius = -0.01 }\n")
+        with pytest.raises(ValueError, match=r"radius"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_nested_subtable_rejected(self, tmp_path):
+        d = self._write(
+            tmp_path,
+            "[BOUNDARY.v1.deeper]\nspot = { near = [0.0, 0.0, 0.05] }\n")
+        with pytest.raises(ValueError, match=r"subtable"):
+            ModelConfig.from_dir(d)
+
+    def test_boundary_valid_forms_pass(self, tmp_path):
+        d = self._write(tmp_path, (
+            "[BOUNDARY]\n"
+            "a = [100, 100, 1.0]\n"
+            "b = [[1, 2, 1.0], [5, 9, 0.5]]\n"
+            "[BOUNDARY.v1]\n"
+            "spot = { near = [0.0, 0.0, 0.05], radius = 0.01, velocity = 0.5 }\n"
+            "multi = { near = [[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]] }\n"))
+        ModelConfig.from_dir(d)  # must not raise
+
+    def test_symmetry_unknown_key_rejected(self, tmp_path):
+        d = self._write(tmp_path, "[SYMMETRY]\nplanez = [1, 0, 0]\n")
+        with pytest.raises(ValueError, match=r"SYMMETRY"):
+            ModelConfig.from_dir(d)
+
+    def test_symmetry_bad_planes_rejected(self, tmp_path):
+        d = self._write(tmp_path, "[SYMMETRY]\nplanes = [1, 0]\n")
+        with pytest.raises(ValueError, match=r"planes"):
+            ModelConfig.from_dir(d)
+
+    def test_symmetry_valid_passes(self, tmp_path):
+        d = self._write(tmp_path,
+                        "[SYMMETRY]\nplanes = [1, 0, 0]\n"
+                        "coordinates = [0.0, 0.0, 0.0]\n")
+        ModelConfig.from_dir(d)
+
+    def test_plane_waves_short_row_rejected(self, tmp_path):
+        d = self._write(tmp_path, '["PLANE WAVES"]\nw = [1, 0, 0, -1]\n')
+        with pytest.raises(ValueError, match=r"PLANE WAVES"):
+            ModelConfig.from_dir(d)
+
+    def test_point_sources_valid_passes(self, tmp_path):
+        d = self._write(
+            tmp_path,
+            '["POINT SOURCES"]\ns = [1, 0.0, 0.0, 0.5, 1.0, -1, 0.0, -1]\n')
+        ModelConfig.from_dir(d)
+
+    def test_sources_multi_row_valid_passes(self, tmp_path):
+        d = self._write(
+            tmp_path,
+            '["PLANE WAVES"]\n'
+            'w = [[1, 0.0, 0.0, 1.0, 1.0, -1, 0.0, -1],\n'
+            '     [2, 1.0, 0.0, 0.0, 1.0, -1, 0.0, -1]]\n')
+        ModelConfig.from_dir(d)
+
+    def test_top_level_velocity_must_be_number(self, tmp_path):
+        d = self._write(tmp_path, 'velocity = "fast"\n')
+        with pytest.raises(ValueError, match=r"velocity"):
+            ModelConfig.from_dir(d)
+
+    def test_top_level_velocity_number_passes(self, tmp_path):
+        d = self._write(tmp_path, "velocity = 0.5\n")
+        assert ModelConfig.from_dir(d).get("velocity") == 0.5
+
+    def test_user_extension_tables_still_pass_through(self, tmp_path):
+        d = self._write(tmp_path, "[cad]\nwidth = 120\n")
+        assert ModelConfig.from_dir(d)["cad"] == {"width": 120}

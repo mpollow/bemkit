@@ -63,6 +63,117 @@ def _check_mesh_params(tbl, where):
                          f"{', '.join(_DISTANCE_MODES)}, got {mode!r}")
 
 
+def _is_num(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _is_point(x):
+    return isinstance(x, list) and len(x) == 3 and all(_is_num(c) for c in x)
+
+
+def _check_bc_entry(key, val, where):
+    """Validate one [BOUNDARY] entry: [s,e,v], [[s,e,v],...], or {near=...}.
+
+    Shared grammar for config-load validation and resolve_boundary, so a
+    library caller bypassing config.toml hits the same loud failures.
+    """
+    if isinstance(val, dict):
+        unknown = [k for k in val if k not in ("near", "radius", "velocity", "v")]
+        if unknown:
+            raise ValueError(
+                f"{where}: entry '{key}': unknown key(s) {', '.join(unknown)} "
+                f"(known: near, radius, velocity, v)")
+        near = val.get("near")
+        if near is None:
+            raise ValueError(f"{where}: entry '{key}': geometric entries need "
+                             f"near = [x, y, z] (meters)")
+        if not (_is_point(near)
+                or (isinstance(near, list) and near
+                    and all(_is_point(p) for p in near))):
+            raise ValueError(f"{where}: entry '{key}': near must be [x, y, z] "
+                             f"or a list of such points, got {near!r}")
+        if "radius" in val and not (_is_num(val["radius"]) and val["radius"] > 0):
+            raise ValueError(f"{where}: entry '{key}': radius must be a "
+                             f"positive number (meters), got {val['radius']!r}")
+        for vk in ("velocity", "v"):
+            if vk in val and not _is_num(val[vk]):
+                raise ValueError(f"{where}: entry '{key}': {vk} must be a "
+                                 f"number, got {val[vk]!r}")
+        return
+    if isinstance(val, list):
+        rows = val if (val and isinstance(val[0], list)) else [val]
+        for r in rows:
+            if not (isinstance(r, list) and len(r) == 3
+                    and all(_is_num(x) for x in r)
+                    and float(r[0]).is_integer() and float(r[1]).is_integer()):
+                raise ValueError(
+                    f"{where}: entry '{key}': expected [start, end, velocity] "
+                    f"(two element indices and a velocity), got {r!r}")
+        return
+    raise ValueError(f"{where}: entry '{key}': must be [start, end, velocity], "
+                     f"a list of such ranges, or {{ near = ... }}, got {val!r}")
+
+
+def _check_boundary(bc, path):
+    """Validate a [BOUNDARY] table: entries, or one level of per-variant
+    subtables (a dict without a ``near`` key) holding entries."""
+    where = f"{path}: [BOUNDARY]"
+    if not isinstance(bc, dict):
+        raise ValueError(f"{where} must be a table")
+    for key, val in bc.items():
+        if isinstance(val, dict) and "near" not in val:
+            sub = f"{path}: [BOUNDARY.{key}]"
+            for k2, v2 in val.items():
+                if isinstance(v2, dict) and "near" not in v2:
+                    raise ValueError(
+                        f"{sub}: entry '{k2}' looks like a nested subtable — "
+                        f"only one level of [BOUNDARY.<variant>] is supported")
+                _check_bc_entry(k2, v2, sub)
+        else:
+            _check_bc_entry(key, val, where)
+
+
+def _check_symmetry(sym, path):
+    where = f"{path}: [SYMMETRY]"
+    if not isinstance(sym, dict):
+        raise ValueError(f"{where} must be a table")
+    unknown = [k for k in sym if k not in ("planes", "coordinates")]
+    if unknown:
+        raise ValueError(f"{where}: unknown key(s): {', '.join(unknown)} "
+                         f"(known: planes, coordinates)")
+    planes = sym.get("planes")
+    if planes is not None and not (
+            isinstance(planes, list) and len(planes) == 3
+            and all(isinstance(p, int) and not isinstance(p, bool)
+                    for p in planes)):
+        raise ValueError(f"{where}: planes must be three integers "
+                         f"(e.g. [1, 0, 0]), got {planes!r}")
+    coords = sym.get("coordinates")
+    if coords is not None and not _is_point(coords):
+        raise ValueError(f"{where}: coordinates must be [x, y, z] numbers, "
+                         f"got {coords!r}")
+
+
+def _check_sources(tbl, section, path):
+    """Validate a ["PLANE WAVES"] / ["POINT SOURCES"] table structurally.
+
+    Each entry is one 8-number row or a list of rows; the semantic checks
+    (direction not all-zero, curve refs) stay in sim.writers at export time.
+    """
+    where = f"{path}: [{section}]"
+    if not isinstance(tbl, dict):
+        raise ValueError(f"{where} must be a table")
+    for key, val in tbl.items():
+        rows = (val if (isinstance(val, list) and val
+                        and isinstance(val[0], list)) else [val])
+        for r in rows:
+            if not (isinstance(r, list) and len(r) == 8
+                    and all(_is_num(x) for x in r)):
+                raise ValueError(
+                    f"{where}: entry '{key}': each row needs 8 numbers "
+                    f"[nr, a, b, c, ampl_re, -1, ampl_im, -1], got {r!r}")
+
+
 def _validate(raw, path):
     """Validate config.toml structure; raise ValueError with migration hints."""
     old = [k for k in _BEM_KEYS if k in raw]
@@ -162,6 +273,21 @@ def _validate(raw, path):
             _check_mesh_params(m, f"{where}: mesh")
         if "source" in v and not isinstance(v["source"], str):
             raise ValueError(f"{where}: source must be a geometry/ file stem")
+
+    # Physics sections: a silent mistake here yields plausible-but-wrong
+    # results (a dropped BC exports a rigid surface that solves to silence),
+    # so they get the same typo guard as the solver/mesh sections.
+    if "BOUNDARY" in raw:
+        _check_boundary(raw["BOUNDARY"], path)
+    if "SYMMETRY" in raw:
+        _check_symmetry(raw["SYMMETRY"], path)
+    for section in ("PLANE WAVES", "POINT SOURCES"):
+        if section in raw:
+            _check_sources(raw[section], section, path)
+    if "velocity" in raw and not _is_num(raw["velocity"]):
+        raise ValueError(f"{path}: top-level velocity must be a number "
+                         f"(default velocity for BOUNDARY ranges), "
+                         f"got {raw['velocity']!r}")
 
 
 @dataclass(frozen=True)
