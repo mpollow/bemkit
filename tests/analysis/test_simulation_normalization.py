@@ -70,11 +70,11 @@ class TestSimulationDataNormalization:
         from bemkit.config import freq_grid
         np.testing.assert_array_equal(sim.frequencies, freq_grid(48000, 65))
 
-    def test_pressure_default_is_normalized(self, sim):
-        """Test that pressure() defaults to norm="acc"."""
-        p_acc = sim.pressure("all")
-        p_acc_explicit = sim.pressure("all", norm="acc")
-        np.testing.assert_array_equal(p_acc, p_acc_explicit)
+    def test_pressure_default_is_raw(self, sim):
+        """pressure() defaults to norm="raw" — NumCalc's native output is
+        the base; acc normalization is opt-in."""
+        np.testing.assert_array_equal(
+            sim.pressure("all"), sim.pressure("all", norm="raw"))
 
     def test_pressure_raw_access(self, sim):
         """Test that norm="raw" returns raw data."""
@@ -86,23 +86,20 @@ class TestSimulationDataNormalization:
         else:
             np.testing.assert_array_equal(p_raw, p_acc)
 
-    def test_dynamic_attr_p_is_normalized(self, sim):
-        """Test that sim.p_<set> returns normalized."""
-        p_via_attr = sim.p_all
-        p_via_method = sim.pressure("all", norm="acc")
-        np.testing.assert_array_equal(p_via_attr, p_via_method)
+    def test_dynamic_attr_p_is_raw(self, sim):
+        """sim.p_<set> is the unmarked (raw) form."""
+        np.testing.assert_array_equal(sim.p_all,
+                                      sim.pressure("all", norm="raw"))
 
-    def test_dynamic_attr_p_raw(self, sim):
-        """Test that sim.p_raw_<set> returns raw."""
-        p_raw_via_attr = sim.p_raw_all
-        p_raw_via_method = sim.pressure("all", norm="raw")
-        np.testing.assert_array_equal(p_raw_via_attr, p_raw_via_method)
+    def test_dynamic_attr_p_acc(self, sim):
+        """sim.p_acc_<set> is the normalized opt-in form."""
+        np.testing.assert_array_equal(sim.p_acc_all,
+                                      sim.pressure("all", norm="acc"))
 
-    def test_velocity_default_is_normalized(self, sim):
-        """Test that velocity() defaults to norm="acc" (normalized 3D)."""
-        v_acc = sim.velocity("all")
-        v_acc_explicit = sim.velocity("all", norm="acc")
-        np.testing.assert_array_equal(v_acc, v_acc_explicit)
+    def test_velocity_default_is_raw(self, sim):
+        """velocity() defaults to norm="raw" (raw 3D vectors)."""
+        np.testing.assert_array_equal(
+            sim.velocity("all"), sim.velocity("all", norm="raw"))
 
     def test_velocity_raw_access(self, sim):
         """Test that norm="raw" returns raw 3D velocity."""
@@ -114,17 +111,15 @@ class TestSimulationDataNormalization:
         else:
             np.testing.assert_array_equal(v_raw, v_acc)
 
-    def test_dynamic_attr_v_is_normalized(self, sim):
-        """Test that sim.v_<set> returns normalized 3D velocity."""
-        v_via_attr = sim.v_all
-        v_via_method = sim.velocity("all", norm="acc")
-        np.testing.assert_array_equal(v_via_attr, v_via_method)
+    def test_dynamic_attr_v_is_raw(self, sim):
+        """sim.v_<set> is the unmarked (raw) 3D form."""
+        np.testing.assert_array_equal(sim.v_all,
+                                      sim.velocity("all", norm="raw"))
 
-    def test_dynamic_attr_v_raw(self, sim):
-        """Test that sim.v_raw_<set> returns raw 3D velocity."""
-        v_raw_via_attr = sim.v_raw_all
-        v_raw_via_method = sim.velocity("all", norm="raw")
-        np.testing.assert_array_equal(v_raw_via_attr, v_raw_via_method)
+    def test_dynamic_attr_v_acc(self, sim):
+        """sim.v_acc_<set> is the normalized opt-in 3D form."""
+        np.testing.assert_array_equal(sim.v_acc_all,
+                                      sim.velocity("all", norm="acc"))
 
     def test_boundary_pressure_acc(self, sim):
         """Test new boundary_pressure_acc cached property."""
@@ -154,14 +149,15 @@ class TestSimulationDataNormalization:
         np.testing.assert_allclose(result.velocity_acc, v_acc_expected)
 
     def test_round_trip_pressure_normalization(self, sim):
-        """Test that dynamic attr matches result()."""
-        p_via_attr = sim.p_all
+        """Dynamic attrs and result() expose the same arrays."""
         result = sim.result("all")
-        np.testing.assert_allclose(p_via_attr, result.pressure_acc)
+        np.testing.assert_allclose(sim.p_acc_all, result.pressure_acc)
+        np.testing.assert_allclose(sim.p_all, result.pressure_raw)
 
-    def test_dir_includes_p_raw(self, sim):
-        """Test that __dir__ includes p_raw_<set> entries."""
+    def test_dir_includes_acc_variants(self, sim):
+        """__dir__ advertises the raw and acc spellings, not p_raw_."""
         d = dir(sim)
         for s in sim.set_names:
             assert f"p_{s}" in d
-            assert f"p_raw_{s}" in d
+            assert f"p_acc_{s}" in d
+            assert f"p_raw_{s}" not in d

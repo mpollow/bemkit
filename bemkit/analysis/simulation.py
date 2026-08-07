@@ -7,15 +7,15 @@ Usage::
 
     sim = SimulationData.from_model("models/sphcap_10")
 
-    sim.p_onaxis              # (N, nf) complex — normalized pressure (default)
-    sim.p_raw_onaxis          # (N, nf) complex — raw pressure (velocity BC)
-    sim.v_onaxis              # (N, nf, 3) complex — normalized velocity (default)
-    sim.v_raw_onaxis          # (N, nf, 3) complex — raw velocity (velocity BC)
+    sim.p_onaxis              # (N, nf) complex — raw pressure (NumCalc output)
+    sim.p_acc_onaxis          # (N, nf) complex — acc-normalized pressure
+    sim.v_onaxis              # (N, nf, 3) complex — raw velocity (NumCalc output)
+    sim.v_acc_onaxis          # (N, nf, 3) complex — acc-normalized velocity
     sim.nodes_onaxis          # (N, 3) coordinates
-    sim.boundary_pressure()          # (M, nf) complex (normalized, default)
-    sim.boundary_pressure(norm="raw")# (M, nf) complex (raw)
-    sim.boundary_velocity()          # (M, nf) complex (normalized, default)
-    sim.boundary_velocity(norm="raw")# (M, nf) complex (normal velocity, raw)
+    sim.boundary_pressure()          # (M, nf) complex (raw, default)
+    sim.boundary_pressure(norm="acc")# (M, nf) complex (acc-normalized)
+    sim.boundary_velocity()          # (M, nf) complex (normal velocity, raw)
+    sim.boundary_velocity(norm="acc")# (M, nf) complex (acc-normalized)
     sim.boundary_pressure_acc        # (M, nf) alias for boundary_pressure(norm="acc")
     sim.boundary_velocity_acc        # (M, nf) alias for boundary_velocity(norm="acc")
     sim.set_names                    # ['onaxis', 'plane_hor', ...]
@@ -147,20 +147,20 @@ class SimulationData:
         """
         return self._load_all_bins("vBoundary")
 
-    def boundary_pressure(self, norm="acc"):
+    def boundary_pressure(self, norm="raw"):
         """(M, nf) complex — surface pressure for all frequency bins.
 
         Parameters
         ----------
-        norm : "acc" or "raw"
-            "acc" (default): normalized ÷ (j·ρ₀·ω·A_vib), cached via boundary_pressure_acc.
-            "raw": raw velocity BC output.
+        norm : "raw" or "acc"
+            "raw" (default): NumCalc's velocity-BC output, unmodified.
+            "acc": normalized ÷ (j·ρ₀·ω·A_vib), cached via boundary_pressure_acc.
         """
         if norm == "raw":
             return self._boundary_pressure_raw
         return self.boundary_pressure_acc  # delegates to cached_property
 
-    def boundary_velocity(self, norm="acc"):
+    def boundary_velocity(self, norm="raw"):
         """(M, nf) complex — surface normal velocity for all frequency bins.
 
         Note: vBoundary stores scalar normal velocity (not 3D vector),
@@ -168,11 +168,12 @@ class SimulationData:
 
         Parameters
         ----------
-        norm : "acc" or "raw"
-            "acc" (default): same ÷ (j·ρ₀·ω·A_vib) normalization as pressure,
-                giving v_acc = 1/(j·ρ₀·ω·A_vib) on the vibrating patch.
-                Primarily useful for API symmetry; Z = p_acc/v_acc = p_raw/v_raw.
-            "raw": raw BC output (≈1 on vibrating elements, ≈0 on rigid).
+        norm : "raw" or "acc"
+            "raw" (default): raw BC output (≈1 on vibrating elements, ≈0 on
+                rigid).
+            "acc": same ÷ (j·ρ₀·ω·A_vib) normalization as pressure, giving
+                v_acc = 1/(j·ρ₀·ω·A_vib) on the vibrating patch. Primarily
+                useful for API symmetry; Z = p_acc/v_acc = p_raw/v_raw.
         """
         if norm == "raw":
             return self._boundary_velocity_raw
@@ -233,16 +234,16 @@ class SimulationData:
 
     # -- Per-set accessors --
 
-    def pressure(self, set_name, norm="acc"):
+    def pressure(self, set_name, norm="raw"):
         """(N, nf) complex — eval pressure for a fieldpoint set.
 
         Parameters
         ----------
         set_name : str or None
             Fieldpoint set name (e.g. 'onaxis'). None returns all eval points.
-        norm : "acc" or "raw"
-            "acc" (default): normalized to acceleration boundary condition.
-            "raw": raw velocity boundary condition output.
+        norm : "raw" or "acc"
+            "raw" (default): NumCalc's velocity-BC output, unmodified.
+            "acc": normalized to acceleration boundary condition.
         """
         if set_name is None:
             p_raw = self._eval_pressure
@@ -258,16 +259,16 @@ class SimulationData:
         from bemkit.analysis.normalization import normalize_pressure
         return normalize_pressure(p_raw, self.frequencies, self._rho0, self.A_vib)
 
-    def velocity(self, set_name, norm="acc"):
+    def velocity(self, set_name, norm="raw"):
         """(N, nf, 3) complex — eval velocity vectors for a fieldpoint set.
 
         Parameters
         ----------
         set_name : str or None
             Fieldpoint set name (e.g. 'onaxis'). None returns all eval points.
-        norm : "acc" or "raw"
-            "acc" (default): normalized to acceleration boundary condition.
-            "raw": raw velocity boundary condition output.
+        norm : "raw" or "acc"
+            "raw" (default): NumCalc's velocity-BC output, unmodified.
+            "acc": normalized to acceleration boundary condition.
         """
         if set_name is None:
             v_raw = self._eval_velocity
@@ -356,7 +357,7 @@ class SimulationData:
         out = normalize_pressure(arr[:, None, ...], freqs, self._rho0, self.A_vib)
         return out[:, 0, ...]
 
-    def pressure_at(self, bin_idx, domain="eval", set_name=None, norm="acc"):
+    def pressure_at(self, bin_idx, domain="eval", set_name=None, norm="raw"):
         """Read pressure for a single frequency bin without loading all bins.
 
         Parameters
@@ -366,9 +367,9 @@ class SimulationData:
         domain : "eval" or "boundary"
         set_name : str or None
             Split eval result to this fieldpoint set. Ignored for boundary.
-        norm : "acc" or "raw"
-            "acc" (default): normalize to acceleration BC.
-            "raw": return raw velocity-BC output.
+        norm : "raw" or "acc"
+            "raw" (default): return raw velocity-BC output.
+            "acc": normalize to acceleration BC.
 
         Returns
         -------
@@ -395,7 +396,7 @@ class SimulationData:
             p = self._normalize_bin(p, bin_idx)
         return p
 
-    def velocity_at(self, bin_idx, domain="eval", set_name=None, norm="acc"):
+    def velocity_at(self, bin_idx, domain="eval", set_name=None, norm="raw"):
         """Read velocity for a single frequency bin without loading all bins.
 
         Parameters
@@ -405,9 +406,9 @@ class SimulationData:
         domain : "eval" or "boundary"
         set_name : str or None
             Split eval result to this fieldpoint set. Ignored for boundary.
-        norm : "acc" or "raw"
-            "acc" (default): normalize to acceleration BC.
-            "raw": return raw velocity-BC output.
+        norm : "raw" or "acc"
+            "raw" (default): return raw velocity-BC output.
+            "acc": normalize to acceleration BC.
 
         Returns
         -------
@@ -439,12 +440,15 @@ class SimulationData:
     # -- Dynamic attribute access --
 
     def __getattr__(self, name):
-        """Support sim.p_<set>, sim.p_raw_<set>, sim.v_<set>, sim.v_raw_<set>, sim.nodes_<set> syntax."""
+        """Support sim.p_<set>, sim.p_acc_<set>, sim.v_<set>, sim.v_acc_<set>, sim.nodes_<set> syntax.
+
+        The unmarked forms (p_/v_) are NumCalc's raw velocity-BC output;
+        the _acc_ forms opt into acceleration-BC normalization."""
         prefixes = [
-            ("p_raw_", lambda s: self.pressure(s, norm="raw")),
-            ("p_", lambda s: self.pressure(s, norm="acc")),
-            ("v_raw_", lambda s: self.velocity(s, norm="raw")),
-            ("v_", lambda s: self.velocity(s, norm="acc")),
+            ("p_acc_", lambda s: self.pressure(s, norm="acc")),
+            ("p_", lambda s: self.pressure(s, norm="raw")),
+            ("v_acc_", lambda s: self.velocity(s, norm="acc")),
+            ("v_", lambda s: self.velocity(s, norm="raw")),
             ("nodes_", self.nodes),
         ]
         for prefix, method in prefixes:
@@ -462,7 +466,7 @@ class SimulationData:
     def __dir__(self):
         attrs = list(super().__dir__())
         for s in self.set_names:
-            attrs.extend([f"p_{s}", f"p_raw_{s}", f"v_{s}", f"v_raw_{s}", f"nodes_{s}"])
+            attrs.extend([f"p_{s}", f"p_acc_{s}", f"v_{s}", f"v_acc_{s}", f"nodes_{s}"])
         return attrs
 
     def __repr__(self):
