@@ -20,6 +20,7 @@ unchanged for backward compatibility.
 
 import numpy as np
 
+from bemkit.config import _check_bc_entry
 from bemkit.meshing.io import read_mesh_triangles
 from bemkit.sim.writers import _contiguous_ranges
 
@@ -58,18 +59,24 @@ def _nearest_element(centroids, point):
     return idx, float(d[idx])
 
 
-def resolve_boundary(config, variant, mesh_file=None):
+def resolve_boundary(boundary_cfg, variant, mesh_file=None, default_velocity=1.0):
     """Resolve a variant's [BOUNDARY] entries to element ranges.
 
     Parameters
     ----------
-    config : ModelConfig or dict-like
-        Must support ``get``. Reads ``config["BOUNDARY"]`` and, for geometric
-        entries, ``config.get("velocity", 1.0)``.
+    boundary_cfg : dict or None
+        The [BOUNDARY] table (``ModelConfig.boundary_cfg``): flat entries
+        and/or per-variant subtables. Every entry is validated against the
+        config grammar — malformed entries raise rather than silently
+        resolving to "no BC" (which would export a rigid surface that
+        solves to silence).
     variant : str
     mesh_file : Path or str or None
         Mesh the ranges are resolved against (only read if a geometric ``near=``
         entry is present; None raises for such entries).
+    default_velocity : float
+        Velocity for geometric entries without their own ``velocity``/``v``
+        (``ModelConfig.default_velocity``).
 
     Returns
     -------
@@ -80,20 +87,25 @@ def resolve_boundary(config, variant, mesh_file=None):
     Raises
     ------
     ValueError
-        If a ``near=`` anchor resolves to an element implausibly far from it
-        (likely an anchor picked in the wrong units or coordinate frame).
+        If an entry is malformed, or a ``near=`` anchor resolves to an element
+        implausibly far from it (likely an anchor picked in the wrong units or
+        coordinate frame).
     """
-    bc = config.get("BOUNDARY") or {}
+    bc = boundary_cfg or {}
     if not bc:
         return {}
     entries = _entries_for_variant(bc, variant)
-    default_v = config.get("velocity", 1.0)
+    default_v = default_velocity
 
     centroids = None  # lazily loaded only if a geometric entry needs the mesh
     diag = None
     resolved = {}
     for key, val in entries.items():
-        if isinstance(val, dict) and "near" in val:
+        if isinstance(val, dict) and "near" not in val:
+            # Another variant's subtable mixed into the flat entries — not ours.
+            continue
+        _check_bc_entry(key, val, f"BOUNDARY (variant '{variant}')")
+        if isinstance(val, dict):
             if mesh_file is None:
                 raise ValueError(
                     f"BOUNDARY '{key}' for variant '{variant}' uses a geometric "
@@ -135,11 +147,10 @@ def resolve_boundary(config, variant, mesh_file=None):
                             f"anchor's units/frame.")
                     ranges.append((idx, idx, float(v0)))
             resolved[key] = ranges
-        elif isinstance(val, list) and len(val) >= 1:
-            if isinstance(val[0], list):          # [[s, e, v], ...]
-                resolved[key] = [(r[0], r[1], float(r[2])) for r in val if len(r) >= 3]
-            elif len(val) >= 3:                   # [s, e, v]
-                resolved[key] = [(val[0], val[1], float(val[2]))]
+        else:
+            # _check_bc_entry guarantees the shape: [s, e, v] or [[s, e, v], ...]
+            rows = val if isinstance(val[0], list) else [val]
+            resolved[key] = [(r[0], r[1], float(r[2])) for r in rows]
     return resolved
 
 

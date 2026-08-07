@@ -125,9 +125,11 @@ def test_groupless_mesh_gets_a_boundary_that_drives_real_elements(tmp_path, bare
 
     from bemkit.sim.boundary import flatten, resolve_boundary
     config = ModelConfig.from_dir(model)
-    assert config.get("BOUNDARY"), "no BOUNDARY table for a group-less mesh"
+    assert config.boundary_cfg, "no BOUNDARY table for a group-less mesh"
 
-    resolved = resolve_boundary(config, "bare", model / "mesh" / "bare.msh")
+    resolved = resolve_boundary(config.boundary_cfg, "bare",
+                                model / "mesh" / "bare.msh",
+                                default_velocity=config.default_velocity)
     assert flatten(resolved), "synthesised anchor selected no elements"
 
 

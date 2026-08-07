@@ -64,7 +64,7 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     for name, points in sets.items():
         mask = validate_points(points, mesh_file, is_internal=config.is_internal,
                                edge_length_factor=0.1,
-                               symmetry=config.get("SYMMETRY"))
+                               symmetry=config.symmetry_cfg or None)
         if verbose:
             n = f"{mask.sum()}/{len(mask)}" if not mask.all() else f"all {len(points)}"
             print(f"  '{name}': {n} points valid")
@@ -95,8 +95,9 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
     from bemkit.sim.boundary import flatten, resolve_boundary
     groups = read_mesh_physical_groups(mesh_file)
     vib_name, vib_indices = resolve_vibrating_group(
-        groups, (config.get("groups") or {}).get("vibrating"))
-    resolved = resolve_boundary(config, variant, mesh_file)
+        groups, config.vibrating_group())
+    resolved = resolve_boundary(config.boundary_cfg, variant, mesh_file,
+                                default_velocity=config.default_velocity)
     ranges = flatten(resolved)
     if verbose and vib_name:
         print(f"  Driven group '{vib_name}': {len(vib_indices)} elements")

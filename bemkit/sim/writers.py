@@ -296,7 +296,9 @@ def write_nc_inp(config, variant, nc_dir, vibrating_indices=None,
             # paths. Geometric near= anchors need a mesh and raise here —
             # resolve them via export_variant / resolve_boundary instead.
             from bemkit.sim.boundary import flatten, resolve_boundary
-            elems += flatten(resolve_boundary(config, variant, mesh_file=None))
+            elems += flatten(resolve_boundary(
+                v.get("BOUNDARY"), variant, mesh_file=None,
+                default_velocity=v.get("velocity", 1.0)))
 
         for s, e, v0 in elems:
             if not (0 <= int(s) <= int(e) < n_tri):
