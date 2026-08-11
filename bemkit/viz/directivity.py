@@ -89,7 +89,7 @@ def _edges(centers):
                            [centers[-1] + (centers[-1] - mid[-1])]])
 
 
-def isobaric(ax, result, *, quantity="pressure", norm="acc", ref="onaxis",
+def isobaric(ax, result, *, quantity="pressure", norm="auto", ref="onaxis",
              freq_range=None, clim=(-30.0, 0.0), cmap=CMAP_MAGNITUDE,
              contours=None, contour_kwargs=None, log_freq=True, **kwargs):
     """Plot level over angle and frequency as a color map ("sonogram").
@@ -134,6 +134,9 @@ def isobaric(ax, result, *, quantity="pressure", norm="acc", ref="onaxis",
     bemkit.viz._angles.NotCircular
         If the fieldpoint set is not a circle about the origin.
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     angles, _radius, _normal = circle_angles(result)
 
     valid = ~np.isnan(angles)

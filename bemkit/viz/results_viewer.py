@@ -155,9 +155,9 @@ class ResultsViewer:
         try:
             pts = self.sim.nodes(set_name)
             p = self.sim.pressure_at(be_index, domain="eval",
-                                     set_name=set_name, norm="acc")
+                                     set_name=set_name, norm="auto")
             v = self.sim.velocity_at(be_index, domain="eval",
-                                     set_name=set_name, norm="acc")
+                                     set_name=set_name, norm="auto")
         except (FileNotFoundError, KeyError):
             return None, None, None
         valid = ~np.any(np.isnan(pts), axis=1)

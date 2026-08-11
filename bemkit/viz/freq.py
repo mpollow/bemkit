@@ -6,6 +6,7 @@ from bemkit.viz._angles import DEFAULT_ANGLES, angle_indices, axis_positions
 from bemkit.viz._style import (
     point_colors, angle_styles, make_point_label, format_freq_axis,
     PRESSURE_LABEL_DB_ACC, PRESSURE_LABEL, PHASE_LABEL_DEG, PHASE_LABEL_RAD,
+    pressure_label,
     ONAXIS_LABEL, ONAXIS_LABEL_DB,
 )
 
@@ -43,7 +44,7 @@ def _resolve_points(result, points):
     return arr.astype(int)
 
 
-def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
+def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="auto",
                    db=False, ref=1.0, freq_range=None, label_fmt="z={z:.2f} m",
                    **kwargs):
     """Plot magnitude vs frequency.
@@ -71,6 +72,9 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices = _resolve_points(result, points)
     colors = point_colors(len(indices))
     freqs = result.frequencies
@@ -101,14 +105,14 @@ def freq_magnitude(ax, result, *, points=None, quantity="pressure", norm="acc",
         lines.extend(ln)
 
     format_freq_axis(ax)
-    ax.set_ylabel(PRESSURE_LABEL_DB_ACC if not db else PRESSURE_LABEL_DB_ACC)
+    ax.set_ylabel(pressure_label(norm, db))
     ax.set_xlim(freqs[0] / 1000, freqs[-1] / 1000)
     ax.legend(loc="best")
 
     return lines
 
 
-def freq_phase(ax, result, *, points=None, quantity="pressure", norm="acc",
+def freq_phase(ax, result, *, points=None, quantity="pressure", norm="auto",
                unwrap=False, degrees=True, freq_range=None,
                label_fmt="z={z:.2f} m", **kwargs):
     """Plot phase vs frequency.
@@ -128,6 +132,9 @@ def freq_phase(ax, result, *, points=None, quantity="pressure", norm="acc",
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices = _resolve_points(result, points)
     colors = point_colors(len(indices))
     freqs = result.frequencies
@@ -162,7 +169,7 @@ def freq_phase(ax, result, *, points=None, quantity="pressure", norm="acc",
 
 
 def angle_response(ax, result, *, angles=DEFAULT_ANGLES, quantity="pressure",
-                   norm="acc", db=True, ref=1.0, freq_range=None, tol=None,
+                   norm="auto", db=True, ref=1.0, freq_range=None, tol=None,
                    log_freq=True, **kwargs):
     """Plot the frequency response of selected directions of a circular set.
 
@@ -206,6 +213,9 @@ def angle_response(ax, result, *, angles=DEFAULT_ANGLES, quantity="pressure",
     bemkit.viz._angles.NotCircular
         If the fieldpoint set is not a circle about the origin.
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     from bemkit.viz.directivity import directivity_levels, level_label
 
     indices, matched = angle_indices(result, angles, tol=tol)
@@ -233,13 +243,13 @@ def angle_response(ax, result, *, angles=DEFAULT_ANGLES, quantity="pressure",
 
     ax.set_xlim(freqs[0], freqs[-1])
     format_freq_axis(ax, unit="Hz", log=log_freq)
-    ax.set_ylabel(level_label(ref) if db else PRESSURE_LABEL_DB_ACC)
+    ax.set_ylabel(level_label(ref) if db else pressure_label(norm, db))
     ax.legend(loc="best", ncols=2 if len(matched) > 4 else 1)
 
     return lines
 
 
-def onaxis_response(ax, result, *, quantity="pressure", norm="acc", db=True,
+def onaxis_response(ax, result, *, quantity="pressure", norm="auto", db=True,
                     ref=1.0, freq_range=None, log_freq=True, **kwargs):
     """Plot the distance-compensated response of an on-axis fieldpoint set.
 
@@ -275,6 +285,9 @@ def onaxis_response(ax, result, *, quantity="pressure", norm="acc", db=True,
     bemkit.viz._angles.NotOnAxis
         If the fieldpoint set is not collinear through the origin.
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     from bemkit.viz._angles import AXES
 
     positions, axis = axis_positions(result)
@@ -313,7 +326,7 @@ def onaxis_response(ax, result, *, quantity="pressure", norm="acc", db=True,
 
 
 def freq_real_imag(ax_re, ax_im, result, *, points=None, quantity="pressure",
-                   norm="acc", freq_range=None, label_fmt="z={z:.2f} m",
+                   norm="auto", freq_range=None, label_fmt="z={z:.2f} m",
                    **kwargs):
     """Plot real and imaginary parts on two axes.
 
@@ -329,6 +342,9 @@ def freq_real_imag(ax_re, ax_im, result, *, points=None, quantity="pressure",
     (list of Line2D, list of Line2D)
         Lines on real and imaginary axes.
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices = _resolve_points(result, points)
     colors = point_colors(len(indices))
     freqs = result.frequencies

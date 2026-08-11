@@ -47,7 +47,7 @@ def _default_cmap(value_func):
     return CMAP_FIELD
 
 
-def heatmap(ax, result, freq, *, quantity="pressure", norm="acc",
+def heatmap(ax, result, freq, *, quantity="pressure", norm="auto",
             value_func="magnitude_db", cmap=None, vmin=None, vmax=None,
             colorbar=True, **kwargs):
     """Plot a 2D heatmap on a structured grid.
@@ -77,6 +77,9 @@ def heatmap(ax, result, freq, *, quantity="pressure", norm="acc",
     -------
     QuadMesh
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     vals = _get_values(result, freq, value_func, quantity, norm)
     row2d, col2d, val2d = result.as_grid(vals)
 
@@ -108,7 +111,7 @@ def heatmap(ax, result, freq, *, quantity="pressure", norm="acc",
     return mesh
 
 
-def contour(ax, result, freq, *, quantity="pressure", norm="acc",
+def contour(ax, result, freq, *, quantity="pressure", norm="auto",
             value_func="magnitude_db", levels=20, filled=True,
             cmap=None, colorbar=True, **kwargs):
     """Plot contour lines or filled contours on a structured grid.
@@ -131,6 +134,9 @@ def contour(ax, result, freq, *, quantity="pressure", norm="acc",
     -------
     QuadContourSet
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     vals = _get_values(result, freq, value_func, quantity, norm)
     row2d, col2d, val2d = result.as_grid(vals)
 
@@ -157,7 +163,7 @@ def contour(ax, result, freq, *, quantity="pressure", norm="acc",
     return cs
 
 
-def scatter_field(ax, result, freq, *, quantity="pressure", norm="acc",
+def scatter_field(ax, result, freq, *, quantity="pressure", norm="auto",
                   value_func="magnitude_db", coords=("x", "z"),
                   cmap=None, size=20, colorbar=True, **kwargs):
     """Scatter plot for arbitrary point distributions.
@@ -181,6 +187,9 @@ def scatter_field(ax, result, freq, *, quantity="pressure", norm="acc",
     -------
     PathCollection
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     coord_map = {
         "x": result.x, "y": result.y, "z": result.z,
         "r": result.r, "theta": result.theta_deg, "phi": result.phi_deg,
@@ -208,7 +217,7 @@ def scatter_field(ax, result, freq, *, quantity="pressure", norm="acc",
     return sc
 
 
-def spherical_heatmap(ax, result, freq, *, quantity="pressure", norm="acc",
+def spherical_heatmap(ax, result, freq, *, quantity="pressure", norm="auto",
                       value_func="magnitude_db", cmap=None, vmin=None, vmax=None,
                       colorbar=True, projection=None, **kwargs):
     """Theta-phi heatmap for spherical grids.
@@ -230,6 +239,9 @@ def spherical_heatmap(ax, result, freq, *, quantity="pressure", norm="acc",
     -------
     QuadMesh
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     vals = _get_values(result, freq, value_func, quantity, norm)
     row2d, col2d, val2d = result.as_grid(vals)
     # row2d = theta, col2d = phi (from spherical grid detection)

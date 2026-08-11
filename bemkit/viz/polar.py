@@ -7,7 +7,7 @@ from bemkit.viz.directivity import directivity_levels
 from bemkit.viz._style import freq_colors, CMAP_MAGNITUDE
 
 
-def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
+def polar_directivity(ax, result, freq, *, quantity="pressure", norm="auto",
                       db=True, ref="max", angle_key="theta",
                       label_fmt="{f:.0f} Hz", mirror=False, **kwargs):
     """Plot directivity pattern on a polar axis.
@@ -44,6 +44,9 @@ def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     freqs = np.atleast_1d(freq)
     colors = freq_colors(freqs)
 
@@ -112,7 +115,7 @@ def polar_directivity(ax, result, freq, *, quantity="pressure", norm="acc",
 
 
 def polar_balloon_slice(ax, result, freq, *, slice_phi=0.0,
-                        quantity="pressure", norm="acc", db=True, ref="max",
+                        quantity="pressure", norm="auto", db=True, ref="max",
                         phi_tol=None, label_fmt="{f:.0f} Hz", **kwargs):
     """Extract a great-circle cut at a given phi from a spherical grid.
 
@@ -133,6 +136,9 @@ def polar_balloon_slice(ax, result, freq, *, slice_phi=0.0,
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     freqs = np.atleast_1d(freq)
     colors = freq_colors(freqs)
 

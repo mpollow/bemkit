@@ -5,7 +5,7 @@ import numpy as np
 from bemkit.viz._angles import DEFAULT_ANGLES, angle_indices
 from bemkit.viz._style import (
     point_colors, angle_styles, make_point_label,
-    TIME_LABEL_MS, TIME_LABEL_S, IR_LABEL,
+    TIME_LABEL_MS, TIME_LABEL_S, IR_LABEL, ir_label,
 )
 from bemkit.viz.freq import _resolve_points
 
@@ -13,7 +13,7 @@ from bemkit.viz.freq import _resolve_points
 _TIME_SCALES = {"s": 1.0, "ms": 1e3, "samples": None}
 
 
-def impulse_response(ax, result, *, points=None, quantity="pressure", norm="acc",
+def impulse_response(ax, result, *, points=None, quantity="pressure", norm="auto",
                      time_range=None, time_unit="ms",
                      label_fmt="z={z:.2f} m", **kwargs):
     """Plot impulse response waveforms (IRFFT).
@@ -38,6 +38,9 @@ def impulse_response(ax, result, *, points=None, quantity="pressure", norm="acc"
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices = _resolve_points(result, points)
     colors = point_colors(len(indices))
 
@@ -62,7 +65,7 @@ def impulse_response(ax, result, *, points=None, quantity="pressure", norm="acc"
         lines.extend(ln)
 
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(IR_LABEL)
+    ax.set_ylabel(ir_label(norm))
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
 
@@ -73,7 +76,7 @@ def impulse_response(ax, result, *, points=None, quantity="pressure", norm="acc"
 
 
 def angle_impulse_response(ax, result, *, angles=DEFAULT_ANGLES,
-                           quantity="pressure", norm="acc", align=False,
+                           quantity="pressure", norm="auto", align=False,
                            time_range=None, time_unit="ms", tol=None,
                            **kwargs):
     """Plot impulse responses of selected directions of a circular set.
@@ -115,6 +118,9 @@ def angle_impulse_response(ax, result, *, angles=DEFAULT_ANGLES,
     bemkit.viz._angles.NotCircular
         If the fieldpoint set is not a circle about the origin.
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices, matched = angle_indices(result, angles, tol=tol)
     if len(indices) == 0:
         raise ValueError(f"none of the angles {list(angles)} are covered by "
@@ -144,7 +150,7 @@ def angle_impulse_response(ax, result, *, angles=DEFAULT_ANGLES,
         lines.extend(ax.plot(t, ir[idx], label=f"{ang:+.0f}°", **kw))
 
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(IR_LABEL)
+    ax.set_ylabel(ir_label(norm))
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best", ncols=2 if len(matched) > 4 else 1)
 
@@ -154,7 +160,7 @@ def angle_impulse_response(ax, result, *, angles=DEFAULT_ANGLES,
     return lines
 
 
-def energy_time_curve(ax, result, *, points=None, quantity="pressure", norm="acc",
+def energy_time_curve(ax, result, *, points=None, quantity="pressure", norm="auto",
                       db=True, time_range=None, time_unit="ms",
                       label_fmt="z={z:.2f} m", **kwargs):
     """Plot cumulative energy (Schroeder integral).
@@ -172,6 +178,9 @@ def energy_time_curve(ax, result, *, points=None, quantity="pressure", norm="acc
     -------
     list of Line2D
     """
+    # Resolve 'auto' before anything reads or labels the data, so a
+    # scattering model plots raw and says so.
+    norm = result.effective_norm(norm)
     indices = _resolve_points(result, points)
     colors = point_colors(len(indices))
 

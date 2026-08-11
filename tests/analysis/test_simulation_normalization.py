@@ -4,7 +4,7 @@ import warnings
 import numpy as np
 import pytest
 
-from bemkit.analysis.normalization import normalize_pressure
+from bemkit.analysis.normalization import NoVelocityDrive, normalize_pressure
 from bemkit.analysis.simulation import SimulationData
 
 
@@ -24,20 +24,19 @@ class TestNormalizePressure:
         expected = p_raw / (1j * rho0 * omega[None, :] * A_vib)
         np.testing.assert_allclose(result, expected)
 
-    def test_normalize_with_A_vib_none(self):
-        """Test that None A_vib returns copy with warning."""
+    def test_normalize_with_A_vib_none_raises(self):
+        """Without a vibrating area the acc normalization has no meaning.
+
+        This used to warn and hand back the *raw* array, so a scattering model
+        produced raw Pascals wearing an acceleration-normalized label — wrong
+        by a frequency-dependent factor and invisible on a plot. Refusing is
+        the only honest answer; `norm="raw"` is the quantity that exists.
+        """
         p_raw = np.array([[1 + 1j, 2 + 2j]])  # (1, 2)
         frequencies = np.array([100.0, 200.0])
-        rho0 = 1.2
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = normalize_pressure(p_raw, frequencies, rho0, None)
-            assert len(w) == 1
-            assert "No vibrating elements found" in str(w[0].message)
-
-        np.testing.assert_array_equal(result, p_raw)
-        assert result is not p_raw  # should be a copy
+        with pytest.raises(NoVelocityDrive, match="norm='raw'"):
+            normalize_pressure(p_raw, frequencies, 1.2, None)
 
     def test_normalize_shape_preserved(self):
         """Test output shape matches input."""

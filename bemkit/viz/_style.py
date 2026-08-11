@@ -18,6 +18,8 @@ FREQ_LABEL_HZ = "Frequency (Hz)"
 PRESSURE_LABEL = "|Pressure| (Pa)"
 PRESSURE_LABEL_DB = "Pressure (dB)"
 PRESSURE_LABEL_DB_ACC = "|Pressure| (Pa/m/s\u00b2)"
+
+
 PHASE_LABEL_DEG = "Phase (\u00b0)"
 PHASE_LABEL_RAD = "Phase (rad)"
 TIME_LABEL_MS = "Time (ms)"
@@ -29,6 +31,24 @@ LEVEL_LABEL_MAX = "Level re peak (dB)"
 LEVEL_LABEL_ABS = "Level (dB re 1 Pa/m/s\u00b2)"
 ONAXIS_LABEL_DB = "20\u00b7log\u2081\u2080(|p|\u00b7r) (dB re 1 Pa\u00b7m/m/s\u00b2)"
 ONAXIS_LABEL = "|p|\u00b7r (Pa\u00b7m/m/s\u00b2)"
+
+
+def pressure_label(norm="acc", db=True):
+    """Axis label matching the normalization a plot actually used.
+
+    A scattering model has no acc normalization, so its plots show raw
+    Pascals; labelling those "Pa/m/s\u00b2" would misstate the units by a
+    frequency-dependent factor. Callers resolve ``"auto"`` through
+    ``BEMResult.effective_norm`` first, so only "acc"/"raw" reach here.
+    """
+    if norm == "raw":
+        return PRESSURE_LABEL_DB if db else PRESSURE_LABEL
+    return PRESSURE_LABEL_DB_ACC
+
+
+def ir_label(norm="acc"):
+    """Time-domain amplitude label, matching the normalization used."""
+    return "Pressure (Pa)" if norm == "raw" else IR_LABEL
 
 
 def cmap_for_quantity(quantity):

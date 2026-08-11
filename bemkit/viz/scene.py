@@ -58,7 +58,7 @@ class BEMScene:
         actor.prop.opacity = opacity
         return actor
 
-    def add_field_points(self, result, freq, *, quantity="pressure", norm="acc",
+    def add_field_points(self, result, freq, *, quantity="pressure", norm="auto",
                          value_func="magnitude_db", cmap="magma", clim=None,
                          point_size=5.0, alpha_from_db=None, **kwargs):
         """Add field evaluation points colored by value.
@@ -146,7 +146,7 @@ class BEMScene:
 
         return actor
 
-    def add_field_surface(self, result, freq, *, quantity="pressure", norm="acc",
+    def add_field_surface(self, result, freq, *, quantity="pressure", norm="auto",
                           value_func="magnitude_db", cmap="magma", clim=None,
                           **kwargs):
         """Add a Delaunay-triangulated surface from field points.

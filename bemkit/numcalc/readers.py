@@ -144,16 +144,30 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
     :func:`bemkit.numcalc.deck.parse_bc_line`, so the ranges are extracted by
     the same code that reads a complete deck.
 
+    Two subtleties, both of which silently distort ``A_vib`` if ignored:
+
+    * **An element counts once.** Overlapping ELEM ranges are legal — a
+      ``[BOUNDARY]`` entry may cover elements the vibrating physical group
+      already drove — and counting a triangle twice inflates the area.
+    * **``VELO`` with zero amplitude is rigid, not driven.** ``v0 = 0`` is
+      exactly how NumCalc spells sound-hard, so such a range contributes no
+      source and must not enter the vibrating area.
+
+    Only ``VELO`` lines are considered: ``PRES``/``ADMI``/``IMPE`` elements are
+    boundary *conditions*, not velocity sources, and have no place in a
+    velocity-derived normalization.
+
     Args:
         nc_inp_file: Path to NC.inp file
 
     Returns:
-        Dictionary with key "vibrating" mapping to array of element indices (0-indexed).
+        Dictionary with key "vibrating" mapping to a sorted, duplicate-free
+        array of element indices (0-indexed).
         E.g., {"vibrating": array([100, 101, 102, 200, 201, ...])}
     """
     from bemkit.numcalc.deck import parse_bc_line
 
-    vibrating_elements = []
+    vibrating_elements = set()
     try:
         with open(nc_inp_file, 'r') as f:
             in_boundary = False
@@ -174,12 +188,12 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
                         import warnings
                         warnings.warn(str(exc), stacklevel=2)
                         continue
-                    if bc.kind == "VELO":
-                        vibrating_elements.extend(range(bc.start, bc.end + 1))
+                    if bc.kind == "VELO" and (bc.real or bc.imag):
+                        vibrating_elements.update(range(bc.start, bc.end + 1))
     except FileNotFoundError:
         pass
 
-    return {"vibrating": np.array(vibrating_elements, dtype=np.int32)}
+    return {"vibrating": np.array(sorted(vibrating_elements), dtype=np.int32)}
 
 
 def read_nc_inp_symmetry(nc_inp_file: str | Path) -> dict | None:

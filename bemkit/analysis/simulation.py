@@ -152,11 +152,11 @@ class SimulationData:
 
         Parameters
         ----------
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): NumCalc's velocity-BC output, unmodified.
             "acc": normalized ÷ (j·ρ₀·ω·A_vib), cached via boundary_pressure_acc.
         """
-        if norm == "raw":
+        if self.effective_norm(norm) == "raw":
             return self._boundary_pressure_raw
         return self.boundary_pressure_acc  # delegates to cached_property
 
@@ -168,14 +168,14 @@ class SimulationData:
 
         Parameters
         ----------
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): raw BC output (≈1 on vibrating elements, ≈0 on
                 rigid).
             "acc": same ÷ (j·ρ₀·ω·A_vib) normalization as pressure, giving
                 v_acc = 1/(j·ρ₀·ω·A_vib) on the vibrating patch. Primarily
                 useful for API symmetry; Z = p_acc/v_acc = p_raw/v_raw.
         """
-        if norm == "raw":
+        if self.effective_norm(norm) == "raw":
             return self._boundary_velocity_raw
         return self.boundary_velocity_acc  # delegates to cached_property
 
@@ -222,7 +222,13 @@ class SimulationData:
 
     @cached_property
     def A_vib(self):
-        """Vibrating surface area in m^2, or None if no vibrating elements."""
+        """Vibrating surface area in m^2, or None if the model has no drive.
+
+        Counts each element once, and only elements carrying a ``VELO``
+        condition with a non-zero amplitude — ``VELO 0.0`` is how NumCalc
+        spells sound-hard, and PRES/ADMI/IMPE elements are conditions rather
+        than sources.
+        """
         from bemkit.meshing.io import element_areas
         from bemkit.numcalc.readers import read_nc_inp_boundary_conditions
         bc = read_nc_inp_boundary_conditions(self._nc_dir / "NC.inp")
@@ -231,6 +237,37 @@ class SimulationData:
             return None
         return element_areas(self.boundary_nodes,
                              self.boundary_elements[vib_idx]).sum()
+
+    @property
+    def is_velocity_driven(self):
+        """True when ``acc`` normalization is meaningful for this model.
+
+        False for a scattering model (plane wave / point source against a rigid
+        or absorbing surface): there is no vibrating area to divide by, and
+        NumCalc's raw output is the meaningful quantity.
+        """
+        return self.A_vib is not None
+
+    def effective_norm(self, norm="auto"):
+        """Resolve ``"auto"`` against what this model can actually provide.
+
+        ``"auto"`` picks ``acc`` for a velocity-driven model and ``raw`` for a
+        scattering one. Asking for ``acc`` outright when there is no drive
+        raises rather than quietly handing back raw data under an acc label.
+        """
+        if norm == "auto":
+            return "acc" if self.is_velocity_driven else "raw"
+        if norm not in ("acc", "raw"):
+            raise ValueError(f"norm must be 'auto', 'acc' or 'raw', got {norm!r}")
+        if norm == "acc" and not self.is_velocity_driven:
+            from bemkit.analysis.normalization import NoVelocityDrive
+            raise NoVelocityDrive(
+                f"{self._nc_dir} has no velocity-driven elements, so there is "
+                f"no vibrating area to normalize by. Use norm='raw' (or "
+                f"'auto'); for a scattering model raw is the meaningful "
+                f"quantity. If you expected a driven surface, check that the "
+                f"mesh's vibrating group resolved and its velocity is non-zero.")
+        return norm
 
     # -- Per-set accessors --
 
@@ -241,7 +278,7 @@ class SimulationData:
         ----------
         set_name : str or None
             Fieldpoint set name (e.g. 'onaxis'). None returns all eval points.
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): NumCalc's velocity-BC output, unmodified.
             "acc": normalized to acceleration boundary condition.
         """
@@ -253,7 +290,7 @@ class SimulationData:
                     self._eval_pressure, set_name)
             p_raw = self._pressure_sets[set_name]
 
-        if norm == "raw":
+        if self.effective_norm(norm) == "raw":
             return p_raw
 
         from bemkit.analysis.normalization import normalize_pressure
@@ -266,7 +303,7 @@ class SimulationData:
         ----------
         set_name : str or None
             Fieldpoint set name (e.g. 'onaxis'). None returns all eval points.
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): NumCalc's velocity-BC output, unmodified.
             "acc": normalized to acceleration boundary condition.
         """
@@ -278,7 +315,7 @@ class SimulationData:
                     self._eval_velocity, set_name)
             v_raw = self._velocity_sets[set_name]
 
-        if norm == "raw":
+        if self.effective_norm(norm) == "raw":
             return v_raw
 
         from bemkit.analysis.normalization import normalize_pressure
@@ -325,11 +362,20 @@ class SimulationData:
             pts = self.nodes(set_name)
             v_raw_vec = self.velocity(set_name, norm="raw")
 
-        p_acc = normalize_pressure(p_raw, self.frequencies, self._rho0, self.A_vib)
         v_mag = np.linalg.norm(v_raw_vec, axis=-1)           # (N, nf) real magnitude
-        v_acc = np.linalg.norm(                               # magnitude of normalized 3D velocity
-            normalize_pressure(v_raw_vec, self.frequencies, self._rho0, self.A_vib),
-            axis=-1)
+        if self.is_velocity_driven:
+            p_acc = normalize_pressure(p_raw, self.frequencies,
+                                       self._rho0, self.A_vib)
+            v_acc = np.linalg.norm(                       # magnitude of normalized 3D velocity
+                normalize_pressure(v_raw_vec, self.frequencies,
+                                   self._rho0, self.A_vib),
+                axis=-1)
+        else:
+            # A scattering model has no vibrating area to normalize by. Carry
+            # None rather than raising here, so the result is still fully
+            # usable as raw — BEMResult.effective_norm resolves "auto" to raw
+            # and the plot labels itself accordingly.
+            p_acc = v_acc = None
 
         return BEMResult(
             name=set_name or "evalpoints",
@@ -367,7 +413,7 @@ class SimulationData:
         domain : "eval" or "boundary"
         set_name : str or None
             Split eval result to this fieldpoint set. Ignored for boundary.
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): return raw velocity-BC output.
             "acc": normalize to acceleration BC.
 
@@ -392,7 +438,9 @@ class SimulationData:
             p = _read_numcalc_data(path)
         if domain == "eval" and set_name is not None:
             p = self._split_set(p, set_name)
-        if norm == "acc" and self.A_vib is not None:
+        # effective_norm resolves "auto" and refuses an impossible "acc"; the
+        # old `norm == "acc" and self.A_vib is not None` quietly returned raw.
+        if self.effective_norm(norm) == "acc":
             p = self._normalize_bin(p, bin_idx)
         return p
 
@@ -406,7 +454,7 @@ class SimulationData:
         domain : "eval" or "boundary"
         set_name : str or None
             Split eval result to this fieldpoint set. Ignored for boundary.
-        norm : "raw" or "acc"
+        norm : "raw" (default), "acc", or "auto"
             "raw" (default): return raw velocity-BC output.
             "acc": normalize to acceleration BC.
 
@@ -433,7 +481,7 @@ class SimulationData:
                 v = _read_numcalc_data(path)
         if domain == "eval" and set_name is not None:
             v = self._split_set(v, set_name)
-        if norm == "acc" and self.A_vib is not None:
+        if self.effective_norm(norm) == "acc":
             v = self._normalize_bin(v, bin_idx)
         return v
 

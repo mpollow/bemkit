@@ -32,12 +32,14 @@ class BEMResult:
         Evaluation point coordinates in meters. NaN rows for dropped points.
     pressure_raw : (N, nf) complex array
         Raw pressure (velocity BC).
-    pressure_acc : (N, nf) complex array
-        Pressure normalized to acceleration BC.
+    pressure_acc : (N, nf) complex array or None
+        Pressure normalized to acceleration BC. **None when the model has no
+        velocity-driven elements** (a scattering model), where the
+        normalization has no vibrating area to divide by and no meaning.
     velocity_raw : (N, nf) complex array
         Raw velocity (velocity BC).
-    velocity_acc : (N, nf) complex array
-        Velocity normalized to acceleration BC.
+    velocity_acc : (N, nf) complex array or None
+        Velocity normalized to acceleration BC, or None — see pressure_acc.
     rho0 : float
         Air density (kg/m^3).
     speed_of_sound : float
@@ -135,8 +137,12 @@ class BEMResult:
         Rows are masked by ``valid_mask`` first: fieldpoints dropped during
         export are NaN for every frequency, and must not be mistaken for a
         frequency nobody computed.
+
+        Reads the raw array: acc is a per-bin scaling of it, so NaN-ness is
+        identical, and raw is the one that always exists (a scattering model
+        has no acc).
         """
-        rows = self.pressure_acc[self.valid_mask]
+        rows = self.pressure_raw[self.valid_mask]
         if rows.size == 0:
             return []
         blank = np.all(np.isnan(rows), axis=0)
@@ -144,18 +150,46 @@ class BEMResult:
 
     # -- Data accessors --
 
-    def data(self, quantity="pressure", norm="acc"):
+    @property
+    def has_acc(self):
+        """True when the acc normalization is meaningful for this model.
+
+        False for a scattering model: acc divides by the vibrating area, and
+        there is none.
+        """
+        return self.pressure_acc is not None
+
+    def effective_norm(self, norm="auto"):
+        """Resolve ``"auto"`` to the normalization this result can actually use.
+
+        ``"auto"`` prefers ``acc`` and falls back to ``raw`` when the model has
+        no velocity drive. Callers resolve it *before* labelling an axis, so a
+        plot never claims units it is not showing.
+        """
+        if norm == "auto":
+            return "acc" if self.has_acc else "raw"
+        if norm == "acc" and not self.has_acc:
+            from bemkit.analysis.normalization import NoVelocityDrive
+            raise NoVelocityDrive(
+                f"result {self.name!r} has no acc normalization: the model has "
+                f"no velocity-driven elements. Use norm='raw' (or 'auto').")
+        if norm not in ("acc", "raw"):
+            raise ValueError(f"norm must be 'auto', 'acc' or 'raw', got {norm!r}")
+        return norm
+
+    def data(self, quantity="pressure", norm="auto"):
         """Generic accessor for complex data arrays.
 
         Parameters
         ----------
         quantity : "pressure" or "velocity"
-        norm : "acc" or "raw"
+        norm : "auto", "acc" or "raw"
 
         Returns
         -------
         (N, nf) complex array
         """
+        norm = self.effective_norm(norm)
         key = f"{quantity}_{norm}"
         mapping = {
             "pressure_acc": self.pressure_acc,
@@ -168,11 +202,11 @@ class BEMResult:
                              f"Use {list(mapping.keys())}")
         return mapping[key]
 
-    def magnitude(self, quantity="pressure", norm="acc"):
+    def magnitude(self, quantity="pressure", norm="auto"):
         """Absolute value of data. Returns (N, nf) float."""
         return np.abs(self.data(quantity, norm))
 
-    def magnitude_db(self, quantity="pressure", norm="acc", ref=1.0):
+    def magnitude_db(self, quantity="pressure", norm="auto", ref=1.0):
         """Magnitude in dB. Returns (N, nf) float.
 
         Parameters
@@ -184,7 +218,7 @@ class BEMResult:
         with np.errstate(divide="ignore"):
             return 20 * np.log10(mag / ref)
 
-    def phase(self, quantity="pressure", norm="acc", unwrap=False):
+    def phase(self, quantity="pressure", norm="auto", unwrap=False):
         """Phase angle in radians. Returns (N, nf) float."""
         p = np.angle(self.data(quantity, norm))
         if unwrap:
@@ -211,7 +245,7 @@ class BEMResult:
 
     # -- Time domain --
 
-    def impulse_response(self, quantity="pressure", norm="acc"):
+    def impulse_response(self, quantity="pressure", norm="auto"):
         """Compute impulse response via IRFFT.
 
         Returns
@@ -345,14 +379,18 @@ class BEMResult:
         if isinstance(idx, (int, np.integer)):
             idx = [idx]
 
+        # acc is None for a scattering model; a subset of it is still None.
+        def take(arr):
+            return None if arr is None else arr[idx]
+
         return BEMResult(
             name=self.name,
             frequencies=self.frequencies,
             eval_points=self.eval_points[idx],
             pressure_raw=self.pressure_raw[idx],
-            pressure_acc=self.pressure_acc[idx],
+            pressure_acc=take(self.pressure_acc),
             velocity_raw=self.velocity_raw[idx],
-            velocity_acc=self.velocity_acc[idx],
+            velocity_acc=take(self.velocity_acc),
             rho0=self.rho0,
             speed_of_sound=self.speed_of_sound,
             source_path=self.source_path,

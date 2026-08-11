@@ -493,7 +493,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 | 0 | `bemkit/numcalc/` deck + round-trip tests; `write_nc_inp` removed; boundary-test rule | medium | ✅ **Landed.** See §5.1. |
 | 1 | Solver knobs — `ClusEdgL0`, `IPRECOND`, `min_expansion_terms`, `ISOLVER` — plus the `[nc]` escape hatch | small | Two of the four are newly identified (§1.7). |
 | 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | The ρc-normalization (§1.2) is the risk, not the diff. |
-| 3 | Normalization semantics for non-velocity-driven models | small + decision | Still the one that silently produces wrong numbers. See §5.2. |
+| 3 | Normalization semantics for non-velocity-driven models | small + decision | ✅ **Landed.** See §5.2. |
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
 | 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |
 | 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | New. `estimate-ram` answers the question our `-j` default currently answers by being conservative. |
@@ -558,21 +558,41 @@ Verified against the real solver: NumCalc's own log echoes
 preconditioner for a deck built from these keys
 (`tests/numcalc/test_solver_integration.py`).
 
-### 5.2 The normalization decision (Tier 3)
+### 5.2 The normalization decision (Tier 3), as built
 
-`pressure_acc` divides by `ρ₀·ω·A_vib`, and `A_vib` comes from
-`read_nc_inp_boundary_conditions`, which parses `VELO` lines **and only `VELO`
-lines** (`sim/readers.py:135-192`). Consequences once Tier 2 lands:
+**Decided: `acc` is refused, not faked, and `"auto"` picks the honest one.**
 
-- A `PRES`- or `ADMI`-only model gets `A_vib = None` and an unnormalised result
-  with a warning that reads like a bug rather than a correct description of a
-  scattering problem.
-- A model mixing `VELO` and `ADMI` on the same elements double-counts area unless
-  the reader distinguishes them.
-- A `VELO 0.0` line already counts toward `A_vib` today — a pre-existing trap that
-  mixed BCs make easier to hit.
+`normalize_pressure` used to *warn* and return the raw array when `A_vib` was
+None. A scattering model therefore produced raw Pascals wearing an
+acceleration-normalized label — wrong by a frequency-dependent factor, and
+invisible on a plot. It now raises `NoVelocityDrive`, whose message names
+`norm="raw"` as the quantity that exists.
 
-The decision: does `norm="acc"` stay available for models with no velocity drive,
-or does the result layer detect the case and say so? `SimulationData` already
-defaults to `raw`, so this is mostly about making the warning tell the truth —
-but it should be settled *with* Tier 2, not after it.
+To keep that from making scattering models unplottable, the whole stack learned
+a third norm:
+
+- `SimulationData.effective_norm` / `BEMResult.effective_norm` resolve
+  `"auto"` → `acc` when the model is velocity-driven, `raw` otherwise, and
+  refuse an outright `"acc"` that cannot be honoured.
+- `SimulationData.is_velocity_driven` and `BEMResult.has_acc` expose the state.
+- `sim.result()` carries `pressure_acc = None` for a scattering model rather
+  than raising at construction, so the result is fully usable as raw.
+- Every viz function defaults to `norm="auto"` and labels the axis from the
+  *resolved* norm (`viz/_style.pressure_label`, `ir_label`), so a scattering
+  plot shows Pa and says Pa.
+
+Three `A_vib` bugs were fixed underneath, each of which quietly changed the
+denominator:
+
+- **Overlapping ranges double-counted.** A `[BOUNDARY]` entry may cover
+  elements the vibrating group already drove; both emit a `VELO` line, and the
+  triangle's area was added twice. Elements are now a set.
+- **`VELO 0.0` counted as driven.** `v0 = 0` is exactly how NumCalc spells
+  sound-hard, so an explicitly-rigid range inflated the area.
+- **`pressure_at`/`velocity_at` skipped normalization silently** when `A_vib`
+  was None (`norm == "acc" and self.A_vib is not None`), so the interactive 3D
+  viewer drew raw data on an acc-labelled colour bar.
+
+`PRES`/`ADMI`/`IMPE` elements are correctly *not* sources: only `VELO` lines
+with a non-zero amplitude enter the vibrating area. That is what makes this tier
+safe to land before Tier 2 rather than with it.

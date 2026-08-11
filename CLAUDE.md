@@ -204,6 +204,26 @@ diagnostic `bem MODEL check ...` family ships separately via the
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
 `--bc-vibrating-color`, `--camera` (xz/xy/yz/iso), `--background`, `--screenshot`
 
+### Normalization: raw / acc / auto
+
+`acc` divides by `j·ρ₀·ω·A_vib`, so it only means anything for a **velocity-driven**
+model. A scattering model (plane wave / point source against a rigid or absorbing
+surface) has no vibrating area, and `SimulationData.A_vib` is None.
+
+- `norm="raw"` — NumCalc's own output; always available; the `SimulationData` default.
+- `norm="acc"` — raises `NoVelocityDrive` when there is no drive, rather than
+  returning raw under an acc label (which is what it used to do).
+- `norm="auto"` — acc when available, raw otherwise. The **viz default**, so plots
+  label their axis from the resolved norm and never claim Pa/m/s² over Pascals.
+
+`sim.is_velocity_driven` / `result.has_acc` expose the state;
+`sim.effective_norm(norm)` / `result.effective_norm(norm)` resolve it. A scattering
+`BEMResult` carries `pressure_acc = None` and stays fully usable as raw.
+
+`A_vib` counts each element once and only `VELO` ranges with a non-zero amplitude
+— `VELO 0.0` is how NumCalc spells sound-hard, and PRES/ADMI/IMPE are conditions,
+not sources.
+
 `bem MODEL results [SET]` (SET optional; default shows all fieldpoint sets) options: `--variant` (repeatable), `--quantity` (magnitude_db/magnitude/phase/real/imag),
 `--surface-quantity`, `--points-quantity`, `--norm` (acc/raw), `--no-surface`, `--no-points`,
 `--no-phase-fade`, `--plane`, `--intensity`, `--intensity-scale`, `--intensity-length` (db/magnitude/uniform),
