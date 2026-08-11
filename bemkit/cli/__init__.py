@@ -80,7 +80,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", metavar="COMMAND",
                                 prog="bem [MODEL_DIR]")
 
-    from bemkit.cli import _init, _pipeline, _plot, _viz3d, _web
+    from bemkit.cli import _check, _init, _pipeline, _plot, _viz3d, _web
+    _check.register(sub)
     _init.register(sub)
     _pipeline.register(sub)
     _plot.register(sub)

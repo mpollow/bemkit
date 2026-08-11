@@ -325,15 +325,15 @@ comment is now emitted by `Deck.write` and is correct. No action needed.
 | # | Hint | bemkit status |
 |---|---|---|
 | 1 | Normal vectors point away from the scatterer | ⚠️ **[corrected]** — see below. NumCalc's own partial check is now reachable via `bem run --check-normals`; the *outward* question is still unanswered. |
-| 2 | 6–8 elements per wavelength | ⚠️ implicit. `[mesh] lc_max` is documented as "~6 elements per wavelength at max freq", but nothing verifies it against `sr`/`nbins` after meshing. `element_areas` already exists. |
-| 3 | ≥ 1 average edge length between an external source and the surface | ❌ **not checked** — and this is the validation that matters most for incident sources. bemkit already computes exactly this quantity for fieldpoints (`min_surface_distance_factor × avg_edge_length`); point sources need the same test. |
-| 4 | Keep elements as regular as possible | ❌ not measured. Aspect-ratio/skew histogram would be cheap from `read_mesh_triangles`. |
+| 2 | 6–8 elements per wavelength | ✅ `bem check` compares the longest edge against the top of the band. Previously implicit: `[mesh] lc_max` is documented as "~6 elements per wavelength at max freq", but nothing verifies it against `sr`/`nbins` after meshing. `element_areas` already exists. |
+| 3 | ≥ 1 average edge length between an external source and the surface | ✅ `bem check` (point sources). Previously **not checked** — and this is the validation that matters most for incident sources. bemkit already computes exactly this quantity for fieldpoints (`min_surface_distance_factor × avg_edge_length`); point sources need the same test. |
+| 4 | Keep elements as regular as possible | ✅ `bem check` reports a normalized aspect ratio (1.0 = equilateral). |
 | 5 | Check the iterative solver converged | ✅ `solver_warnings` scans `NC*.out` for both strings; surfaced in `bem status` and after a run. |
-| 6 | Elements approximately the same size, at least locally | ❌ not measured. Directly relevant: the graded meshes bemkit produces (`lc_min`→`lc_max`) are exactly the case the hint warns about, and FMM stability depends on it. |
+| 6 | Elements approximately the same size, at least locally | ✅ `bem check` reports the neighbour area ratio — directly relevant to the graded meshes bemkit produces. |
 | 7 | Subdivision-loop error ⇒ overlaps, or a source too close | ❌ the error string is not in `_SOLVER_WARNINGS`. One-line addition to an existing mechanism. |
 | 8 | Expansion order `L > 30` ⇒ check convergence and plausibility | ⚠️ `L` is reported per level in `NC.out` and is still not parsed, so nothing tells you to act. Both levers are now reachable: `[bem] min_expansion_terms` and `[bem] cluster_edge_length` (§1.7, §1.8); `-adapt_fmmlength` (§1.10) is not. |
 | 9 | Check the plausibility of your results | — user's job, but sparse/partial results now make this easier. |
-| — | Mesh must be watertight, each edge in exactly two elements | ❌ not checked by bemkit; partially checked by `-check_normals`. |
+| — | Mesh must be watertight, each edge in exactly two elements | ✅ `bem check` (holes and non-manifold edges). |
 
 **Hint 1 correction.** The previous revision stated that "NumCalc does not check
 either". It does — behind an opt-in flag. `-check_normals` (`NC_Main.cpp:181`)
@@ -498,7 +498,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 | 5 | `CURVES` | small | ✅ **Landed.** `[curves.<name>]` + `curve = "<name>"` on an `admi` entry. |
 | 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | ✅ **Landed.** `bem run --nitermax/--check-normals/--adapt-fmmlength`, `bem MODEL estimate-ram`. |
 | 7 | Non-uniform frequency lists | medium | New. Needs an `analysis/` decision (§1.6). |
-| 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 3, 4, 6, 7 | medium | The differentiator (§4.6). |
+| 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 2, 3, 4, 6 | medium | ✅ **Landed.** `bemkit/meshing/quality.py` + `bem MODEL check`. Hint 7 (the subdivision-loop string) is still unparsed. |
 
 Tiers 1–6 are additive and touch one layer each once Tier 0 lands.
 

@@ -145,6 +145,8 @@ bem newmodel init model.msh            # bootstrap config.toml from an existing 
 #   a mesh with neither exports as a fully rigid surface that solves to zero.
 #   Trusted meshes need no [mesh]/[variants] section, so none is written.
 #   Writes config.toml only; run `export` then `run` next. --force overwrites.
+bem examples/sphcap check              # mesh + setup diagnostics (see below)
+bem examples/sphcap check --strict     # exit non-zero on warnings too
 bem examples/sphcap mesh               # mesh geometry/ sources (.step CAD, .ply/.stl/.obj scans)
 bem examples/sphcap export             # fieldpoints + mesh + NC.inp (all variants)
 bem examples/sphcap run                # run NumCalc in the background, return immediately
@@ -193,6 +195,24 @@ bem examples/sphcap results --freq 1000                   # surface + all fieldp
 bem examples/sphcap results onaxis --freq 1000            # restrict to one set
 bem examples/sphcap results onaxis --freq 1000 --variant fine  # variant filter
 ```
+
+`bem MODEL check` (`bemkit/meshing/quality.py`, pure numpy) runs the diagnostics
+NumCalc does not: watertightness, normal orientation, elements per wavelength,
+element regularity, neighbour size uniformity, and point-source clearance. It
+covers hints 1/2/3/4/6 of arXiv:2312.00005. Exit 1 on an error, or on a warning
+with `--strict`.
+
+Two are worth knowing about. **Orientation** answers a question NumCalc's own
+`-check_normals` does not: that flag only verifies normals are *consistent*, so a
+uniformly inverted mesh passes it — bemkit adds the signed-volume (divergence
+theorem) test for *outward*, which the paper calls the most common error that
+still produces plausible output. **Element regularity** uses a normalized aspect
+ratio (`longest_edge / (2·inradius)`, 1.0 = equilateral), because the naive
+longest/shortest-edge ratio scores a degenerate needle at a harmless-looking 2.
+
+Note the name: CLAUDE.md previously reserved `check` for the private `bemlab`
+plugin. bemkit now owns it; a plugin registering the same name is skipped with a
+warning by `_register_plugins`.
 
 `bem MODEL export-web` writes an auralizer web bundle (consumed by the
 bemkit-auralizer framework; the format contract is that repo's

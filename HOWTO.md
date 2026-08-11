@@ -545,6 +545,44 @@ transparent surface.
 
 ---
 
+## 4b. Check the mesh before you spend hours on it
+
+```bash
+bem examples/sphcap check
+```
+
+NumCalc validates almost nothing: it will happily solve a mesh with inverted
+normals, a hole, or a band its elements cannot resolve, and hand back
+plausible-looking numbers. `check` runs the tests it doesn't:
+
+```
+standard  (standard.msh: 863 nodes, 1722 elements)
+  ✓ watertight: closed surface, 1722 triangles
+  ✓ orientation: consistent and outward (enclosed volume 0.0005161 m³)
+  ✓ element_regularity: aspect ratio median 1.06, 99th pct 1.44, max 1.64
+  ✓ size_uniformity: neighbour area ratio median 1.08, max 2.33
+  ✗ elements_per_wavelength: 0.9 elements per wavelength at 16000 Hz ...
+```
+
+| Check | Catches |
+|---|---|
+| `watertight` | holes and non-manifold edges — the BEM problem is ill-posed without a closed surface |
+| `orientation` | inconsistent winding, **and** normals pointing inward (Hint 1) |
+| `elements_per_wavelength` | a mesh too coarse for the top of its own band (Hint 2) |
+| `element_regularity` | slivers (Hint 4) |
+| `size_uniformity` | abrupt size jumps between neighbours — what a graded mesh risks (Hint 6) |
+| `source_clearance` | a point source sitting on the surface (Hint 3) |
+
+`--strict` exits non-zero on warnings too, for CI. Errors always exit non-zero.
+
+> **Orientation is the one to take seriously.** NumCalc's own `-check_normals`
+> only verifies that normals are *consistent* with each other — a uniformly
+> inverted mesh passes it. `bem check` adds the signed-volume test for
+> *outward*, which is the error the paper calls most common and which never
+> announces itself in a plot.
+
+---
+
 ## 5. Export the NumCalc job bundle(s)
 
 ```bash
