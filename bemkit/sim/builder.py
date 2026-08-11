@@ -12,11 +12,17 @@ opinionated lives here:
 :mod:`bemkit.numcalc.deck` knows none of that and must not learn it.
 """
 
+from collections import namedtuple
 from datetime import datetime
-from pathlib import Path
 
 from bemkit.config import freq_grid
 from bemkit.numcalc.deck import BC, Deck, Source, _contiguous_ranges
+
+#: Element and node counts of an exported bundle. NumCalc only ever reads the
+#: totals (§1.7), but the object/eval split is what bounds-checks the boundary
+#: ranges and what the provenance header reports, so the builder takes both.
+MeshCounts = namedtuple(
+    "MeshCounts", "object_nodes object_elements eval_nodes eval_elements")
 
 #: Fields 1-3 of a source row mean different things per section: a plane wave
 #: travels along a *direction*, a point source sits at a *position*. Same
@@ -29,12 +35,6 @@ _SOURCE_TRIPLE = {
     "POINT SOURCES": ("x0, y0, z0",
                       "x0, y0, z0 is the source position in meters"),
 }
-
-
-def _count(path):
-    """First line of a NumCalc Nodes.txt/Elements.txt file is its count."""
-    with open(path) as f:
-        return int(f.readline().strip())
 
 
 def _sources(cfg, section):
@@ -61,14 +61,12 @@ def _sources(cfg, section):
     return out
 
 
-def _header(config, variant, nc_dir, counts, n_frequencies):
+def _header(config, variant, counts, n_frequencies, fieldpoint_offsets):
     """The leading ``##`` comment block — provenance, not semantics."""
     n_obj_n, n_obj_e, n_eval_n, n_eval_e = counts
-    offsets_file = Path(nc_dir) / "eval_offsets.json"
-    if offsets_file.exists():
-        from bemkit.sim.fieldpoints import load_offsets
-        sets = load_offsets(offsets_file)["sets"]
-        summary = ", ".join(f"{n} ({i['n_valid']})" for n, i in sets.items())
+    if fieldpoint_offsets:
+        summary = ", ".join(f"{n} ({i['n_valid']})"
+                            for n, i in fieldpoint_offsets["sets"].items())
     else:
         summary = f"{n_eval_n} points"
     rule = "##" + "-" * 43
@@ -85,19 +83,21 @@ def _header(config, variant, nc_dir, counts, n_frequencies):
     ]
 
 
-def deck_from_config(config, variant, nc_dir, *, vibrating_indices=None,
-                     boundary_ranges=None, verbose=True):
+def deck_from_config(config, variant, counts, *, vibrating_indices=None,
+                     boundary_ranges=None, fieldpoint_offsets=None,
+                     verbose=True):
     """Build the NumCalc deck for one variant.
 
-    ``ObjectMesh/`` and ``EvalGrid/`` must already be written into ``nc_dir`` —
-    their counts are read back from disk, which is also what bounds-checks the
-    boundary element ranges.
+    Pure: it touches no files. The caller supplies the counts it already knows
+    from writing the mesh, so a deck can be built before — or without — a
+    bundle existing on disk.
 
     Args:
         config: ModelConfig (or a raw config.toml dict).
         variant: variant name. A ``[BOUNDARY.<variant>]`` subsection, when
             present, is used EXCLUSIVELY; otherwise the global entries apply.
-        nc_dir: the ``numcalc/{variant}/`` bundle directory.
+        counts: :class:`MeshCounts` for the exported bundle. The object element
+            count is what bounds-checks the boundary ranges.
         vibrating_indices: element indices driven by the mesh's vibrating
             physical group; ``[BOUNDARY]`` entries are appended additionally.
         boundary_ranges: pre-resolved ``(start, end, velocity)`` tuples, used
@@ -105,15 +105,13 @@ def deck_from_config(config, variant, nc_dir, *, vibrating_indices=None,
             passes these because it has resolved geometric ``near=`` anchors
             against the mesh; when None the config table is parsed here and
             only literal forms are accepted.
+        fieldpoint_offsets: the ``combine_and_track`` offsets dict, used only
+            for the human-readable set summary in the provenance header.
 
     Returns:
         Deck
     """
-    nc_dir = Path(nc_dir)
-    counts = (_count(nc_dir / "ObjectMesh" / "Nodes.txt"),
-              _count(nc_dir / "ObjectMesh" / "Elements.txt"),
-              _count(nc_dir / "EvalGrid" / "Nodes.txt"),
-              _count(nc_dir / "EvalGrid" / "Elements.txt"))
+    counts = MeshCounts(*counts)
     n_obj_nodes, n_obj_elements, n_eval_nodes, n_eval_elements = counts
 
     # ModelConfig supports dict access, but a raw dict has no typed defaults —
@@ -192,5 +190,6 @@ def deck_from_config(config, variant, nc_dir, *, vibrating_indices=None,
         boundary=boundary,
         plane_waves=_sources(v, "PLANE WAVES"),
         point_sources=_sources(v, "POINT SOURCES"),
-        header=_header(config, variant, nc_dir, counts, n_frequencies),
+        header=_header(config, variant, counts, n_frequencies,
+                       fieldpoint_offsets),
     )

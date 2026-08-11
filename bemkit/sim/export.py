@@ -10,7 +10,7 @@ from bemkit.meshing.io import (
 from bemkit.numcalc.meshfiles import (
     write_eval_grid_elements, write_eval_grid_nodes, write_object_mesh,
 )
-from bemkit.sim.builder import deck_from_config
+from bemkit.sim.builder import MeshCounts, deck_from_config
 from bemkit.sim.fieldpoints import (
     combine_and_track, load_fieldpoint_sets, save_offsets, validate_points,
 )
@@ -78,7 +78,7 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
             f"validation (inside the mesh or too close to the surface). "
             f"Check the fieldpoint sets against the mesh.")
     write_eval_grid_nodes(combined, nc_dir)
-    write_eval_grid_elements(len(combined), nc_dir)
+    n_eval_elements = write_eval_grid_elements(len(combined), nc_dir)
     save_offsets(offsets, nc_dir / "eval_offsets.json")
     if verbose:
         print(f"EvalGrid: {len(combined)} nodes → {nc_dir}")
@@ -113,9 +113,11 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
               f"    [groups]\n"
               f"    vibrating = \"<one of: {', '.join(groups)}>\"\n"
               f"  Otherwise the whole surface is rigid and the result is silence.")
-    deck = deck_from_config(config, variant, nc_dir,
+    counts = MeshCounts(n_nodes, n_elements, len(combined), n_eval_elements)
+    deck = deck_from_config(config, variant, counts,
                             vibrating_indices=vib_indices,
-                            boundary_ranges=ranges, verbose=verbose)
+                            boundary_ranges=ranges,
+                            fieldpoint_offsets=offsets, verbose=verbose)
     deck.write(nc_dir / "NC.inp")
     if verbose:
         print(f"NC.inp → {nc_dir / 'NC.inp'}")

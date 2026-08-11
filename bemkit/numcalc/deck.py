@@ -340,7 +340,7 @@ class Deck:
             raise ValueError(f"{path}: no data lines")
         # The header is only the block above the version line; comments further
         # down are ours to regenerate and are not round-tripped.
-        cur = _Cursor(rows, path)
+        cur = _DeckParser(rows, path)
 
         version = cur.take()
         if version[0] != "Mesh2HRTF":
@@ -399,15 +399,15 @@ class Deck:
                 deck.symmetry_planes = [int(v) for v in cur.take()]
                 deck.symmetry_coordinates = [float(v) for v in cur.take()]
             elif head == "BOUNDARY":
-                deck.boundary = _read_boundary(cur)
+                deck.boundary = cur.read_boundary()
             elif head in ("PLANE", "POINT"):
-                srcs = _read_sources(cur)
+                srcs = cur.read_sources()
                 if head == "PLANE":
                     deck.plane_waves = srcs
                 else:
                     deck.point_sources = srcs
             elif head == "CURVES":
-                deck.curves = _read_curves(cur)
+                deck.curves = cur.read_curves()
             elif head in ("POST", "END"):
                 if head == "END":
                     break
@@ -430,8 +430,13 @@ class Deck:
                    for f in self.__dataclass_fields__ if f not in skip)
 
 
-class _Cursor:
-    """Positional reader over the deck's tokenised data lines."""
+class _DeckParser:
+    """Positional reader over the deck's tokenised data lines.
+
+    The deck is read strictly in order, and the section readers below advance
+    the same position as the preamble, so they live here rather than as loose
+    functions taking a cursor.
+    """
 
     def __init__(self, rows, path):
         self.rows, self.i, self.path = rows, 0, path
@@ -447,6 +452,41 @@ class _Cursor:
 
     def done(self):
         return self.i >= len(self.rows)
+
+    def read_boundary(self):
+        """Read ELEM lines up to RETU."""
+        out = []
+        while True:
+            row = self.take()
+            if row[0].upper() == "RETU":
+                return out
+            out.append(parse_bc_line(row, where=f"{self.path}: "))
+
+    def read_sources(self):
+        """Read 8-term source rows until the next section keyword."""
+        out = []
+        while (row := self.peek()) is not None and row[0].upper() not in _KEYWORDS:
+            row = self.take()
+            if len(row) != 8:
+                raise ValueError(
+                    f"{self.path}: source row {' '.join(row)!r} must have 8 terms")
+            out.append(Source(nr=int(row[0]),
+                              vec=tuple(float(v) for v in row[1:4]),
+                              real=float(row[4]), curve_real=int(row[5]),
+                              imag=float(row[6]), curve_imag=int(row[7])))
+        return out
+
+    def read_curves(self):
+        """Read the CURVES section: a count line, then id/npoints + point rows."""
+        n_curves = int(self.take()[0])
+        out = []
+        for _ in range(n_curves):
+            head = self.take()
+            cid, npoints = int(head[0]), int(head[1])
+            points = [(float(r[0]), float(r[1]))
+                      for r in (self.take() for _ in range(npoints))]
+            out.append(Curve(id=cid, points=points))
+        return out
 
 
 def parse_bc_line(tokens, where=""):
@@ -469,43 +509,3 @@ def parse_bc_line(tokens, where=""):
     return BC(start=int(tokens[1]), end=int(tokens[3]), kind=tokens[4].upper(),
               real=float(tokens[5]), curve_real=int(tokens[6]),
               imag=float(tokens[7]), curve_imag=int(tokens[8]))
-
-
-def _read_boundary(cur):
-    """Read ELEM lines up to RETU."""
-    out = []
-    while True:
-        row = cur.take()
-        if row[0].upper() == "RETU":
-            return out
-        out.append(parse_bc_line(row, where=f"{cur.path}: "))
-
-
-def _read_sources(cur):
-    """Read 8-term source rows until the next section keyword."""
-    out = []
-    while (row := cur.peek()) is not None and row[0].upper() not in _KEYWORDS:
-        row = cur.take()
-        if len(row) != 8:
-            raise ValueError(
-                f"{cur.path}: source row {' '.join(row)!r} must have 8 terms")
-        out.append(Source(nr=int(row[0]),
-                          vec=tuple(float(v) for v in row[1:4]),
-                          real=float(row[4]), curve_real=int(row[5]),
-                          imag=float(row[6]), curve_imag=int(row[7])))
-    return out
-
-
-def _read_curves(cur):
-    """Read the CURVES section: a count line, then id/npoints + point rows."""
-    n_curves = int(cur.take()[0])
-    out = []
-    for _ in range(n_curves):
-        head = cur.take()
-        cid, npoints = int(head[0]), int(head[1])
-        points = []
-        for _ in range(npoints):
-            row = cur.take()
-            points.append((float(row[0]), float(row[1])))
-        out.append(Curve(id=cid, points=points))
-    return out

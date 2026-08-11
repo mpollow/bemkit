@@ -38,6 +38,9 @@ def write_eval_grid_elements(n_points, output_dir,
 
     NumCalc needs elements for the evaluation mesh even though only the nodes
     carry results, so consecutive points are strung together.
+
+    Returns:
+        Number of elements written.
     """
     if n_points < 1:
         raise ValueError(
@@ -61,6 +64,8 @@ def write_eval_grid_elements(n_points, output_dir,
     with open(d / "Elements.txt", "w") as f:
         f.write(f"{n_elements}\n")
         f.writelines(rows())
+
+    return n_elements
 
 
 def write_object_mesh(vertices, triangles, output_dir):
