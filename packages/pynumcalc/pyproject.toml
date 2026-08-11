@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pynumcalc"
+version = "0.1.0"
+description = "NumCalc input decks, results and job control — the solver contract, standalone"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.11"
+dependencies = ["numpy"]
+
+[tool.setuptools.packages.find]
+include = ["pynumcalc*"]

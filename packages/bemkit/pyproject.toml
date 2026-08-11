@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bemkit"
+version = "0.1.0"
+description = "Modelling and results layer for NumCalc BEM simulations: meshing, fieldpoints, export, run orchestration"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "meshio",
+    "pynumcalc",
+]
+
+[project.optional-dependencies]
+# Plotting is the separate `bemviz` distribution; installing it registers the
+# plot/geometry/results/export-web subcommands through the bemkit.cli group.
+viz = ["bemviz"]
+viz3d = ["bemviz[viz3d]"]
+meshing = ["gmsh", "scipy"]
+analytic = ["scipy"]
+all = ["bemviz[viz3d]", "gmsh", "scipy"]
+
+[project.scripts]
+bem = "bemkit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bemkit*"]

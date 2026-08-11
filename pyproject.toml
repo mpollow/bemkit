@@ -1,28 +1,14 @@
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+# The monorepo root is not a package. Each of packages/* is its own
+# distribution and installs on its own — pynumcalc without bemkit, bemkit
+# without bemviz. For a full development environment, one command:
+#
+#     pip install -e packages/pynumcalc -e packages/bemkit -e packages/bemviz
+#
+# This file exists only so `pytest` from the root runs all three suites.
 
-[project]
-name = "bemkit"
-version = "0.1.0"
-description = "Python pipeline for Mesh2HRTF NumCalc BEM simulations: meshing, export, run, results, visualization"
-readme = "README.md"
-license = {text = "GPL-3.0-only"}
-requires-python = ">=3.11"
-dependencies = [
-    "numpy",
-    "meshio",
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/pynumcalc/tests",
+    "packages/bemkit/tests",
+    "packages/bemviz/tests",
 ]
-
-[project.optional-dependencies]
-viz = ["matplotlib"]
-viz3d = ["matplotlib", "pyvista"]
-meshing = ["gmsh", "scipy"]
-analytic = ["scipy"]
-all = ["matplotlib", "pyvista", "gmsh", "scipy"]
-
-[project.scripts]
-bem = "bemkit.cli:main"
-
-[tool.setuptools.packages.find]
-include = ["bemkit*"]

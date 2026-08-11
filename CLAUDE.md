@@ -5,73 +5,50 @@ simulations from CAD geometry.
 
 ## Project Structure
 
+A monorepo of **three distributions**. Each installs on its own; the split is
+enforced by packaging, not just by convention.
+
 ```
-bemkit/
-├── bemkit/
-│   ├── __init__.py     # curated user API only (plumbing stays importable from
-│   │                      #   submodules); analysis/viz resolve lazily via __getattr__
-│   ├── config.py       # ModelConfig (typed config object; from_dir/from_dict,
-│   │                      #   validates every known section incl. BOUNDARY/SYMMETRY/
-│   │                      #   sources), freq_bin, freq_grid, resolve_bins
-│   ├── pipeline.py      # PipelineStage ABC + Mesh/Export/Run/Pack stages + STAGES dict
-│   ├── meshing/          # io.py    — mesh file I/O, element_areas, physical groups
-│   │                      # generate.py — gmsh STEP/scan meshing (lazy gmsh):
-│   │                      #   mesh_from_step, mesh_from_surface (.ply/.stl/.obj)
-│   │                      # geodesic.py — over-surface distance for sizing
-│   │                      #   (pure numpy/scipy, no gmsh; STEP path only)
-│   │                      # sizing.py — size-field builders (uniform/threshold/
-│   │                      #   geodesic two-pass), sizing_from_config
-│   ├── numcalc/          # NumCalc format + process layer. Imports NOTHING from
-│   │                      #   bemkit; stdlib + numpy only (see Layer rule).
-│   │                      # deck.py        — Deck: the whole NC.inp as one object,
-│   │                      #   read()/write(); BC/Source/Curve records; parse_bc_line
-│   │                      # meshfiles.py   — ObjectMesh//EvalGrid Nodes/Elements
-│   │                      #   writers (take arrays, never mesh paths)
-│   │                      # readers.py     — raw NumCalc output parsers, load_bins
-│   │                      # runner.py      — Runner ABC, LocalRunner, plan_jobs (auto
-│   │                      #                  fan-out/ordering), run_jobs, missing_ranges
-│   │                      # status.py      — available_bins/missing_bins/is_complete,
-│   │                      #                  solver_warnings (NC*.out health scan)
-│   │                      # packing.py     — be.out/ <-> be.npz, clear_pack
-│   ├── sim/              # Simulation setup: bemkit's opinions (may import numcalc)
-│   │                      # builder.py     — deck_from_config: ModelConfig → Deck
-│   │                      #   (FFT freq grid, group→VELO, resolved BC ranges)
-│   │                      # fields.py      — make_fields_onaxis/polar/plane generators
-│   │                      # fieldpoints.py — validation, loading, offsets
-│   │                      # boundary.py    — BC resolution (near= anchors → ranges)
-│   │                      # export.py      — export_variant, ExportInfo
-│   │                      # discovery.py   — discover_variants, numcalc_dir
-│   │                      # config_snapshot.py — snapshot.json per bundle
-│   │                      #   (effective config at export; drift warning)
-│   ├── analysis/         # Results layer (depends on sim, not vice versa)
-│   │                      # simulation.py  — SimulationData lazy result accessor
-│   │                      #   (the public results API; raw norm default)
-│   │                      # result.py      — BEMResult adapter for viz (internal)
-│   │                      # normalization.py — normalize_pressure
-│   │                      # _grid.py       — grid detection (private)
-│   │                      # analytic.py    — spherical cap solver (optional: scipy)
-│   ├── viz/               # 2D/3D visualization (matplotlib/pyvista)
-│   │                      # freq.py, time.py, polar.py, field.py — 2D plots
-│   │                      # directivity.py — isobaric map (angle x freq)
-│   │                      # _angles.py    — circular/on-axis set geometry
-│   │                      # _symmetry.py  — ghost geometry for [SYMMETRY]
-│   │                      #   models in the 3D viewers (mirror_mesh-derived)
-│   │                      # scene.py       — BEMScene 3D rendering (lazy pyvista, no I/O)
-│   │                      # results_viewer.py — interactive 3D viewer (owns data loading)
-│   │                      # _style.py      — colormaps, formatting
-│   ├── web.py             # auralizer-bundle exporter (`bem MODEL export-web`);
-│   │                      #   format contract: bemkit-auralizer docs/bundle-format.md
-│   └── cli/               # `bem` entry point
-│                          # _init.py     — `bem init` config.toml bootstrap
-│                          # _pipeline.py — mesh/export/run/pack/all + status
-│                          # _plot.py     — 2D plot subcommand
-│                          # _viz3d.py    — geometry/results 3D subcommands
-│                          # _web.py      — export-web subcommand
-├── pyproject.toml      # deps: numpy + meshio only; extras: viz/viz3d/meshing/analytic/all
-└── examples/              # Per-model dirs (see below)
+packages/
+├── pynumcalc/          ~1.8k lines — the NumCalc contract, numpy only
+│   └── pynumcalc/      #   deck.py      — Deck: NC.inp as one object, read/write
+│                       #   meshfiles.py — ObjectMesh//EvalGrid writers (arrays in)
+│                       #   readers.py   — be.out parsers, load_bins
+│                       #   packing.py   — be.out/ <-> be.npz
+│                       #   runner.py    — Job/Runner/plan_jobs/solver_flags
+│                       #   status.py    — bins, solver warnings, /proc scan
+├── bemkit/             ~6.0k lines — modelling + results (numpy + meshio)
+│   └── bemkit/         #   config.py    — ModelConfig, frequency grid, validation
+│                       #   meshing/     — gmsh generation, io, sizing, quality
+│                       #   sim/         — builder (config→Deck), boundary,
+│                       #                  fieldpoints, export, discovery, snapshot
+│                       #   analysis/    — SimulationData, BEMResult, normalization
+│                       #   pipeline.py  — stages; cli/ — bem entry point
+└── bemviz/             ~4.4k lines — plotting (matplotlib/pyvista)
+    └── bemviz/         #   viz/         — 2D plots + BEMScene/ResultsViewer
+                        #   web.py       — auralizer bundle exporter
+                        #   cli_*.py     — plot/geometry/results/export-web,
+                        #                  registered via the bemkit.cli group
 ```
 
-**Layer rule**: `meshing`/`sim`/`numcalc` (core) never import `analysis`/`viz`, and never
+Install for development — one command, three editable packages:
+
+```bash
+pip install -e packages/pynumcalc -e packages/bemkit -e packages/bemviz
+pytest                     # runs all three suites (testpaths in pyproject.toml)
+```
+
+**Dependency direction is one-way and enforced**: `bemviz → bemkit → pynumcalc`.
+`pynumcalc` imports nothing from either and needs only numpy; `bemkit` never
+imports `bemviz`, so producing and reading results never pulls in a display
+stack. Both rules are checked in `packages/bemkit/tests/test_boundaries.py`.
+
+The CLI reassembles itself from whatever is installed: `bemkit` ships
+`check/init/status/mesh/export/run/estimate-ram/pack/ps/all`, and `bemviz` adds
+`plot/geometry/results/export-web` through the `bemkit.cli` entry-point group —
+the same seam the private `bemlab` uses for `bem MODEL verify`.
+
+**Layer rule**: `meshing`/`sim` never import `analysis`, and never
 use pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumbore +
 Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
 commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
@@ -488,14 +465,14 @@ bins are independent (`-istart`/`-iend`), and `be.out/be.{i}/` outputs are disjo
 variant can be split across several processes/machines and merged trivially (no merge step
 needed — outputs just land in the same `be.out/`).
 
-- `Runner` ABC (`bemkit.numcalc.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
+- `Runner` ABC (`pynumcalc.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
   `LocalRunner` is the only implementation today (subprocess with CWD=variant dir); SSH or
   scheduler-based runners would implement the same interface — transfer the bundle, start
   NumCalc, report status, bring `be.out/` back.
 - `Job(name, nc_dir, steps=(istart, iend) | None)` — one NumCalc invocation, optionally
   scoped to a 1-based inclusive bin range.
 - `bem MODEL run` only computes frequency bins absent from `be.out/`/`be.npz` (the
-  default) — it uses `bemkit.numcalc.status.missing_bins(nc_dir, nf)` to compute the gap, so
+  default) — it uses `pynumcalc.status.missing_bins(nc_dir, nf)` to compute the gap, so
   partial/failed runs resume without redoing completed bins, and a complete run is a
   no-op. `--force` recomputes everything from scratch — required after re-exporting a
   changed mesh or config, since bin presence says nothing about which export produced it.
@@ -509,7 +486,7 @@ needed — outputs just land in the same `be.out/`).
   `bem MODEL all` stays foreground: it is the blocking batch entry point.
 - **A live NumCalc aborts `run`.** Two processes in one variant directory race each
   other's `be.out/` writes, so `running_variants(model_dir, variants)`
-  (`bemkit.numcalc.status`) gates the run and it raises rather than quietly doing the other
+  (`pynumcalc.status`) gates the run and it raises rather than quietly doing the other
   variants. `--force` is *not* an override — it `rmtree`s `be.out/`, which under a live
   solver is the one combination that must stay impossible. `--restart` kills the
   processes (SIGTERM, then SIGKILL) and then proceeds; on its own it resumes the missing
@@ -518,7 +495,7 @@ needed — outputs just land in the same `be.out/`).
   one line per variant: model, variant, completed/total bins, process count, pids. It is
   the cross-model companion to `bem MODEL` status, needed once runs detach — the answer
   lives in each process's cwd (`<model>/numcalc/<variant>/`), read via
-  `scan_numcalc()` (`bemkit.numcalc.status`), which is the undirected form of `numcalc_pids`.
+  `scan_numcalc()` (`pynumcalc.status`), which is the undirected form of `numcalc_pids`.
 - `bem MODEL pack` **deletes `be.out/` by default**; `--keep-original` opts out. The
   deletion is gated on `_verify_round_trip` (every bin and quantity re-read from ASCII
   and compared at `rtol=1e-5`, keeping `be.out/` on any mismatch) and is reversible via
@@ -558,7 +535,7 @@ needed — outputs just land in the same `be.out/`).
   still passes. `estimate-ram` runs clustering only and reads `Memory.txt`
   (`<step> <freq Hz> <GB>`, no header), defaulting to the highest bin because
   FMM memory peaks there.
-- `bemkit.numcalc.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
+- `pynumcalc.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
 - `be.npz` shadows `be.out/` everywhere, so `bem MODEL run` removes a leftover `be.npz`
@@ -566,14 +543,14 @@ needed — outputs just land in the same `be.out/`).
   the runs merge); re-run `pack` afterwards. A `--force` recompute also deletes the
   variant's old `NC*.out` logs so superseded warnings don't linger in `bem status`;
   resumes keep them.
-- Live jobs are detected, not tracked: `bemkit.numcalc.status.numcalc_pids(nc_dir)` scans
+- Live jobs are detected, not tracked: `pynumcalc.status.numcalc_pids(nc_dir)` scans
   /proc for NumCalc processes whose CWD is the variant dir (works for `bem run` and
   manual `cd numcalc/<v> && NumCalc`; returns [] on platforms without /proc).
   `bem status` shows them (with `current_step` from the newest NC*.out log), and
   `bem run` skips variants that are already running so two NumCalc processes never
   race the same be.out/.
 - Bin presence ≠ convergence: NumCalc records non-convergence only in its log.
-  `bemkit.numcalc.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
+  `pynumcalc.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
   ("Maximum number of iterations is reached", "Iteration method CGS failed") and maps them
   to bins; `bem status` and `bem run` surface them. Such warnings usually mean a defective
   mesh — re-mesh rather than raising `-nitermax`.
@@ -728,7 +705,7 @@ exact pressure for axisymmetric spherical cap vibration via SH expansion.
 `sphcap_pressure(eval_points, frequencies, c0, rho0, angle_deg, radius_mm, nmax)` → raw pressure array.
 Normalization matches BEM pipeline: velocity BC (v=1) → raw pressure → ÷(rho0·omega·A_vib) → pressure_acc.
 
-## Visualization: bemkit.viz
+## Visualization: bemviz.viz
 
 Composable matplotlib/PyVista visualizations. All 2D functions take an Axes and BEMResult, return artists.
 
@@ -768,7 +745,7 @@ A ±θ pair always shares a color and is separated by line style
 — on an axisymmetric source the two curves land on top of each other, which is
 itself the symmetry check.
 
-3D scenes (`BEMScene`, in `bemkit.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
+3D scenes (`BEMScene`, in `bemviz.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
 - `add_mesh(nodes, elements)` — generic triangular mesh
 - `add_object_mesh(nodes, elements, bc_elements=None)` — ObjectMesh with optional BC coloring
 - `add_eval_grid(points)` — evaluation point cloud
@@ -779,7 +756,7 @@ itself the symmetry check.
 - Quantities: `magnitude_db`, `magnitude`, `phase`, `real`, `imag`
 - Convenience methods: `add_screenshot_hotkey()`, `add_variant_slider()`, `show_or_screenshot()`
 
-`ResultsViewer` (`bemkit.viz.results_viewer`): Interactive viewer that owns data loading, frequency/variant sliders, and clim key bindings. Loads NumCalc files on demand and passes data to BEMScene. Backs `bem MODEL results`.
+`ResultsViewer` (`bemviz.viz.results_viewer`): Interactive viewer that owns data loading, frequency/variant sliders, and clim key bindings. Loads NumCalc files on demand and passes data to BEMScene. Backs `bem MODEL results`.
 
 Point selection: `points=None` (all), int, slice, array, or bool mask.
 
