@@ -299,7 +299,7 @@ class TestResolveBins:
     SR, NBINS = 32000, 65
 
     def _r(self, **kw):
-        return resolve_bins(self.SR, self.NBINS, **kw)
+        return resolve_bins(freq_grid(self.SR, self.NBINS), **kw)
 
     def test_literal_bins_sorted_and_deduped(self):
         assert self._r(bins=[16, 4, 16]) == [4, 16]
@@ -404,9 +404,10 @@ class TestResolveBins:
             self._r(freq=[])
 
     def test_zero_bin_model_raises_clearly(self):
-        """nbins=1 is DC only; numpy's IndexError names nothing useful."""
-        with pytest.raises(ValueError, match="nbins"):
-            resolve_bins(32000, 1, preview=4)
+        """nbins=1 is DC only, so the grid is empty; numpy's IndexError names
+        nothing useful."""
+        with pytest.raises(ValueError, match="no frequency bins"):
+            resolve_bins(freq_grid(32000, 1), preview=4)
 
     def test_every_selector_returns_bins_inside_the_band(self):
         """The merge contract: a partial run's bins must be a subset of the
@@ -421,7 +422,7 @@ def test_infinite_bin_index_is_rejected_as_non_integral():
     INT_MIN — the range error would name -9223372036854775808."""
     from bemkit.config import resolve_bins
     with pytest.raises(ValueError, match="whole numbers"):
-        resolve_bins(32000, 65, bins=[float("inf")])
+        resolve_bins(freq_grid(32000, 65), bins=[float("inf")])
 
 
 # ── Physics-section validation (BOUNDARY / SYMMETRY / sources) ──────────────
@@ -751,3 +752,65 @@ class TestCurves:
         self._cfg(tmp_path,
                   '\n[BOUNDARY]\nw = { near = [0,0,0], type = "admi", '
                   'curve = "felt" }\n' + self.GOOD)
+
+
+class TestNonUniformFrequencies:
+    """[frequencies]: an arbitrary band (Tier 7).
+
+    NumCalc's frequency grid is a curve, not a range (coverage doc §1.6), so any
+    ascending list is solvable. sr/nbins stays the default because impulse
+    responses need a uniform FFT grid.
+    """
+
+    def _cfg(self, tmp_path, body, bem="sr = 8000\nnbins = 5\n"):
+        (tmp_path / "config.toml").write_text(f"[bem]\n{bem}{body}")
+        return ModelConfig.from_dir(tmp_path)
+
+    def test_default_is_still_the_fft_grid(self, tmp_path):
+        c = self._cfg(tmp_path, "")
+        assert c.is_uniform_grid and c.n_frequencies == 4
+        np.testing.assert_allclose(c.freq_array(), [1000, 2000, 3000, 4000])
+
+    def test_explicit_list(self, tmp_path):
+        c = self._cfg(tmp_path, "\n[frequencies]\nlist = [100.0, 250.0, 1000.0]\n",
+                      bem="")
+        assert not c.is_uniform_grid and c.n_frequencies == 3
+        np.testing.assert_allclose(c.freq_array(), [100.0, 250.0, 1000.0])
+
+    def test_log_sweep(self, tmp_path):
+        c = self._cfg(tmp_path,
+                      "\n[frequencies]\nlog = { start = 200.0, stop = 1600.0, "
+                      "count = 4 }\n", bem="")
+        np.testing.assert_allclose(c.freq_array(), [200.0, 400.0, 800.0, 1600.0])
+
+    def test_sr_nbins_not_required_with_a_frequencies_table(self, tmp_path):
+        c = self._cfg(tmp_path, "\n[frequencies]\nlist = [100.0, 200.0]\n", bem="")
+        assert c.sr is None and c.nbins is None
+
+    def test_half_a_uniform_grid_is_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="give both"):
+            self._cfg(tmp_path, "", bem="sr = 8000\n")
+
+    @pytest.mark.parametrize("body, match", [
+        ("list = [100.0, 50.0]\n", "ascending"),
+        ("list = [100.0, 100.0]\n", "ascending"),
+        ("list = [-1.0, 100.0]\n", "positive numbers"),
+        ("log = { start = 0.0, stop = 100.0, count = 4 }\n", "start must be > 0"),
+        ("log = { start = 100.0, stop = 50.0, count = 4 }\n", "greater than"),
+        ("log = { start = 1.0, stop = 100.0, count = 1 }\n", "count must be"),
+    ])
+    def test_malformed_tables_are_rejected(self, tmp_path, body, match):
+        with pytest.raises(ValueError, match=match):
+            self._cfg(tmp_path, "\n[frequencies]\n" + body, bem="")
+
+    def test_needs_exactly_one_of_list_log(self, tmp_path):
+        with pytest.raises(ValueError, match="exactly one of list/log"):
+            self._cfg(tmp_path, "\n[frequencies]\n", bem="")
+
+    def test_bin_selection_works_on_a_non_uniform_band(self, tmp_path):
+        """Partial runs must still merge: bins index the same array."""
+        c = self._cfg(tmp_path, "\n[frequencies]\nlist = [100.0, 250.0, 1000.0]\n",
+                      bem="")
+        assert c.resolve_bins(freq=[240.0]) == [2]
+        assert c.resolve_bins(bins=[1, 3]) == [1, 3]
+        assert c.freq_bin(900.0) == (2, 3, 1000.0)

@@ -229,6 +229,24 @@ diagnostic `bem MODEL check ...` family ships separately via the
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
 `--bc-vibrating-color`, `--camera` (xz/xy/yz/iso), `--background`, `--screenshot`
 
+### Frequency grid: `sr`/`nbins` or `[frequencies]`
+
+`sr`/`nbins` gives the uniform FFT grid and remains the default; `[frequencies]`
+(`list` or `log = {start, stop, count}`) replaces it with any ascending band —
+NumCalc's grid is a curve, not a range (coverage doc §1.6). The two are mutually
+exclusive, and half a grid (`sr` without `nbins`) always raises.
+
+`ModelConfig.freq_array()` / `.n_frequencies` / `.is_uniform_grid` /
+`.freq_bin(hz)` / `.resolve_bins(...)` are the accessors — code should never
+recompute `nbins - 1`. `resolve_bins(frequencies, ...)` now takes the array, so
+partial-band selection works identically on a non-uniform band.
+
+`snapshot.json` records the resolved frequency list for a non-uniform model
+(`sr`/`nbins` cannot express it), and `SimulationData` reads it back.
+`BEMResult.is_uniform_band` gates the time domain: `impulse_response` (and hence
+`plot ir`/`plot etc`) raises `IncompleteBand` on a non-uniform band rather than
+inverse-FFT-ing something meaningless.
+
 ### Normalization: raw / acc / auto
 
 `acc` divides by `j·ρ₀·ω·A_vib`, so it only means anything for a **velocity-driven**
@@ -337,6 +355,9 @@ preconditioner = 0        # IPRECOND in [-3, 2]; negative = incomplete-LU depth
 
 [nc]                      # optional raw escape hatch: sets Deck fields directly
 min_expansion_terms = 9   # applied last, wins over [bem]; scalars only
+
+[frequencies]             # optional: replaces [bem] sr/nbins with any band
+log = { start = 100.0, stop = 16000.0, count = 30 }   # or list = [125, 250, ...]
 
 [geometry]                # optional: script that writes geometry/ sources
 exec = "./make_geometry.py"   # string or list; run by `bem mesh`

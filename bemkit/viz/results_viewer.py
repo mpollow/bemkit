@@ -96,7 +96,7 @@ class ResultsViewer:
         self.args = args
 
         self.modelname = config["modelname"]
-        self.nbins = config["nbins"]
+        self.nbins = len(self.sim.frequencies) + 1
         self.sr = config["sr"]
         self.rho0 = config.get("air_density", 1.2)
         self.c0 = config.get("speed_of_sound", 340.0)

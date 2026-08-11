@@ -307,7 +307,7 @@ def cmd_results(model_dir, args):
 
     modelname = config["modelname"]
     freqs = config.freq_array()
-    bin_idx, _, actual_freq = freq_bin(args.freq, config["sr"], config["nbins"])
+    bin_idx, _, actual_freq = config.freq_bin(args.freq)
     print(f"Model: {modelname}")
     print(f"Requested freq: {args.freq:.1f} Hz → nearest bin: {actual_freq:.1f} Hz")
 

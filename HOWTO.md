@@ -91,6 +91,28 @@ dim = "z"
 radii = [0.1, 0.25, 0.5, 1.0, 2.0]   # meters
 ```
 
+#### A band that isn't an FFT grid — `[frequencies]`
+
+`sr`/`nbins` gives the uniform grid an impulse response needs, and stays the
+default. When you only want a frequency response, NumCalc will solve any
+ascending list — replace `sr`/`nbins` with:
+
+```toml
+[frequencies]
+log = { start = 100.0, stop = 16000.0, count = 30 }   # log sweep
+# or
+list = [125, 250, 500, 1000, 2000, 4000]              # exactly these, in Hz
+```
+
+A 30-point log sweep costs 30 solves instead of 64 and covers the bottom
+octaves properly. Partial-band selection still works (`--freq`, `--bins`,
+`--preview` index the same array), and `snapshot.json` records the resolved
+frequencies so results stay labelled correctly.
+
+**No time domain.** `plot ir` and `plot etc` are an inverse FFT of the band and
+have no meaning on a non-uniform one; they refuse with `IncompleteBand` rather
+than transforming nonsense. Keep `sr`/`nbins` if you need impulse responses.
+
 > **Units matter.** Fieldpoint `.npy` files are in **meters**. `.msh` meshes are
 > **millimeters** (GMSH convention); `.stl`/`.ply`/`.mesh` are **meters**. The
 > pipeline converts automatically based on file extension.

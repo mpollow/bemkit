@@ -19,12 +19,13 @@ Incident sources are not a missing feature — `bem` already writes plane waves 
 point sources into `NC.inp` correctly. Boundary-condition *types* are the visible
 gap, but they are not the largest one.
 
-The largest gap is that **bemkit cannot express a non-uniform frequency list.**
-NumCalc's frequency grid is a piecewise-linear curve evaluated in Hz (§1.6);
-bemkit hardwires a two-point curve that collapses to the uniform FFT grid. That
-is the right default for HRTF and impulse-response work and should stay the
-default, but log-spaced or third-octave sweeps are currently inexpressible, and
-nothing in the config surface hints that they are possible.
+The largest gap *was* that bemkit could not express a non-uniform frequency
+list. NumCalc's frequency grid is a piecewise-linear curve evaluated in Hz
+(§1.6), and bemkit hardwired a two-point curve collapsing to the uniform FFT
+grid. That is still the right default for HRTF and impulse-response work and is
+still the default — but `[frequencies]` now expresses a log sweep or an explicit
+list, and the time-domain paths refuse such a band rather than transforming it.
+Every tier of §5 has since landed.
 
 The second finding is architectural and is new to this revision (§4). Full
 NumCalc coverage is *small* — roughly 300–500 lines of writer and validation
@@ -301,7 +302,7 @@ in the writer. `Deck` already carries the fields; nothing asks for them yet.
 | Plane waves | ⚠️ works, raw 8-value pass-through | `sim/builder.py:_sources` |
 | Point sources | ⚠️ same | same |
 | Element selection by geometry | ✅ and better than NumCalc needs | `sim/boundary.py` |
-| Non-uniform frequency list | ⚠️ deck holds explicit Hz; builder always builds the FFT grid | `Deck.frequencies` |
+| Non-uniform frequency list | ✅ `[frequencies]` list/log | `config.py:freq_array` |
 | `minExpansionTermsFMM_` | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.min_expansion_terms` |
 | `ISOLVER` (`methodSolver_`) | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.isolver` |
 | `ClusEdgL0` | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.cluster_edge_length` |
@@ -497,7 +498,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
 | 5 | `CURVES` | small | ✅ **Landed.** `[curves.<name>]` + `curve = "<name>"` on an `admi` entry. |
 | 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | ✅ **Landed.** `bem run --nitermax/--check-normals/--adapt-fmmlength`, `bem MODEL estimate-ram`. |
-| 7 | Non-uniform frequency lists | medium | New. Needs an `analysis/` decision (§1.6). |
+| 7 | Non-uniform frequency lists | medium | ✅ **Landed.** `[frequencies]` list/log; time domain refuses a non-uniform band. |
 | 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 2, 3, 4, 6 | medium | ✅ **Landed.** `bemkit/meshing/quality.py` + `bem MODEL check`. Hint 7 (the subdivision-loop string) is still unparsed. |
 
 Tiers 1–6 are additive and touch one layer each once Tier 0 lands.

@@ -57,7 +57,7 @@ def pack_variant(nc_dir, *, nf: int | None = None, dtype=np.complex64,
     nc_dir : Path or str
         Variant directory containing ``be.out/``.
     nf : int, optional
-        Expected number of frequency bins (``config.nbins - 1``). Bin
+        Expected number of frequency bins (``config.n_frequencies``). Bin
         directories numbered outside ``1..nf`` are not real results and are
         skipped — NumCalc has been observed to leave a stray ``be.{i}/`` with
         an out-of-range index behind after an aborted run. Without this the

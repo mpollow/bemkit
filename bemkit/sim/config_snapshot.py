@@ -20,7 +20,8 @@ _LEGACY_SNAPSHOT_NAME = "config.json"
 
 # Fields whose value defines how results are interpreted; a drift in any of
 # these between snapshot and live config is worth warning about.
-_INTERPRETIVE_KEYS = ("sr", "nbins", "air_density", "speed_of_sound")
+_INTERPRETIVE_KEYS = ("sr", "nbins", "air_density", "speed_of_sound",
+                      "frequencies")
 
 # Every scalar recorded in the snapshot. The solver knobs do not change how a
 # result is *interpreted* (so they are not in _INTERPRETIVE_KEYS and never
@@ -66,6 +67,11 @@ def write_snapshot(nc_dir, config, *, mesh_file=None, resolved_boundary=None):
     """
     nc_dir = Path(nc_dir)
     snap = {k: config.get(k) for k in _SNAPSHOT_KEYS}
+    # The frequency array is what results are labelled with, so record it
+    # literally rather than leaving it to be re-derived from sr/nbins — which
+    # a [frequencies] model cannot be.
+    if hasattr(config, "freq_array") and not getattr(config, "is_uniform_grid", True):
+        snap["frequencies"] = [float(f) for f in config.freq_array()]
     snap["bemkit_version"] = _bemkit_version()
     snap["exported_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if mesh_file is not None:
@@ -101,7 +107,14 @@ def warn_on_drift(snapshot, config, nc_dir=None):
     drift = []
     for key in _INTERPRETIVE_KEYS:
         snap_val = snapshot.get(key)
-        live_val = config.get(key)
+        # The snapshot stores the *resolved* frequency list; config.toml holds
+        # the [frequencies] table that generates it. Compare like with like, or
+        # every non-uniform model warns about drift that does not exist.
+        if key == "frequencies" and hasattr(config, "freq_array"):
+            live_val = ([float(f) for f in config.freq_array()]
+                        if not getattr(config, "is_uniform_grid", True) else None)
+        else:
+            live_val = config.get(key)
         if snap_val is not None and live_val is not None and snap_val != live_val:
             drift.append(f"{key}: exported {snap_val!r} vs config.toml {live_val!r}")
     if drift:

@@ -168,6 +168,54 @@ def _check_bc_curve(key, val, where):
             f'type = "admi" ({why}).')
 
 
+def _check_frequencies(tbl, path):
+    """Validate the optional [frequencies] table.
+
+    NumCalc's frequency grid is a curve, not a range (see
+    ``docs/numcalc-feature-coverage.md`` §1.6), so any ascending list of
+    frequencies is solvable. ``sr``/``nbins`` remains the default because
+    impulse responses need a uniform FFT grid; this is the opt-out.
+    """
+    where = f"{path}: [frequencies]"
+    if not isinstance(tbl, dict):
+        raise ValueError(f"{where} must be a table")
+    unknown = [k for k in tbl if k not in ("list", "log")]
+    if unknown:
+        raise ValueError(f"{where}: unknown key(s): {', '.join(unknown)} "
+                         f"(known: list, log)")
+    given = [k for k in ("list", "log") if k in tbl]
+    if len(given) != 1:
+        raise ValueError(f"{where}: needs exactly one of list/log, "
+                         f"got {given or 'neither'}")
+
+    if "list" in tbl:
+        vals = tbl["list"]
+        if not (isinstance(vals, list) and len(vals) >= 1
+                and all(_is_num(f) and f > 0 for f in vals)):
+            raise ValueError(f"{where}: list must be positive numbers (Hz), "
+                             f"got {vals!r}")
+        if list(vals) != sorted(vals) or len(set(vals)) != len(vals):
+            raise ValueError(f"{where}: list must be strictly ascending")
+        return
+
+    log = tbl["log"]
+    if not isinstance(log, dict):
+        raise ValueError(f"{where}: log must be a table with start/stop/count")
+    unknown = [k for k in log if k not in ("start", "stop", "count")]
+    if unknown:
+        raise ValueError(f"{where}: log: unknown key(s): {', '.join(unknown)}")
+    for k in ("start", "stop", "count"):
+        if k not in log:
+            raise ValueError(f"{where}: log is missing '{k}'")
+    if not (_is_num(log["start"]) and log["start"] > 0):
+        raise ValueError(f"{where}: log.start must be > 0 Hz")
+    if not (_is_num(log["stop"]) and log["stop"] > log["start"]):
+        raise ValueError(f"{where}: log.stop must be greater than log.start")
+    if not (isinstance(log["count"], int) and not isinstance(log["count"], bool)
+            and log["count"] >= 2):
+        raise ValueError(f"{where}: log.count must be an integer >= 2")
+
+
 def _check_curves(tbl, path):
     """Validate the [curves] table: named frequency-dependent BC values."""
     where = f"{path}: [curves]"
@@ -395,7 +443,14 @@ def _validate(raw, path):
         raise ValueError(f"{path} is missing the required [bem] section "
                          f"(sr, nbins, and other solver settings)")
     missing = [k for k in ("sr", "nbins") if k not in bem]
-    if missing:
+    if len(missing) == 1:
+        # Half a grid is always a mistake, [frequencies] table or not: the two
+        # keys only mean anything together.
+        raise ValueError(
+            f"{path}: [bem] has {'nbins' if 'sr' in missing else 'sr'} but not "
+            f"{missing[0]} — give both (the uniform FFT grid) or neither "
+            f"(with a [frequencies] table instead)")
+    if missing and "frequencies" not in raw:
         raise ValueError(f"{path}: [bem] is missing required key(s): "
                          f"{', '.join(missing)}")
     unknown = [k for k in bem if k not in _BEM_KEYS]
@@ -491,6 +546,8 @@ def _validate(raw, path):
         _check_nc(raw["nc"], path)
     if "curves" in raw:
         _check_curves(raw["curves"], path)
+    if "frequencies" in raw:
+        _check_frequencies(raw["frequencies"], path)
     if "BOUNDARY" in raw:
         _check_boundary(raw["BOUNDARY"], path)
     if "SYMMETRY" in raw:
@@ -510,8 +567,8 @@ class ModelConfig:
 
     model_dir: Path
     modelname: str
-    sr: int
-    nbins: int
+    sr: int | None = None
+    nbins: int | None = None
     air_density: float = 1.2
     speed_of_sound: float = 340.0
     bem_type: int = 4
@@ -542,8 +599,8 @@ class ModelConfig:
         return cls(
             model_dir=model_dir,
             modelname=raw["modelname"],
-            sr=bem["sr"],
-            nbins=bem["nbins"],
+            sr=bem.get("sr"),
+            nbins=bem.get("nbins"),
             air_density=bem.get("air_density", 1.2),
             speed_of_sound=bem.get("speed_of_sound", 340.0),
             bem_type=bem.get("bem_type", 4),
@@ -595,8 +652,45 @@ class ModelConfig:
     # -- helpers --
 
     def freq_array(self):
-        """Frequency array excluding DC, shape (nbins-1,)."""
+        """The frequencies this model solves, in Hz.
+
+        ``sr``/``nbins`` gives the uniform FFT grid (DC excluded). A
+        ``[frequencies]`` table replaces it with an arbitrary ascending list —
+        NumCalc solves any of them (§1.6), but time-domain results need the
+        uniform one.
+        """
+        spec = self.raw.get("frequencies")
+        if spec:
+            if "list" in spec:
+                return np.asarray(spec["list"], dtype=float)
+            log = spec["log"]
+            return np.logspace(np.log10(log["start"]), np.log10(log["stop"]),
+                               log["count"])
         return freq_grid(self.sr, self.nbins)
+
+    @property
+    def n_frequencies(self):
+        """How many frequency bins a full run computes."""
+        spec = self.raw.get("frequencies")
+        if spec:
+            return len(spec["list"]) if "list" in spec else spec["log"]["count"]
+        return self.nbins - 1
+
+    @property
+    def is_uniform_grid(self):
+        """True when the frequencies form the FFT grid an IR needs."""
+        return not self.raw.get("frequencies")
+
+    def freq_bin(self, freq_hz):
+        """(0-based index, 1-based bin, actual Hz) of the nearest frequency."""
+        freqs = self.freq_array()
+        idx = int(np.argmin(np.abs(freqs - freq_hz)))
+        return idx, idx + 1, float(freqs[idx])
+
+    def resolve_bins(self, *, freq=None, bins=None, preview=None):
+        """Resolve a partial-band selection against this model's grid."""
+        return resolve_bins(self.freq_array(), freq=freq, bins=bins,
+                            preview=preview)
 
     @property
     def boundary_cfg(self):
@@ -683,17 +777,18 @@ def freq_bin(freq_hz, sr, nbins):
     return idx, idx + 1, freqs[idx]
 
 
-def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
+def resolve_bins(frequencies, *, freq=None, bins=None, preview=None):
     """Resolve a partial-band selection to sorted unique 1-based bin indices.
 
-    A partial run computes a subset of the same linear grid a full run would,
-    which is what lets its results merge into a later full run. Requested
-    frequencies are therefore snapped onto that grid, never honoured exactly.
-    Exactly one selector must be given.
+    A partial run computes a subset of the same grid a full run would, which is
+    what lets its results merge into a later full run. Requested frequencies are
+    therefore snapped onto that grid, never honoured exactly. Exactly one
+    selector must be given.
 
     Args:
-        sr: Sample rate in Hz.
-        nbins: Bin count as configured in [bem] (n_frequencies = nbins - 1).
+        frequencies: The model's frequency array in Hz — ``ModelConfig
+            .freq_array()``. Taken as data rather than derived from sr/nbins,
+            so a non-uniform ``[frequencies]`` band selects the same way.
         freq: Sequence of frequencies in Hz, each snapped to the nearest bin.
             Ties resolve to the lower bin. A frequency that is negative,
             non-finite, or above sr/2 raises rather than snapping silently.
@@ -715,12 +810,12 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
             f"resolve_bins needs exactly one of freq/bins/preview, got "
             f"{', '.join(given) if given else 'none'}")
 
-    freqs = freq_grid(sr, nbins)
+    freqs = np.asarray(frequencies, dtype=float)
     nf = len(freqs)
     if nf == 0:
         raise ValueError(
-            f"nbins={nbins} leaves no frequency bins to select from (must "
-            f"be at least 2: the DC bin plus one simulated bin)")
+            "no frequency bins to select from (a model needs at least one "
+            "simulated frequency)")
 
     if bins is not None:
         wanted = np.asarray(list(bins), dtype=float)
@@ -763,6 +858,6 @@ def resolve_bins(sr, nbins, *, freq=None, bins=None, preview=None):
             raise ValueError(
                 f"above the simulated band: "
                 f"{', '.join(f'{v:g}' for v in above)} Hz — the band reaches "
-                f"{freqs[-1]:g} Hz for sr={sr}, nbins={nbins}")
+                f"{freqs[-1]:g} Hz")
 
     return sorted({int(np.argmin(np.abs(freqs - f))) + 1 for f in wanted_hz})

@@ -122,13 +122,13 @@ def _selected_bins(config, args):
         return None
 
     try:
-        bins = resolve_bins(config.sr, config.nbins, freq=args.freq,
+        bins = config.resolve_bins(freq=args.freq,
                             bins=args.bins, preview=args.preview)
     except ValueError as e:
         sys.exit(str(e))
 
     freqs = config.freq_array()
-    nf = config.nbins - 1
+    nf = config.n_frequencies
     print(f"  Partial band: {len(bins)} of {nf} bins")
 
     if args.freq is not None:
@@ -137,7 +137,7 @@ def _selected_bins(config, args):
         # the thing the user needs to see — a bare bin list hides it.
         landed = {}
         for f in args.freq:
-            b = resolve_bins(config.sr, config.nbins, freq=[f])[0]
+            b = config.resolve_bins(freq=[f])[0]
             landed.setdefault(b, []).append(f)
         for b in sorted(landed):
             asked = landed[b]
@@ -342,7 +342,7 @@ def cmd_estimate_ram(model_dir, args):
         sys.exit(f"No exported variants in {model_dir / 'numcalc'}. "
                  f"Run 'export' first.")
 
-    nf = config.nbins - 1
+    nf = config.n_frequencies
     cmd = ["NumCalc", "-estimate_ram"]
     if not args.all_bins:
         cmd += ["-istart", str(nf), "-iend", str(nf)]
@@ -402,7 +402,7 @@ def cmd_ps(model_dir, args):
             if model_dir_of not in nf_cache:
                 try:
                     from bemkit.config import ModelConfig
-                    nf_cache[model_dir_of] = ModelConfig.from_dir(model_dir_of).nbins - 1
+                    nf_cache[model_dir_of] = ModelConfig.from_dir(model_dir_of).n_frequencies
                 except Exception:  # unreadable/incomplete config — show bare count
                     nf_cache[model_dir_of] = None
             nf = nf_cache[model_dir_of]
@@ -461,7 +461,7 @@ def show_status(model_dir):
         return
 
     print(f"\n{model_dir}  (variants: {', '.join(variants)})\n")
-    nf = config.nbins - 1
+    nf = config.n_frequencies
     order = ["mesh", "export", "run", "pack"]
     needs = {name: [] for name in order}
     running = []

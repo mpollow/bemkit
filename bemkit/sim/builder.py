@@ -135,8 +135,9 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
     v.setdefault("cluster_edge_length", 0.0)
     v.setdefault("preconditioner", 0)
 
-    n_frequencies = v["nbins"] - 1
-    frequencies = freq_grid(v["sr"], v["nbins"])
+    frequencies = (config.freq_array() if hasattr(config, "freq_array")
+                   else freq_grid(v["sr"], v["nbins"]))
+    n_frequencies = len(frequencies)
 
     sym = v.get("SYMMETRY") or {}
     planes = list(sym.get("planes", [])) or None

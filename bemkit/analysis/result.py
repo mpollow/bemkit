@@ -131,6 +131,21 @@ class BEMResult:
         return len(self.frequencies)
 
     @property
+    def is_uniform_band(self):
+        """True when the frequencies are the evenly spaced FFT grid.
+
+        Time-domain results are an inverse FFT of the band, so they only exist
+        for the uniform grid ``sr``/``nbins`` produces. A ``[frequencies]``
+        model is perfectly valid and perfectly meaningless to transform.
+        """
+        f = np.asarray(self.frequencies, dtype=float)
+        if len(f) < 2:
+            return True
+        step = f[0]
+        return bool(np.allclose(np.diff(f), step, rtol=1e-6)
+                    and np.isclose(f[0], step, rtol=1e-6))
+
+    @property
     def missing_bins(self):
         """1-based bins with no data (all-NaN across valid eval points).
 
@@ -262,6 +277,12 @@ class BEMResult:
             NaN columns would otherwise turn the whole IRFFT into NaN, which
             looks like a silent failure rather than a band that is not done.
         """
+        if not self.is_uniform_band:
+            raise IncompleteBand(
+                "impulse response needs a uniform frequency grid: an inverse "
+                "FFT has no meaning on the log-spaced or arbitrary band this "
+                "model was run on. Use sr/nbins instead of [frequencies], or "
+                "stay in the frequency domain.")
         missing = self.missing_bins
         if missing:
             raise IncompleteBand(

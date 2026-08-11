@@ -307,7 +307,7 @@ def export_web(model_dir, out_dir, variants=None, directions="g30_1m",
     sims = {v: SimulationData(numcalc_dir(model_dir, v), config) for v in variants}
 
     # Only export fully solved variants (all frequency bins present).
-    nf_expected = config.nbins - 1
+    nf_expected = config.n_frequencies
     incomplete = [v for v in variants
                   if len(sims[v].available_bins) < nf_expected]
     if incomplete and explicit:

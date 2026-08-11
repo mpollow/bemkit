@@ -257,23 +257,36 @@ class TestOnAxisResponse:
             onaxis_response(ax, beaming_circle)
 
 
+@pytest.fixture()
+def uniform_circle(beaming_circle):
+    """The same circular set on a *uniform* FFT grid.
+
+    beaming_circle's frequencies are log-ish ([250, 1000, 4000, 16000]) — handy
+    for a directivity map, meaningless for an inverse FFT, which reads the array
+    index as a bin index. Time-domain tests need the real grid.
+    """
+    n = beaming_circle.n_freq
+    return make_result(beaming_circle.eval_points, beaming_circle.pressure_acc,
+                       freqs=np.arange(1, n + 1) * 250.0, name="uniform")
+
+
 class TestAngleImpulseResponse:
-    def test_one_curve_per_covered_direction(self, ax, beaming_circle):
-        lines = angle_impulse_response(ax, beaming_circle, angles=[0, 30, -30])
+    def test_one_curve_per_covered_direction(self, ax, uniform_circle):
+        lines = angle_impulse_response(ax, uniform_circle, angles=[0, 30, -30])
         assert [ln.get_label() for ln in lines] == ["+0°", "+30°", "-30°"]
 
-    def test_single_direction(self, ax, beaming_circle):
-        lines = angle_impulse_response(ax, beaming_circle, angles=[60])
+    def test_single_direction(self, ax, uniform_circle):
+        lines = angle_impulse_response(ax, uniform_circle, angles=[60])
         assert len(lines) == 1
 
     def test_align_shifts_time_zero_to_the_first_arrival(self, ax,
-                                                        beaming_circle):
-        plain = angle_impulse_response(ax, beaming_circle, angles=[0])
+                                                        uniform_circle):
+        plain = angle_impulse_response(ax, uniform_circle, angles=[0])
         t_plain = plain[0].get_xdata()
         peak = t_plain[int(np.argmax(np.abs(plain[0].get_ydata())))]
 
         fig2, ax2 = plt.subplots()
-        aligned = angle_impulse_response(ax2, beaming_circle, angles=[0],
+        aligned = angle_impulse_response(ax2, uniform_circle, angles=[0],
                                          align=True)
         assert aligned[0].get_xdata() == pytest.approx(t_plain - peak)
         plt.close(fig2)

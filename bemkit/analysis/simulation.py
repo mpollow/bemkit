@@ -61,10 +61,13 @@ class SimulationData:
             eff = config
         self._rho0 = eff.get("air_density", 1.2)
         self._c0 = eff.get("speed_of_sound", 340.0)
-        sr = eff["sr"]
-        nbins = eff["nbins"]
-        from bemkit.config import freq_grid
-        self.frequencies = freq_grid(sr, nbins)
+        # A non-uniform model records its frequencies explicitly; sr/nbins
+        # cannot express them, and guessing a grid would mislabel every result.
+        if eff.get("frequencies") is not None:
+            self.frequencies = np.asarray(eff["frequencies"], dtype=float)
+        else:
+            from bemkit.config import freq_grid
+            self.frequencies = freq_grid(eff["sr"], eff["nbins"])
 
         # Prefer the packed be.npz when present; otherwise scan be.out/.
         # Quantities are cached decompressed on first access (an NpzFile

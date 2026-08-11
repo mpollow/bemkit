@@ -194,3 +194,40 @@ def test_missing_bins_works_without_acc(tmp_path):
         _bundle(tmp_path, boundary=[],
                 plane_waves=[Source(1, (0.0, 0.0, 1.0), 1.0)]), CONFIG)
     assert sim.result(None).missing_bins == []
+
+
+class TestNonUniformBand:
+    """A [frequencies] model is fine in the frequency domain and meaningless
+    in the time domain (Tier 7)."""
+
+    def _result(self, tmp_path, freqs):
+        import numpy as np
+        from bemkit.analysis.result import BEMResult
+        n = len(freqs)
+        return BEMResult(name="t", frequencies=np.asarray(freqs, float),
+                         eval_points=np.zeros((1, 3)),
+                         pressure_raw=np.ones((1, n), complex),
+                         pressure_acc=np.ones((1, n), complex),
+                         velocity_raw=np.ones((1, n)),
+                         velocity_acc=np.ones((1, n)),
+                         rho0=1.2, speed_of_sound=340.0)
+
+    def test_uniform_band_is_recognised(self, tmp_path):
+        assert self._result(tmp_path, [250., 500., 750., 1000.]).is_uniform_band
+
+    def test_log_band_is_not(self, tmp_path):
+        assert not self._result(tmp_path, [200., 400., 800., 1600.]).is_uniform_band
+
+    def test_evenly_spaced_but_offset_band_is_not(self, tmp_path):
+        """An FFT grid starts at its own step, so 150/250/350 is evenly spaced
+        and still not a grid an IRFFT can read."""
+        assert not self._result(tmp_path, [150., 250., 350.]).is_uniform_band
+
+    def test_impulse_response_refuses_a_non_uniform_band(self, tmp_path):
+        from bemkit.analysis.result import IncompleteBand
+        with pytest.raises(IncompleteBand, match="uniform frequency grid"):
+            self._result(tmp_path, [200., 400., 800., 1600.]).impulse_response()
+
+    def test_impulse_response_still_works_on_the_fft_grid(self, tmp_path):
+        t, ir = self._result(tmp_path, [250., 500., 750., 1000.]).impulse_response()
+        assert ir.shape[0] == 1 and len(t) == ir.shape[1]

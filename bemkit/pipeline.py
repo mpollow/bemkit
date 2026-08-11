@@ -298,7 +298,7 @@ def plan_run(config, variants, *, max_jobs=None, force=False, bins=None,
                 print(f"  {v}: skipping (no numcalc/{v}/ — run 'export' first)")
             continue
         pairs.append((v, nc_dir))
-    jobs = plan_jobs(pairs, config.nbins - 1, max_jobs=max_jobs,
+    jobs = plan_jobs(pairs, config.n_frequencies, max_jobs=max_jobs,
                      missing_only=not force, bins=bins, options=options)
     return pairs, jobs
 
@@ -351,7 +351,7 @@ class RunStage(PipelineStage):
                 print("  Nothing to run (all bins present — use --force to recompute).")
             return [], []
         require_numcalc()
-        nf = config.nbins - 1
+        nf = config.n_frequencies
         # A leftover be.npz would shadow the fresh be.out/ results; for a
         # resume, restore its bins into be.out/ first so the runs merge.
         job_dirs = {j.nc_dir for j in jobs}
@@ -421,7 +421,7 @@ class PackStage(PipelineStage):
                 print(f"  {v}: be.out/ has no bin results — skipping")
                 continue
             print(f"\n--- Pack: {v} ---")
-            pack_variant(nc_dir, nf=config.nbins - 1,
+            pack_variant(nc_dir, nf=config.n_frequencies,
                          delete_original=delete_original)
             packed.append(v)
         return packed
