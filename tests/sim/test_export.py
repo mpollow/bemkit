@@ -69,7 +69,7 @@ def test_export_resolves_geometric_boundary(tmp_path):
     # resolved indices recorded in the snapshot for provenance
     snap = json.loads((nc / "snapshot.json").read_text())
     assert snap["resolved_boundary"] == {
-        "drv": [[expected_elem, expected_elem, "VELO", 1.0, 0.0]]}
+        "drv": [[expected_elem, expected_elem, "VELO", 1.0, 0.0, None]]}
 
 
 def _make_symmetric_model(tmp_path):

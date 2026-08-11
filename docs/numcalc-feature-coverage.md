@@ -297,7 +297,7 @@ in the writer. `Deck` already carries the fields; nothing asks for them yet.
 | `PRES` | ✅ `type = "pres"` | `sim/boundary.py` |
 | `ADMI` / `IMPE` | ✅ `type = "admi"`/`"impe"`; SI-magnitude guard | `config.py:_check_bc_type` |
 | `ADMI` + `VELO` on one element | ✅ two entries, same anchor | `sim/boundary.py` |
-| `CURVES` (frequency-dependent) | ⚠️ deck reads/writes the section; builder always emits `-1` | `numcalc/deck.py` `Curve` |
+| `CURVES` (frequency-dependent) | ✅ `[curves]` + `curve =` on `admi` | `sim/builder.py` |
 | Plane waves | ⚠️ works, raw 8-value pass-through | `sim/builder.py:_sources` |
 | Point sources | ⚠️ same | same |
 | Element selection by geometry | ✅ and better than NumCalc needs | `sim/boundary.py` |
@@ -495,7 +495,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 | 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | ✅ **Landed.** `type`/`value` on a geometric entry; values > 100 rejected as SI. |
 | 3 | Normalization semantics for non-velocity-driven models | small + decision | ✅ **Landed.** See §5.2. |
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
-| 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |
+| 5 | `CURVES` | small | ✅ **Landed.** `[curves.<name>]` + `curve = "<name>"` on an `admi` entry. |
 | 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | ✅ **Landed.** `bem run --nitermax/--check-normals/--adapt-fmmlength`, `bem MODEL estimate-ram`. |
 | 7 | Non-uniform frequency lists | medium | New. Needs an `analysis/` decision (§1.6). |
 | 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 3, 4, 6, 7 | medium | The differentiator (§4.6). |

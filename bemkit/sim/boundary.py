@@ -30,22 +30,36 @@ from bemkit.numcalc.deck import _contiguous_ranges
 #: One resolved boundary condition over an inclusive, 0-based element range.
 #: ``kind`` is a NumCalc keyword (VELO/PRES/ADMI/IMPE) and the value is complex,
 #: so a resolved entry says everything the deck needs.
-BCRange = namedtuple("BCRange", "start end kind real imag")
+BCRange = namedtuple("BCRange", "start end kind real imag curve")
+BCRange.__new__.__defaults__ = (None,)   # curve name, ADMI only
 
 
 def _entry_condition(val, default_velocity):
-    """(kind, real, imag) for one [BOUNDARY] entry.
+    """(kind, real, imag, curve) for one [BOUNDARY] entry.
 
     ``velocity``/``v`` stay the shorthand for a VELO condition; ``type``/
     ``value`` express the rest. Validated already by _check_bc_entry.
     """
-    if "type" in val or "value" in val:
+    curve = val.get("curve")
+    if "type" in val or "value" in val or curve is not None:
         kind = str(val.get("type", "velo")).upper()
+        if curve is not None:
+            # The curve carries the value; the ELEM line holds the constant it
+            # scales, and NumCalc multiplies *each part by its own curve*. Both
+            # constants must therefore be 1.0 — a 0.0 imaginary constant would
+            # zero the imaginary curve out entirely, silently. (Mesh2HRTF's own
+            # exporter writes 1.0/1.0 for the same reason.)
+            value = val.get("value", [1.0, 1.0])
+            if not isinstance(value, (list, tuple)):
+                value = [float(value), float(value)]
+            return kind, float(value[0]), float(value[1]), curve
         value = val.get("value", 0.0 if kind == "PRES" else 1.0)
         if isinstance(value, (list, tuple)):
-            return kind, float(value[0]), float(value[1])
-        return kind, float(value), 0.0
-    return "VELO", float(val.get("velocity", val.get("v", default_velocity))), 0.0
+            return kind, float(value[0]), float(value[1]), curve
+        return kind, float(value), 0.0, curve
+    return ("VELO",
+            float(val.get("velocity", val.get("v", default_velocity))),
+            0.0, None)
 
 
 def variant_target(variant):
@@ -140,7 +154,7 @@ def resolve_boundary(boundary_cfg, variant, mesh_file=None, default_velocity=1.0
                 vertices, triangles = read_mesh_triangles(mesh_file)
                 centroids = vertices[triangles].mean(axis=1)
                 diag = float(np.linalg.norm(vertices.max(0) - vertices.min(0)))
-            kind, re_, im_ = _entry_condition(val, default_v)
+            kind, re_, im_, curve = _entry_condition(val, default_v)
             near = val["near"]
             anchors = near if _is_point_list(near) else [near]
             radius = val.get("radius")
@@ -157,7 +171,7 @@ def resolve_boundary(boundary_cfg, variant, mesh_file=None, default_velocity=1.0
                             f"{radius} m (nearest is {d.min():.4g} m away). "
                             f"Check the anchor/radius units and frame.")
                     selected.update(int(i) for i in idx)
-                ranges = [BCRange(s, e, kind, re_, im_)
+                ranges = [BCRange(s, e, kind, re_, im_, curve)
                           for s, e in _contiguous_ranges(selected)]
             else:
                 ranges = []
@@ -169,14 +183,14 @@ def resolve_boundary(boundary_cfg, variant, mesh_file=None, default_velocity=1.0
                             f"'{variant}' is {dist:.4g} m from its nearest element "
                             f"(>5% of the mesh extent {diag:.4g} m). Check the "
                             f"anchor's units/frame.")
-                    ranges.append(BCRange(idx, idx, kind, re_, im_))
+                    ranges.append(BCRange(idx, idx, kind, re_, im_, curve))
             resolved[key] = ranges
         else:
             # _check_bc_entry guarantees the shape: [s, e, v] or [[s, e, v], ...]
             # The literal form is velocity-only and stays that way; anything
             # else needs the geometric/typed form.
             rows = val if isinstance(val[0], list) else [val]
-            resolved[key] = [BCRange(r[0], r[1], "VELO", float(r[2]), 0.0)
+            resolved[key] = [BCRange(r[0], r[1], "VELO", float(r[2]), 0.0, None)
                              for r in rows]
     return resolved
 

@@ -236,3 +236,36 @@ def test_estimate_ram_reports_a_figure(solved):
             (nc_dir / "Memory.txt").read_text().splitlines() if ln.strip()]
     assert rows and len(rows[0]) >= 3
     assert float(rows[0][2]) > 0
+
+
+def test_frequency_dependent_admittance_solves(tmp_path, pytestconfig):
+    """Tier 5: a CURVES-driven ADMI condition.
+
+    The ELEM line carries the constant 1.0 for *both* parts and two curve ids;
+    NumCalc multiplies each part by its own curve, so a 0.0 imaginary constant
+    would silently kill the imaginary curve.
+    """
+    from bemkit.meshing.io import read_mesh_triangles
+
+    model = tmp_path / "model"
+    shutil.copytree(pytestconfig.rootpath / GOLDEN_MODEL, model)
+    verts, tris = read_mesh_triangles(next((model / "mesh").iterdir()))
+    anchor = [float(x) for x in verts[tris].mean(axis=1)[2]]
+    (model / "config.toml").write_text(
+        (model / "config.toml").read_text()
+        + "\nabsorber = {{ near = [{:.6f}, {:.6f}, {:.6f}], "
+          'type = "admi", curve = "felt" }}\n'.format(*anchor)
+        + "\n[curves.felt]\nfrequencies = [100.0, 4000.0]\n"
+          "real = [0.1, 0.6]\nimag = [-0.05, -0.3]\n")
+    export_variant(ModelConfig.from_dir(model), "tetra", verbose=False)
+
+    nc_dir = model / "numcalc" / "tetra"
+    text = (nc_dir / "NC.inp").read_text()
+    assert "ELEM 2 TO 2 ADMI 1.0 1 1.0 2" in text
+    assert "CURVES\n2 2\n" in text
+
+    proc = subprocess.run(["NumCalc", "-istart", "1", "-iend", "1"],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode == 0, proc.stdout[-2000:]
+    assert available_bins(nc_dir) == [1]

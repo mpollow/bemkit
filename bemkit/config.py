@@ -146,6 +146,71 @@ def _check_bc_type(key, val, where):
             f"admittance by ~1/408, or an SI impedance by ~408.")
 
 
+def _check_bc_curve(key, val, where):
+    """A ``curve = "<name>"`` reference is ADMI-only.
+
+    NumCalc ignores curves for PRES/VELO, and ``IMPE`` combined with a curve is
+    a hard ``exit(-1)`` whose message says to use ADMI instead
+    (``NC_Input.cpp:1275``). Catching it here beats losing a run to it.
+    """
+    if "curve" not in val:
+        return
+    if not isinstance(val["curve"], str):
+        raise ValueError(f"{where}: entry '{key}': curve must be the name of a "
+                         f"[curves.<name>] table, got {val['curve']!r}")
+    kind = str(val.get("type", "velo")).lower()
+    if kind != "admi":
+        why = ("NumCalc exits(-1) on IMPE with a curve and tells you to use "
+               "ADMI" if kind == "impe" else
+               f"NumCalc ignores curves for {kind.upper()}")
+        raise ValueError(
+            f"{where}: entry '{key}': a frequency curve is only supported for "
+            f'type = "admi" ({why}).')
+
+
+def _check_curves(tbl, path):
+    """Validate the [curves] table: named frequency-dependent BC values."""
+    where = f"{path}: [curves]"
+    if not isinstance(tbl, dict):
+        raise ValueError(f"{where} must be a table")
+    for name, spec in tbl.items():
+        sub = f"{path}: [curves.{name}]"
+        if not isinstance(spec, dict):
+            raise ValueError(f"{sub}: must be a table with frequencies/real"
+                             f"[/imag] arrays")
+        unknown = [k for k in spec if k not in ("frequencies", "real", "imag")]
+        if unknown:
+            raise ValueError(f"{sub}: unknown key(s): {', '.join(unknown)} "
+                             f"(known: frequencies, real, imag)")
+        for req in ("frequencies", "real"):
+            if req not in spec:
+                raise ValueError(f"{sub}: missing required key '{req}'")
+        freqs = spec["frequencies"]
+        if not (isinstance(freqs, list) and len(freqs) >= 2
+                and all(_is_num(f) for f in freqs)):
+            raise ValueError(f"{sub}: frequencies must be a list of at least "
+                             f"two numbers (Hz), got {freqs!r}")
+        if list(freqs) != sorted(freqs):
+            raise ValueError(f"{sub}: frequencies must be ascending — NumCalc "
+                             f"interpolates in order and does not sort")
+        for part in ("real", "imag"):
+            if part not in spec:
+                continue
+            vals = spec[part]
+            if not (isinstance(vals, list) and all(_is_num(x) for x in vals)):
+                raise ValueError(f"{sub}: {part} must be a list of numbers, "
+                                 f"got {vals!r}")
+            if len(vals) != len(freqs):
+                raise ValueError(
+                    f"{sub}: {part} has {len(vals)} values but frequencies has "
+                    f"{len(freqs)} — they index the same points")
+            if max((abs(x) for x in vals), default=0.0) > _BC_IMPLAUSIBLE:
+                raise ValueError(
+                    f"{sub}: {part} value looks like SI units. A CURVES value "
+                    f"scales a **normalized** admittance (Y / (rho0*c)); 1.0 is "
+                    f"a matched, anechoic termination.")
+
+
 def _check_bc_entry(key, val, where):
     """Validate one [BOUNDARY] entry: [s,e,v], [[s,e,v],...], or {near=...}.
 
@@ -155,12 +220,13 @@ def _check_bc_entry(key, val, where):
     if isinstance(val, dict):
         unknown = [k for k in val
                    if k not in ("near", "radius", "velocity", "v",
-                                "type", "value")]
+                                "type", "value", "curve")]
         if unknown:
             raise ValueError(
                 f"{where}: entry '{key}': unknown key(s) {', '.join(unknown)} "
-                f"(known: near, radius, velocity, v, type, value)")
+                f"(known: near, radius, velocity, v, type, value, curve)")
         _check_bc_type(key, val, where)
+        _check_bc_curve(key, val, where)
         near = val.get("near")
         if near is None:
             raise ValueError(f"{where}: entry '{key}': geometric entries need "
@@ -423,6 +489,8 @@ def _validate(raw, path):
     # so they get the same typo guard as the solver/mesh sections.
     if "nc" in raw:
         _check_nc(raw["nc"], path)
+    if "curves" in raw:
+        _check_curves(raw["curves"], path)
     if "BOUNDARY" in raw:
         _check_boundary(raw["BOUNDARY"], path)
     if "SYMMETRY" in raw:

@@ -379,6 +379,28 @@ surface. Write two entries with the same anchor.
 `TRAD`/`TRIM` (transfer admittance/impedance) are not offered: NumCalc parses them
 and then exits with "not supported".
 
+#### Frequency-dependent absorption — `[curves]`
+
+A real material is not one number. Point an `admi` entry at a named curve:
+
+```toml
+[BOUNDARY]
+absorber = { near = [0, 0, -0.1], radius = 0.05, type = "admi", curve = "felt" }
+
+[curves.felt]
+frequencies = [125, 250, 500, 1000, 2000, 4000]   # Hz, ascending
+real        = [0.05, 0.12, 0.30, 0.52, 0.61, 0.66]
+imag        = [-0.02, -0.06, -0.14, -0.21, -0.24, -0.25]   # optional
+```
+
+Values are interpolated linearly in Hz and held flat outside the range, so the
+curve need not match `sr`/`nbins` — it is decoupled from the frequency grid
+entirely. `imag` defaults to zero.
+
+**Curves are `admi`-only.** NumCalc ignores them for `velo`/`pres`, and `impe`
+plus a curve is a hard `exit(-1)` that tells you to use `admi` — so bemkit
+refuses all three at config load.
+
 ### Incident sources (scattering) — plane waves / point sources
 Instead of (or in addition to) a vibrating surface, incident fields pass
 straight through to `NC.inp` as 8-value rows:

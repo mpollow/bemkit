@@ -702,3 +702,52 @@ class TestBoundaryTypes:
         self._cfg(tmp_path, 'w = { near = [0,0,0], type = "admi", value = 1.0 }\n')
         self._cfg(tmp_path,
                   'w = { near = [0,0,0], type = "impe", value = [12.0, -3.0] }\n')
+
+
+class TestCurves:
+    """[curves] validation (Tier 5)."""
+
+    def _cfg(self, tmp_path, body):
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 8000\nnbins = 5\n" + body)
+        return ModelConfig.from_dir(tmp_path)
+
+    GOOD = ('\n[curves.felt]\nfrequencies = [100.0, 4000.0]\n'
+            'real = [0.1, 0.6]\nimag = [-0.05, -0.3]\n')
+
+    def test_valid_curve(self, tmp_path):
+        c = self._cfg(tmp_path, self.GOOD)
+        assert c.raw["curves"]["felt"]["real"] == [0.1, 0.6]
+
+    def test_imag_is_optional(self, tmp_path):
+        self._cfg(tmp_path,
+                  "\n[curves.c]\nfrequencies = [1.0, 2.0]\nreal = [0.1, 0.2]\n")
+
+    def test_length_mismatch_is_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="index the same points"):
+            self._cfg(tmp_path,
+                      "\n[curves.c]\nfrequencies = [1.0, 2.0]\nreal = [0.1]\n")
+
+    def test_descending_frequencies_rejected(self, tmp_path):
+        """NumCalc interpolates in order and does not sort."""
+        with pytest.raises(ValueError, match="ascending"):
+            self._cfg(tmp_path,
+                      "\n[curves.c]\nfrequencies = [9.0, 1.0]\nreal = [0.1, 0.2]\n")
+
+    def test_si_magnitude_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="normalized"):
+            self._cfg(tmp_path,
+                      "\n[curves.c]\nfrequencies = [1.0, 2.0]\n"
+                      "real = [0.1, 408.0]\n")
+
+    def test_curve_only_allowed_on_admittance(self, tmp_path):
+        for kind, msg in (("impe", "exits"), ("velo", "ignores")):
+            with pytest.raises(ValueError, match="only supported for"):
+                self._cfg(tmp_path,
+                          f'\n[BOUNDARY]\nw = {{ near = [0,0,0], '
+                          f'type = "{kind}", curve = "felt" }}\n' + self.GOOD)
+
+    def test_curve_on_admittance_is_fine(self, tmp_path):
+        self._cfg(tmp_path,
+                  '\n[BOUNDARY]\nw = { near = [0,0,0], type = "admi", '
+                  'curve = "felt" }\n' + self.GOOD)

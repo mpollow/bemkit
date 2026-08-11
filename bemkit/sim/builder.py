@@ -16,7 +16,9 @@ from collections import namedtuple
 from datetime import datetime
 
 from bemkit.config import freq_grid
-from bemkit.numcalc.deck import BC, Deck, Source, _contiguous_ranges
+from bemkit.numcalc.deck import (
+    BC, Curve, Deck, Source, _contiguous_ranges,
+)
 
 #: Element and node counts of an exported bundle. NumCalc only ever reads the
 #: totals (§1.7), but the object/eval split is what bounds-checks the boundary
@@ -160,6 +162,27 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
             v.get("BOUNDARY"), variant, mesh_file=None,
             default_velocity=velocity))
 
+    # -- frequency curves --
+    # NumCalc needs two curves per frequency-dependent condition (real and
+    # imaginary scale independently) and refuses a line that mixes curve refs
+    # with constants, so both ids are always assigned together.
+    curve_defs = v.get("curves") or {}
+    curves, curve_ids = [], {}
+    for name in dict.fromkeys(r.curve for r in elems if r.curve):
+        spec = curve_defs.get(name)
+        if spec is None:
+            raise ValueError(
+                f"BOUNDARY entry for variant '{variant}' references "
+                f"curve '{name}', but no [curves.{name}] table is defined "
+                f"(known: {', '.join(curve_defs) or 'none'})")
+        freqs = list(spec["frequencies"])
+        re_pts = list(zip(freqs, spec["real"]))
+        im_pts = list(zip(freqs, spec.get("imag", [0.0] * len(freqs))))
+        cid = len(curves) + 1
+        curves.append(Curve(cid, re_pts))
+        curves.append(Curve(cid + 1, im_pts))
+        curve_ids[name] = (cid, cid + 1)
+
     boundary = []
     for r in elems:
         s, e = r.start, r.end
@@ -170,9 +193,10 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
                 f"indices 0..{n_obj_elements - 1}). A stale index usually means "
                 f"the BC was picked on a different mesh — re-pick or use "
                 f"geometric 'near=' anchors.")
+        c_re, c_im = curve_ids.get(r.curve, (-1, -1))
         boundary.append(BC(start=int(s), end=int(e), kind=r.kind,
                            real=float(r.real), imag=float(r.imag),
-                           curve_real=-1, curve_imag=-1))
+                           curve_real=c_re, curve_imag=c_im))
 
     if not boundary and (had_boundary_table or vib):
         print(f"  WARNING: variant '{variant}' has a BOUNDARY definition but no "
@@ -203,6 +227,7 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
         symmetry_coordinates=(list(sym.get("coordinates", [0.0, 0.0, 0.0]))
                               if planes else None),
         boundary=boundary,
+        curves=curves,
         plane_waves=_sources(v, "PLANE WAVES"),
         point_sources=_sources(v, "POINT SOURCES"),
         header=_header(config, variant, counts, n_frequencies,

@@ -632,6 +632,15 @@ values > 100 are rejected as almost certainly SI. TRAD/TRIM are refused by name
 (NumCalc parses then hard-errors). `resolve_boundary` returns `BCRange(start, end,
 kind, real, imag)`; literal `[s, e, v]` entries stay VELO-only.
 
+Frequency-dependent ADMI (`[curves]`, Tier 5): `curve = "<name>"` on an `admi`
+entry references a `[curves.<name>]` table of `frequencies`/`real`/`imag` arrays
+(ascending Hz, interpolated linearly, flat outside — decoupled from `sr`/`nbins`).
+Two NumCalc curves are emitted per condition, and the ELEM line carries the
+constant **1.0 for both parts** because each is multiplied by its own curve — a
+0.0 imaginary constant would silently zero the imaginary curve. Curves are
+`admi`-only: NumCalc ignores them for VELO/PRES and `exit(-1)`s on IMPE+curve,
+all three refused at config load.
+
 Geometric anchors (`bemkit/sim/boundary.py`) — resolved against the mesh at
 export time, so they survive remeshing; anchors/radii in meters:
 ```toml

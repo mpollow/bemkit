@@ -235,3 +235,48 @@ class TestNcOverrides:
         deck.cluster_edge_length = 0.01
         deck.validate()
         assert deck.cluster_edge_length == 0.01
+
+
+class TestFrequencyCurves:
+    """Tier 5: frequency-dependent ADMI via the CURVES section."""
+
+    CURVES = {"felt": {"frequencies": [100.0, 4000.0],
+                       "real": [0.1, 0.6], "imag": [-0.05, -0.3]}}
+
+    def _deck(self, **kw):
+        from bemkit.sim.boundary import BCRange
+        return _build(_config(curves=self.CURVES, **kw),
+                      boundary_ranges=[BCRange(0, 1, "ADMI", 1.0, 1.0, "felt")])
+
+    def test_two_curves_per_condition(self):
+        """Real and imaginary scale independently, so NumCalc needs one curve
+        each; it also refuses a line mixing curve refs with constants."""
+        deck = self._deck()
+        assert [c.id for c in deck.curves] == [1, 2]
+        assert deck.curves[0].points == [(100.0, 0.1), (4000.0, 0.6)]
+        assert deck.curves[1].points == [(100.0, -0.05), (4000.0, -0.3)]
+        bc = deck.boundary[0]
+        assert (bc.curve_real, bc.curve_imag) == (1, 2)
+
+    def test_both_constants_are_one(self):
+        """NumCalc multiplies each part by its own curve, so a 0.0 imaginary
+        constant would silently zero the imaginary curve out."""
+        bc = self._deck().boundary[0]
+        assert (bc.real, bc.imag) == (1.0, 1.0)
+
+    def test_missing_curve_table_is_named(self):
+        from bemkit.sim.boundary import BCRange
+        with pytest.raises(ValueError, match="no \\[curves.wool\\] table"):
+            _build(_config(curves=self.CURVES),
+                   boundary_ranges=[BCRange(0, 1, "ADMI", 1.0, 1.0, "wool")])
+
+    def test_imag_defaults_to_zero_curve(self):
+        deck = _build(
+            _config(curves={"c": {"frequencies": [1.0, 2.0], "real": [1.0, 2.0]}}),
+            boundary_ranges=[__import__(
+                "bemkit.sim.boundary", fromlist=["BCRange"]).BCRange(
+                    0, 1, "ADMI", 1.0, 1.0, "c")])
+        assert deck.curves[1].points == [(1.0, 0.0), (2.0, 0.0)]
+
+    def test_no_curves_section_without_references(self):
+        assert _build(_config(curves=self.CURVES)).curves == []
