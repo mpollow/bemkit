@@ -22,7 +22,7 @@ import numpy as np
 
 from bemkit.config import _check_bc_entry
 from bemkit.meshing.io import read_mesh_triangles
-from bemkit.sim.writers import _contiguous_ranges
+from bemkit.numcalc.deck import _contiguous_ranges
 
 
 def variant_target(variant):

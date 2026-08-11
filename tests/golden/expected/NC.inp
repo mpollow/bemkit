@@ -1,6 +1,6 @@
 ##-------------------------------------------
 ## Created using bemkit
-## Date: 2026-06-10
+## Date: 2026-08-11
 ## Variant: tetra
 ## Sample rate: 8000 Hz | Frequencies: 4
 ## Mesh: 4 nodes, 4 elements | EvalGrid: 3 nodes, 2 elements
@@ -14,24 +14,25 @@ model
 0 0 0 0 7 0
 ##
 ## Controlparameter II
-1 4 1e-06 0.00e+00 1 0 0
+1 4 1 0 1 0 0
 ##
 ## Load Frequency Curve
-0 2
-0.000000 0.000000e+00 0.0
-0.000004 4.000000e+03 0.0
+0 4
+1 1000.0 0.0
+2 2000.0 0.0
+3 3000.0 0.0
+4 4000.0 0.0
 ##
 ## 1. Main Parameters I
 2 6 7 0 0 2 2 4 0
 ##
 ## 2. Main Parameters II
 0 0 0 0.0000e+00 0 0 0
-# NumCalc reads five fields here (NC_Input.cpp:294-298); the trailing two are
-# ignored. 4th = ClusEdgL0, the FMM initial bounding-box edge length in m:
-# 0 means NumCalc's default of (sqrt(N)*A0)^0.5. Shrinking it gives smaller
-# cluster radii, a shorter multipole expansion L, and lower peak memory --
-# the documented remedy when a large mesh exhausts RAM or L exceeds ~30
-# (arXiv:2312.00005 Sec. 3.3.2, 4.2). Try e.g. 0.05 in that case.
+# 4th = ClusEdgL0, the FMM initial bounding-box edge length in m:
+# 0 means NumCalc's default of (sqrt(N)*A0)^0.5. Shrinking it gives
+# smaller cluster radii, a shorter multipole expansion L, and lower
+# peak memory -- the documented remedy when a large mesh exhausts
+# RAM or L exceeds ~30 (arXiv:2312.00005 Sec. 3.3.2, 4.2).
 # 5th = IPRECOND in [-3,2]: 0 none, negative selects incomplete-LU depth.
 ##
 ## 3. Main Parameters III
@@ -49,7 +50,7 @@ ObjectMesh/Elements.txt
 EvalGrid/Elements.txt
 ##
 BOUNDARY
-ELEM 0 TO 0 VELO 1.0000 -1 0.0 -1
+ELEM 0 TO 0 VELO 1.0 -1 0.0 -1
 RETU
 ##
 POST PROCESS

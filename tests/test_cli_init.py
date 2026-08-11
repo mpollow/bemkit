@@ -172,7 +172,7 @@ def test_foreign_group_names_export_to_the_right_elements(tmp_path, foreign_msh)
     boundary = body.split("BOUNDARY", 1)[1].split("RETU", 1)[0]
     # meshio writes the rigid block first, so the single SourceDisc triangle
     # ends up at index 3. Exactly that element must be driven — nothing else.
-    assert boundary.strip() == "ELEM 3 TO 3 VELO 1.0000 -1 0.0 -1"
+    assert boundary.strip() == "ELEM 3 TO 3 VELO 1.0 -1 0.0 -1"
 
 
 def test_explicit_group_name_that_is_absent_raises(tmp_path, foreign_msh):

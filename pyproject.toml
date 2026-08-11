@@ -26,6 +26,3 @@ bem = "bemkit.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["bemkit*"]
-
-[tool.setuptools.package-data]
-"bemkit.sim" = ["templates/NC.inp"]

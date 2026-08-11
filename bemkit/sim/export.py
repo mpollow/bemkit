@@ -5,14 +5,14 @@ from pathlib import Path
 
 from bemkit.meshing.io import (
     DEFAULT_VIBRATING_GROUP, MeshInfo, find_mesh_file,
-    read_mesh_physical_groups, resolve_vibrating_group,
+    read_mesh_physical_groups, read_mesh_triangles, resolve_vibrating_group,
 )
+from bemkit.numcalc.meshfiles import (
+    write_eval_grid_elements, write_eval_grid_nodes, write_object_mesh,
+)
+from bemkit.sim.builder import deck_from_config
 from bemkit.sim.fieldpoints import (
     combine_and_track, load_fieldpoint_sets, save_offsets, validate_points,
-)
-from bemkit.sim.writers import (
-    write_eval_grid_elements, write_eval_grid_nodes, write_nc_inp,
-    write_object_mesh_elements, write_object_mesh_nodes,
 )
 
 
@@ -84,8 +84,10 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
         print(f"EvalGrid: {len(combined)} nodes → {nc_dir}")
 
     # -- mesh --
-    n_nodes = write_object_mesh_nodes(mesh_file, nc_dir)
-    n_elements = write_object_mesh_elements(mesh_file, nc_dir)
+    # The mesh file is read here, in meters: numcalc/ takes arrays only, so the
+    # meshio dependency and the mm/m convention stay on bemkit's side.
+    vertices, triangles = read_mesh_triangles(mesh_file)
+    n_nodes, n_elements = write_object_mesh(vertices, triangles, nc_dir)
     if verbose:
         print(f"ObjectMesh: {n_nodes} nodes, {n_elements} elements → {nc_dir}")
 
@@ -111,9 +113,12 @@ def export_variant(config, variant, mesh_file=None, verbose=True):
               f"    [groups]\n"
               f"    vibrating = \"<one of: {', '.join(groups)}>\"\n"
               f"  Otherwise the whole surface is rigid and the result is silence.")
-    write_nc_inp(config, variant, nc_dir,
-                 vibrating_indices=vib_indices,
-                 boundary_ranges=ranges, verbose=verbose)
+    deck = deck_from_config(config, variant, nc_dir,
+                            vibrating_indices=vib_indices,
+                            boundary_ranges=ranges, verbose=verbose)
+    deck.write(nc_dir / "NC.inp")
+    if verbose:
+        print(f"NC.inp → {nc_dir / 'NC.inp'}")
 
     # -- config snapshot (records the effective config + resolved BC) --
     from bemkit.sim.config_snapshot import write_snapshot

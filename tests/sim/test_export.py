@@ -65,7 +65,7 @@ def test_export_resolves_geometric_boundary(tmp_path):
     export_variant(config, "geo")
     nc = config.model_dir / "numcalc" / "geo"
     text = (nc / "NC.inp").read_text()
-    assert f"ELEM {expected_elem} TO {expected_elem} VELO 1.0000 -1 0.0 -1" in text
+    assert f"ELEM {expected_elem} TO {expected_elem} VELO 1.0 -1 0.0 -1" in text
     # resolved indices recorded in the snapshot for provenance
     snap = json.loads((nc / "snapshot.json").read_text())
     assert snap["resolved_boundary"] == {"drv": [[expected_elem, expected_elem, 1.0]]}
