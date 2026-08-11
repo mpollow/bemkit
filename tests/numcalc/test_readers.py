@@ -1,10 +1,10 @@
-"""Tests for bemkit.sim.readers — all reader functions with synthetic files."""
+"""Tests for bemkit.numcalc.readers — all reader functions with synthetic files."""
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from bemkit.sim.readers import (
+from bemkit.numcalc.readers import (
     read_eval_grid_nodes,
     read_object_mesh_nodes,
     read_object_mesh_elements,

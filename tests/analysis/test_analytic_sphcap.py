@@ -10,7 +10,7 @@ import pytest
 from pathlib import Path
 
 from bemkit.analysis.analytic import sphcap_pressure
-from bemkit.sim.readers import (
+from bemkit.numcalc.readers import (
     read_eval_grid_nodes,
     read_object_mesh_nodes,
     read_object_mesh_elements,

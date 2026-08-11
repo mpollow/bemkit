@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bemkit.sim.readers import complete_bins
+from bemkit.numcalc.readers import complete_bins
 
 
 def available_bins(nc_dir):

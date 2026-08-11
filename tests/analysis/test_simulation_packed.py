@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from bemkit.analysis.simulation import SimulationData
-from bemkit.sim.packing import pack_variant
+from bemkit.numcalc.packing import pack_variant
 
 CONFIG = {"sr": 8000, "nbins": 3, "air_density": 1.2, "speed_of_sound": 340.0}
 

@@ -272,7 +272,7 @@ class TestRunStage:
         # A second NumCalc in the same variant dir would race the first one's
         # be.out/ writes. Quietly doing less than asked is the wrong answer for
         # a job this expensive — stop and name the pids.
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [4242])
         nc = model_dir / "numcalc" / "tetra"
 
@@ -283,7 +283,7 @@ class TestRunStage:
 
     def test_abort_message_names_the_variant_and_points_at_restart(
             self, model_dir, monkeypatch):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [4242])
 
         with pytest.raises(RuntimeError) as exc:
@@ -295,7 +295,7 @@ class TestRunStage:
         """--force rmtree's be.out/. Doing that under a running solver is the
         one combination that must stay impossible, so --force is not an
         override for this check."""
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [4242])
         nc = model_dir / "numcalc" / "tetra"
         (nc / "be.out" / "be.1").mkdir(parents=True)
@@ -307,7 +307,7 @@ class TestRunStage:
 
     def test_restart_kills_the_running_processes_then_runs(self, model_dir,
                                                            monkeypatch):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         import bemkit.pipeline as pipeline
         live = {4242}
         killed = []
@@ -332,7 +332,7 @@ class TestRunStage:
         """Killing leaves a half-written bin, which complete_bins already
         rejects — so a plain --restart can safely resume the gap. Wiping
         everything stays opt-in via --force."""
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         import bemkit.pipeline as pipeline
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [])
         monkeypatch.setattr(pipeline, "_kill_numcalc", lambda pids: None)
@@ -527,7 +527,7 @@ class TestRunCommandBackground:
                                                      monkeypatch):
         """The abort must land on the terminal, not in a log file nobody is
         watching yet."""
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [99])
 
         with pytest.raises(SystemExit, match="99"):
@@ -580,7 +580,7 @@ class TestPsCommand:
 
     def test_reports_model_variant_progress_and_pid(self, model_dir,
                                                     monkeypatch, capsys):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         nc = model_dir / "numcalc" / "tetra"
         monkeypatch.setattr(status, "scan_numcalc", lambda: {nc: [4242]})
         monkeypatch.setattr(status, "available_bins", lambda d: [1, 2])
@@ -595,7 +595,7 @@ class TestPsCommand:
 
     def test_reports_process_count_when_a_variant_is_fanned_out(self, model_dir,
                                                                monkeypatch, capsys):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         nc = model_dir / "numcalc" / "tetra"
         monkeypatch.setattr(status, "scan_numcalc", lambda: {nc: [10, 11]})
         monkeypatch.setattr(status, "available_bins", lambda d: [1])
@@ -607,7 +607,7 @@ class TestPsCommand:
         assert "2 proc" in out
 
     def test_says_so_when_nothing_is_running(self, model_dir, monkeypatch, capsys):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "scan_numcalc", lambda: {})
 
         self._cmd_ps(model_dir)
@@ -618,7 +618,7 @@ class TestPsCommand:
                                                            monkeypatch, capsys):
         """A NumCalc launched by hand somewhere odd has no model/numcalc/variant
         path to parse — show it rather than crashing the whole listing."""
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         odd = tmp_path / "somewhere"
         monkeypatch.setattr(status, "scan_numcalc", lambda: {odd: [7]})
         monkeypatch.setattr(status, "available_bins", lambda d: [])
@@ -670,7 +670,7 @@ class TestPackStageDeletesByDefault:
 
     def test_deleted_be_out_can_be_restored_from_the_pack(self, packable):
         """What makes the default safe: the removal is reversible."""
-        from bemkit.sim.packing import unpack_variant
+        from bemkit.numcalc.packing import unpack_variant
         self._pack(packable)
 
         unpack_variant(packable / "numcalc" / "v", verbose=False)
@@ -683,7 +683,7 @@ class TestPackStageDeletesByDefault:
                                                       monkeypatch, capsys):
         """Deleting be.out/ under a live solver would destroy the bins it is
         in the middle of writing. Skip that variant, don't abort the model."""
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [777])
 
         packed = self._pack(packable)
@@ -782,7 +782,7 @@ def test_a_partial_run_is_reused_by_the_later_full_run(tmp_path):
     """The whole point: bins computed by --bins survive into the full run."""
     from bemkit.config import ModelConfig
     from bemkit.pipeline import plan_run
-    from bemkit.sim.status import available_bins
+    from bemkit.numcalc.status import available_bins
 
     (tmp_path / "config.toml").write_text("[bem]\nsr = 32000\nnbins = 9\n")
     nc_dir = tmp_path / "numcalc" / "v"

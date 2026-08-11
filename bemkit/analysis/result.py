@@ -374,7 +374,7 @@ def load_result(model_dir, set_name=None):
     """
     from bemkit.config import ModelConfig
     from bemkit.sim.discovery import discover_variants
-    from bemkit.sim.packing import has_results
+    from bemkit.numcalc.packing import has_results
 
     model_dir = Path(model_dir)
     config = ModelConfig.from_dir(model_dir)

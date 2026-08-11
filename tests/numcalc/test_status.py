@@ -1,6 +1,6 @@
 import numpy as np
 
-from bemkit.sim.status import (
+from bemkit.numcalc.status import (
     available_bins,
     current_step,
     is_complete,
@@ -94,19 +94,19 @@ class TestRunningVariants:
         assert running_variants(tmp_path, ["a", "b"]) == {}
 
     def test_maps_the_variant_name_to_its_pids(self, tmp_path, monkeypatch):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids", lambda d: [11, 22])
         assert running_variants(tmp_path, ["a"]) == {"a": [11, 22]}
 
     def test_omits_variants_with_no_live_process(self, tmp_path, monkeypatch):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids",
                             lambda d: [7] if d.name == "busy" else [])
         assert running_variants(tmp_path, ["idle", "busy"]) == {"busy": [7]}
 
     def test_looks_under_the_models_numcalc_directory(self, tmp_path, monkeypatch):
         seen = []
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "numcalc_pids",
                             lambda d: seen.append(d) or [])
         running_variants(tmp_path, ["v1"])
@@ -122,12 +122,12 @@ class TestScanNumcalc:
     one model at a time."""
 
     def test_empty_when_nothing_is_running(self, monkeypatch):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         monkeypatch.setattr(status, "_numcalc_procs", lambda: iter(()))
         assert scan_numcalc() == {}
 
     def test_groups_pids_by_the_directory_they_run_in(self, monkeypatch, tmp_path):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         a = tmp_path / "m" / "numcalc" / "v1"
         b = tmp_path / "m" / "numcalc" / "v2"
         monkeypatch.setattr(status, "_numcalc_procs",
@@ -135,7 +135,7 @@ class TestScanNumcalc:
         assert scan_numcalc() == {a: [10, 11], b: [12]}
 
     def test_pids_within_a_directory_are_sorted(self, monkeypatch, tmp_path):
-        import bemkit.sim.status as status
+        import bemkit.numcalc.status as status
         a = tmp_path / "m" / "numcalc" / "v1"
         monkeypatch.setattr(status, "_numcalc_procs",
                             lambda: iter([(30, a), (10, a), (20, a)]))

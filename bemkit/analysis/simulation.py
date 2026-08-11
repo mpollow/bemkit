@@ -70,7 +70,7 @@ class SimulationData:
         # Quantities are cached decompressed on first access (an NpzFile
         # re-reads and decompresses the whole member on every __getitem__,
         # and keeping one open would hold a stale handle across re-runs).
-        from bemkit.sim.status import available_bins
+        from bemkit.numcalc.status import available_bins
         npz_file = self._nc_dir / "be.npz"
         self._npz_path = npz_file if npz_file.exists() else None
         self._npz_cache = {}
@@ -124,13 +124,13 @@ class SimulationData:
     @cached_property
     def boundary_nodes(self):
         """(M, 3) float — surface mesh node coordinates in meters."""
-        from bemkit.sim.readers import read_object_mesh_nodes
+        from bemkit.numcalc.readers import read_object_mesh_nodes
         return read_object_mesh_nodes(self._nc_dir)
 
     @cached_property
     def boundary_elements(self):
         """(T, 3) int32 — surface mesh triangle connectivity (0-indexed)."""
-        from bemkit.sim.readers import read_object_mesh_elements
+        from bemkit.numcalc.readers import read_object_mesh_elements
         return read_object_mesh_elements(self._nc_dir)
 
     @cached_property
@@ -205,7 +205,7 @@ class SimulationData:
     @cached_property
     def _eval_nodes(self):
         """(N_total, 3) float — all eval points concatenated."""
-        from bemkit.sim.readers import read_eval_grid_nodes
+        from bemkit.numcalc.readers import read_eval_grid_nodes
         return read_eval_grid_nodes(self._nc_dir)
 
     @cached_property
@@ -224,7 +224,7 @@ class SimulationData:
     def A_vib(self):
         """Vibrating surface area in m^2, or None if no vibrating elements."""
         from bemkit.meshing.io import element_areas
-        from bemkit.sim.readers import read_nc_inp_boundary_conditions
+        from bemkit.numcalc.readers import read_nc_inp_boundary_conditions
         bc = read_nc_inp_boundary_conditions(self._nc_dir / "NC.inp")
         vib_idx = bc.get("vibrating", np.array([], dtype=int))
         if len(vib_idx) == 0:
@@ -379,7 +379,7 @@ class SimulationData:
         if self._npz_path is not None:
             p = self._packed(filename)[:, bin_idx - 1]
         else:
-            from bemkit.sim.readers import _bin_file_ok, _read_numcalc_data
+            from bemkit.numcalc.readers import _bin_file_ok, _read_numcalc_data
             path = self._nc_dir / "be.out" / f"be.{bin_idx}" / filename
             if not _bin_file_ok(path):
                 # Empty/header-only stub -- bin not yet computed, or (for the
@@ -419,7 +419,7 @@ class SimulationData:
             arr = self._packed(filename)
             v = arr[:, bin_idx - 1, :] if domain == "eval" else arr[:, bin_idx - 1]
         else:
-            from bemkit.sim.readers import (
+            from bemkit.numcalc.readers import (
                 _bin_file_ok, _read_numcalc_data, _read_numcalc_velocity_data,
             )
             path = self._nc_dir / "be.out" / f"be.{bin_idx}" / filename
@@ -509,7 +509,7 @@ class SimulationData:
         """Load a quantity across all frequency bins (be.npz preferred)."""
         if self._npz_path is not None:
             return self._packed(filename)
-        from bemkit.sim.readers import load_bins
+        from bemkit.numcalc.readers import load_bins
         return load_bins(self._nc_dir, filename, len(self.frequencies))
 
     def _split_set(self, combined, set_name):

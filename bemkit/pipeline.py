@@ -14,9 +14,9 @@ from pathlib import Path
 from bemkit.config import ModelConfig
 from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
 from bemkit.sim.export import export_variant
-from bemkit.sim.packing import clear_pack, has_results, is_packed, pack_variant
-from bemkit.sim.runner import plan_jobs, run_jobs
-from bemkit.sim.status import solver_warnings
+from bemkit.numcalc.packing import clear_pack, has_results, is_packed, pack_variant
+from bemkit.numcalc.runner import plan_jobs, run_jobs
+from bemkit.numcalc.status import solver_warnings
 
 
 def require_numcalc():
@@ -327,7 +327,7 @@ class RunStage(PipelineStage):
         # writes and corrupts bins, so a live variant stops the whole run —
         # including under --force, which would otherwise rmtree be.out/ from
         # under the running solver. --restart kills first instead.
-        from bemkit.sim.status import running_variants
+        from bemkit.numcalc.status import running_variants
         busy = running_variants(config.model_dir, variants)
         if busy and restart:
             for v, pids in sorted(busy.items()):
@@ -387,8 +387,8 @@ class PackStage(PipelineStage):
 
     def run(self, config, *, prefixes=None, delete_original=True):
         from bemkit.sim.discovery import discover_variants
-        from bemkit.sim.readers import list_bins
-        from bemkit.sim.status import running_variants
+        from bemkit.numcalc.readers import list_bins
+        from bemkit.numcalc.status import running_variants
         # dedup: a variant can surface twice (e.g. cone.msh + cone.ply) — pack once.
         variants = list(dict.fromkeys(
             discover_variants(config.model_dir, prefixes, need_be_out=True)))

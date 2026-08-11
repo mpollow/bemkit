@@ -4,7 +4,7 @@ from pathlib import Path
 
 from bemkit.config import ModelConfig
 from bemkit.meshing.io import MESH_EXTENSIONS
-from bemkit.sim.packing import has_results
+from bemkit.numcalc.packing import has_results
 
 
 def numcalc_dir(model_dir, variant):

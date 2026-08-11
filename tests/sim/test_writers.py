@@ -11,7 +11,7 @@ from bemkit.sim.writers import (
     _count_nodes,
     _count_elements,
 )
-from bemkit.sim.readers import read_eval_grid_nodes
+from bemkit.numcalc.readers import read_eval_grid_nodes
 
 
 class TestWriteEvalGridNodes:

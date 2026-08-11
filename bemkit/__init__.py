@@ -19,8 +19,8 @@ from bemkit.pipeline import PipelineStage
 from bemkit.sim.discovery import discover_variants
 from bemkit.sim.export import ExportInfo, export_variant
 from bemkit.sim.fields import make_fields_onaxis, make_fields_plane, make_fields_polar
-from bemkit.sim.runner import Job, LocalRunner, Runner, plan_jobs, run_jobs
-from bemkit.sim.status import available_bins, is_complete, missing_bins
+from bemkit.numcalc.runner import Job, LocalRunner, Runner, plan_jobs, run_jobs
+from bemkit.numcalc.status import available_bins, is_complete, missing_bins
 
 # -- Analysis / viz (lazy: `import bemkit` stays matplotlib-free) --
 _LAZY = {

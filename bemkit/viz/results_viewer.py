@@ -264,7 +264,7 @@ class ResultsViewer:
         `result` re-reads every bin) is what made stepping frequency cost
         ~0.5 s instead of ~0.05 s.
         """
-        from bemkit.sim.packing import has_results
+        from bemkit.numcalc.packing import has_results
 
         nc_dir = numcalc_dir(self.model_dir, variant)
         self.variant = variant
@@ -284,7 +284,7 @@ class ResultsViewer:
             # exported and solved.
             self._ghost = None
             if not self.args.no_mirror:
-                from bemkit.sim.readers import read_nc_inp_symmetry
+                from bemkit.numcalc.readers import read_nc_inp_symmetry
                 from bemkit.viz._symmetry import ghost_geometry, describe_symmetry
                 symmetry = read_nc_inp_symmetry(nc_dir / "NC.inp")
                 self._ghost = ghost_geometry(self._nodes, self._elements, symmetry)

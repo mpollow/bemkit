@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from bemkit.sim.runner import (
+from bemkit.numcalc.runner import (
     Job, LocalRunner, missing_ranges, plan_jobs, run_jobs,
 )
 

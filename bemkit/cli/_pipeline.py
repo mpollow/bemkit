@@ -209,7 +209,7 @@ def _detach_run(model_dir, config, args, bins=None):
     on the terminal instead of in a log nobody is watching yet.
     """
     from bemkit.pipeline import busy_error, plan_run, require_numcalc
-    from bemkit.sim.status import running_variants
+    from bemkit.numcalc.status import running_variants
 
     try:
         require_numcalc()
@@ -286,7 +286,7 @@ def cmd_ps(model_dir, args):
     that in its working directory (``<model>/numcalc/<variant>/``), so this
     reads the answer straight off a /proc scan.
     """
-    from bemkit.sim.status import scan_numcalc, available_bins
+    from bemkit.numcalc.status import scan_numcalc, available_bins
 
     jobs = scan_numcalc()
     if not jobs:
@@ -349,7 +349,7 @@ def show_status(model_dir):
     """Default command: per-variant stage checklist + next-step hint."""
     from bemkit.cli import load_model_config
     from bemkit.pipeline import STAGES
-    from bemkit.sim.status import (
+    from bemkit.numcalc.status import (
         available_bins, current_step, numcalc_pids, solver_warnings)
 
     config = load_model_config(model_dir)

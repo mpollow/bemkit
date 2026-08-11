@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bemkit.sim.readers import (
+from bemkit.numcalc.readers import (
     QUANTITIES,
     _read_numcalc_data,
     _read_numcalc_velocity_data,

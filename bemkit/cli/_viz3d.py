@@ -106,7 +106,7 @@ def register(sub):
 def _load_bc_elements(nc_dir, model_dir):
     """Load boundary condition elements from NC.inp or .msh fallback."""
     from bemkit.meshing.io import read_mesh_physical_groups
-    from bemkit.sim.readers import read_nc_inp_boundary_conditions
+    from bemkit.numcalc.readers import read_nc_inp_boundary_conditions
 
     nc_inp_file = nc_dir / "NC.inp"
     if nc_inp_file.exists():
@@ -127,7 +127,7 @@ def cmd_geometry(model_dir, args):
     require("pyvista", "viz3d")
 
     from bemkit.sim.discovery import discover_variants, numcalc_dir
-    from bemkit.sim.readers import (
+    from bemkit.numcalc.readers import (
         read_object_mesh_nodes, read_object_mesh_elements, read_eval_grid_nodes,
         read_nc_inp_symmetry,
     )
