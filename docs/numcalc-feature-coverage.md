@@ -28,12 +28,13 @@ nothing in the config surface hints that they are possible.
 
 The second finding is architectural and is new to this revision (§4). Full
 NumCalc coverage is *small* — roughly 300–500 lines of writer and validation
-against bemkit's current 10 631. What does not scale is the **threading cost**:
-`write_nc_inp` takes a `ModelConfig`, so every new solver knob costs edits in
-`config.py`, a resolver, `sim/writers.py`, `templates/NC.inp`, the config
-snapshot, the tests and `HOWTO.md`. The recommendation is a `bemkit/numcalc/`
-deck module with no inward imports — full coverage in one place, and an
-extraction seam if a standalone `pynumcalc` ever earns its own distribution.
+against bemkit's current 10 631. What did not scale was the **threading cost**:
+`write_nc_inp` took a `ModelConfig`, so every new solver knob meant edits in
+`config.py`, a resolver, the writer, the `NC.inp` template, the config snapshot,
+the tests and `HOWTO.md`. That is now fixed — `bemkit/numcalc/` is a deck module
+with no inward imports (§4, built in §5.1), so a new setting is one field plus
+one line each in `write()`/`read()`, and the layer stays extractable as a
+standalone `pynumcalc` if it ever earns its own distribution.
 
 ---
 
@@ -165,18 +166,21 @@ Three pieces combine to define which frequencies are solved:
    `t = first + (i+1)·increment`, then **piecewise-linearly interpolates the
    curve** at `t` to get the frequency in Hz — clamped flat outside its range.
 
-bemkit writes a fixed two-point curve (`sim/templates/NC.inp:19-22`) with
-`increment = 1e-6` and `first = 0`, spanning `(0, 0)` to
-`(n_freq·1e-6, sr/2)`. The interpolation then collapses to the uniform FFT grid
+bemkit used to write a fixed two-point curve with `increment = 1e-6` and
+`first = 0`, spanning `(0, 0)` to `(n_freq·1e-6, sr/2)`, so the interpolation
+collapsed to the uniform FFT grid
 
 ```
 f_i = (i+1) · sr / (2 · (nbins − 1))
 ```
 
-which is exactly right for HRTF and impulse-response work and should remain the
-default. But the mechanism is general: **NumCalc natively supports log-spaced,
-third-octave, or fully arbitrary frequency lists**, and bemkit cannot express any
-of them.
+which is exactly right for HRTF and impulse-response work and remains the
+default that `sim/builder.py` builds. Since Tier 0 the *format* no longer
+constrains it: `Deck.frequencies` is an explicit Hz array and the curve is
+written with one node per step (`numcalc/deck.py`), so **log-spaced,
+third-octave or fully arbitrary frequency lists are already representable** —
+what is still missing is a config surface to ask for one, and an `analysis/`
+answer for what the band-crossing plots do with it.
 
 This is the one gap a raw escape hatch cannot fully paper over, because
 `analysis/` assumes an FFT grid: `plot ir` and `plot etc` inverse-transform the
@@ -249,7 +253,7 @@ The complete flag set:
 
 | Flag | Effect | bemkit |
 |---|---|---|
-| `-istart N` / `-iend M` | 1-based inclusive bin range | ✅ `sim/runner.py` |
+| `-istart N` / `-iend M` | 1-based inclusive bin range | ✅ `numcalc/runner.py` |
 | `-nitermax N` | max CGS iterations | ❌ |
 | `-estimate_ram` | clustering only, no solve; writes `Memory.txt` | ❌ |
 | `-check_normals` | half-edge orientation consistency check | ❌ |
@@ -282,34 +286,37 @@ reader/writer is a genuine hole in the ecosystem, not a duplicate.
 
 ## 2. What bemkit does today
 
+Post-Tier-0 (§5.1): the *format* side is complete for everything below — each ❌
+is now a missing **config surface** or builder mapping, not a missing capability
+in the writer. `Deck` already carries the fields; nothing asks for them yet.
+
 | NumCalc capability | bemkit | Where |
 |---|---|---|
-| `VELO`, real value | ✅ | `sim/writers.py:310` |
-| `VELO`, complex value | ❌ imaginary part hardcoded `0.0` | same line |
-| `PRES` | ❌ | — |
-| `ADMI` / `IMPE` | ❌ | — |
-| `ADMI` + `VELO` on one element | ❌ | — |
-| `CURVES` (frequency-dependent) | ❌ curve refs hardcoded `-1` | `writers.py:310` |
-| Plane waves | ⚠️ works, raw 8-value pass-through | `writers.py:170, 318-326` |
+| `VELO`, real value | ✅ | `sim/builder.py` → `Deck.boundary` |
+| `VELO`, complex value | ⚠️ deck supports it; builder always writes `imag=0` | `numcalc/deck.py` `BC` |
+| `PRES` | ⚠️ same — deck writes/validates it, no config key | `BC.kind` |
+| `ADMI` / `IMPE` | ⚠️ same. **ρc-normalized** (§1.2) — needs a naming/validation decision | `BC.kind` |
+| `ADMI` + `VELO` on one element | ❌ two BC records, no config form | — |
+| `CURVES` (frequency-dependent) | ⚠️ deck reads/writes the section; builder always emits `-1` | `numcalc/deck.py` `Curve` |
+| Plane waves | ⚠️ works, raw 8-value pass-through | `sim/builder.py:_sources` |
 | Point sources | ⚠️ same | same |
 | Element selection by geometry | ✅ and better than NumCalc needs | `sim/boundary.py` |
-| Non-uniform frequency list | ❌ hardwired 2-point curve ⇒ FFT grid | `sim/templates/NC.inp:19-22` |
-| `minExpansionTermsFMM_` | ❌ hardcoded `0` (⇒ 8) | `templates/NC.inp:25` |
-| `ISOLVER` (`methodSolver_`) | ❌ hardcoded `0` | same line |
-| `ClusEdgL0` | ❌ hardcoded `0.0000e+00` | `templates/NC.inp:28` |
-| Preconditioner | ❌ hardcoded `0` | same line |
+| Non-uniform frequency list | ⚠️ deck holds explicit Hz; builder always builds the FFT grid | `Deck.frequencies` |
+| `minExpansionTermsFMM_` | ⚠️ deck field, default `0` (⇒ 8); no config key | `Deck.min_expansion_terms` |
+| `ISOLVER` (`methodSolver_`) | ⚠️ deck field, default `0`; no config key | `Deck.isolver` |
+| `ClusEdgL0` | ⚠️ deck field, default `0.0`; no config key | `Deck.cluster_edge_length` |
+| Preconditioner | ⚠️ deck field, default `0`; no config key | `Deck.preconditioner` |
 | `-nitermax` | ❌ | — |
 | `-estimate_ram` | ❌ | — |
 | `-check_normals` | ❌ | — |
 | `-adapt_fmmlength` | ❌ | — |
-| `-istart` / `-iend` | ✅ | `sim/runner.py` |
-| Solver-convergence check (Hint 5) | ✅ | `sim/status.py:solver_warnings` |
+| `-istart` / `-iend` | ✅ | `numcalc/runner.py` |
+| Solver-convergence check (Hint 5) | ✅ | `numcalc/status.py:solver_warnings` |
 
-**Both accuracy problems flagged in the 2026-07-26 revision are now closed.**
+**Both accuracy problems flagged in the 2026-07-26 revision are closed.**
 Plane-wave fields are documented as a *direction* in `HOWTO.md:339-356` and
-enforced by `_SOURCE_TRIPLE` (`sim/writers.py:170`); the `NC.inp` template
-comment now correctly identifies `ClusEdgL0` and `IPRECOND`
-(`sim/templates/NC.inp:29-35`). No action needed.
+enforced by `_SOURCE_TRIPLE` (`sim/builder.py`); the `ClusEdgL0`/`IPRECOND`
+comment is now emitted by `Deck.write` and is correct. No action needed.
 
 ---
 
@@ -368,26 +375,32 @@ For scale, bemkit is 10 631 lines today, of which `viz/` alone is ~2 700 and
 `cli/` ~1 630. Feature-completeness against NumCalc is not what would make bemkit
 big.
 
-### 4.2 The coupling is the real problem
+### 4.2 The coupling was the real problem
 
-`write_nc_inp(config, variant, nc_dir, ...)` takes a `ModelConfig`. **The NC.inp
-writer is config.toml-shaped**, so each new knob costs edits in `config.py`
-(schema + validation), a resolver or `sim/writers.py`, `sim/templates/NC.inp`,
+*(Diagnosis as of 2026-08-11, before Tier 0; kept because it is the rationale for
+the structure that replaced it.)*
+
+`write_nc_inp(config, variant, nc_dir, ...)` took a `ModelConfig`. **The NC.inp
+writer was config.toml-shaped**, so each new knob cost edits in `config.py`
+(schema + validation), a resolver or the writer, the `NC.inp` template,
 `sim/config_snapshot.py`, the tests, and `HOWTO.md`. Six touch points per knob,
 across four layers, is what scales badly — not the knob count.
 
-The extraction seam also **does not exist yet**, contrary to what the layer rule
-implies. `CLAUDE.md` documents only `sim ↛ analysis/viz`, and `sim/` really does
-respect that — but it has undeclared inward dependencies that any extraction must
-cut first:
+The extraction seam did **not exist**, contrary to what the layer rule implied.
+`CLAUDE.md` documented only `sim ↛ analysis/viz`, and `sim/` did respect that —
+but it had undeclared inward dependencies that the extraction had to cut first:
 
-- `sim/discovery.py:5` and `sim/boundary.py:23` import `bemkit.config`
-- `sim/writers.py:9`, `sim/boundary.py:24`, `sim/export.py:6` and
-  `sim/fieldpoints.py:223` import `bemkit.meshing.io`
+- `sim/discovery.py` and `sim/boundary.py` import `bemkit.config`
+- the mesh writers, `sim/boundary.py`, `sim/export.py` and `sim/fieldpoints.py`
+  import `bemkit.meshing.io`
+
+Of these, only the mesh writers were on the NumCalc side of the line; the rest
+are builder-layer code that was never meant to move. That is why the fix below
+turned out small.
 
 ### 4.3 The fix is a document model, not a repository
 
-Introduce `bemkit/numcalc/`: a typed, faithful, round-trippable representation of
+`bemkit/numcalc/` (built — §5.1): a typed, faithful, round-trippable representation of
 an NC.inp deck that knows nothing about config.toml, meshes, variants or bemkit.
 
 ```
@@ -477,10 +490,10 @@ Re-sequenced around the deck refactor and the corrected sizing.
 
 | | Work | Size | Note |
 |---|---|---|---|
-| 0 | `bemkit/numcalc/` deck + round-trip tests; `write_nc_inp` → shim; boundary-test rule | medium | Prerequisite. Pure refactor, no behavioural change. |
+| 0 | `bemkit/numcalc/` deck + round-trip tests; `write_nc_inp` removed; boundary-test rule | medium | ✅ **Landed.** See §5.1. |
 | 1 | Solver knobs — `ClusEdgL0`, `IPRECOND`, `min_expansion_terms`, `ISOLVER` — plus the `[nc]` escape hatch | small | Two of the four are newly identified (§1.7). |
 | 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | The ρc-normalization (§1.2) is the risk, not the diff. |
-| 3 | Normalization semantics for non-velocity-driven models | small + decision | Still the one that silently produces wrong numbers. See §5.1. |
+| 3 | Normalization semantics for non-velocity-driven models | small + decision | Still the one that silently produces wrong numbers. See §5.2. |
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
 | 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |
 | 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | New. `estimate-ram` answers the question our `-j` default currently answers by being conservative. |
@@ -489,7 +502,33 @@ Re-sequenced around the deck refactor and the corrected sizing.
 
 Tiers 1–6 are additive and touch one layer each once Tier 0 lands.
 
-### 5.1 The normalization decision (Tier 3)
+### 5.1 Tier 0, as built
+
+`bemkit/numcalc/` now holds the NumCalc format and process layer — `deck.py`,
+`meshfiles.py`, `readers.py`, `packing.py`, `runner.py`, `status.py` — and imports
+nothing from bemkit, on stdlib and numpy only. Both rules are enforced by
+`tests/test_boundaries.py`. `sim/builder.py` holds every bemkit opinion; `write_nc_inp`
+and the `templates/NC.inp` package data are gone.
+
+Three things worth recording for whoever picks up Tier 1:
+
+- **Adding a setting is now one `Deck` field plus one line each in `write()`/`read()`.**
+  `min_expansion_terms`, `isolver`, `cluster_edge_length` and `preconditioner` already
+  exist as fields carrying their previously-hardcoded values, so Tier 1 is wiring a
+  config key to a field, not surgery.
+- **The frequency grid is no longer baked into the format.** `Deck.frequencies` is an
+  explicit Hz array and the Load Frequency Curve is written with one node per step, so
+  Tier 7 (non-uniform lists, §1.6) is a builder change plus an `analysis/` decision —
+  the deck already supports it. The general encoding is also *exact*, where the old
+  two-point shorthand reached each step through a division and asked for
+  250.00000000000003 Hz when it meant 250.
+- **`read_nc_inp_boundary_conditions` stayed a lenient section scanner** rather than
+  becoming a `Deck.read` wrapper. It feeds `A_vib` and therefore every `norm="acc"`
+  result, and its tests deliberately exercise NC.inp *fragments* that a strict deck
+  parser rejects. It now shares `deck.parse_bc_line`, which was the part actually worth
+  deduplicating.
+
+### 5.2 The normalization decision (Tier 3)
 
 `pressure_acc` divides by `ρ₀·ω·A_vib`, and `A_vib` comes from
 `read_nc_inp_boundary_conditions`, which parses `VELO` lines **and only `VELO`

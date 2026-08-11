@@ -21,19 +21,25 @@ bemkit/
 │   │                      #   (pure numpy/scipy, no gmsh; STEP path only)
 │   │                      # sizing.py — size-field builders (uniform/threshold/
 │   │                      #   geodesic two-pass), sizing_from_config
-│   ├── sim/              # NumCalc layer (no analysis/viz deps)
-│   │                      # fields.py      — make_fields_onaxis/polar/plane generators
-│   │                      # fieldpoints.py — validation, loading, offsets
-│   │                      # boundary.py    — BC resolution (near= anchors → ranges)
-│   │                      # writers.py     — NumCalc input writing (write_nc_inp,
-│   │                      #                  templates/NC.inp package data)
-│   │                      # export.py      — export_variant, ExportInfo
+│   ├── numcalc/          # NumCalc format + process layer. Imports NOTHING from
+│   │                      #   bemkit; stdlib + numpy only (see Layer rule).
+│   │                      # deck.py        — Deck: the whole NC.inp as one object,
+│   │                      #   read()/write(); BC/Source/Curve records; parse_bc_line
+│   │                      # meshfiles.py   — ObjectMesh//EvalGrid Nodes/Elements
+│   │                      #   writers (take arrays, never mesh paths)
 │   │                      # readers.py     — raw NumCalc output parsers, load_bins
 │   │                      # runner.py      — Runner ABC, LocalRunner, plan_jobs (auto
 │   │                      #                  fan-out/ordering), run_jobs, missing_ranges
 │   │                      # status.py      — available_bins/missing_bins/is_complete,
 │   │                      #                  solver_warnings (NC*.out health scan)
 │   │                      # packing.py     — be.out/ <-> be.npz, clear_pack
+│   ├── sim/              # Simulation setup: bemkit's opinions (may import numcalc)
+│   │                      # builder.py     — deck_from_config: ModelConfig → Deck
+│   │                      #   (FFT freq grid, group→VELO, resolved BC ranges)
+│   │                      # fields.py      — make_fields_onaxis/polar/plane generators
+│   │                      # fieldpoints.py — validation, loading, offsets
+│   │                      # boundary.py    — BC resolution (near= anchors → ranges)
+│   │                      # export.py      — export_variant, ExportInfo
 │   │                      # discovery.py   — discover_variants, numcalc_dir
 │   │                      # config_snapshot.py — snapshot.json per bundle
 │   │                      #   (effective config at export; drift warning)
@@ -65,10 +71,19 @@ bemkit/
 └── examples/              # Per-model dirs (see below)
 ```
 
-**Layer rule**: `meshing`/`sim` (core) never import `analysis`/`viz`, and never use
-pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumbore +
+**Layer rule**: `meshing`/`sim`/`numcalc` (core) never import `analysis`/`viz`, and never
+use pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumbore +
 Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
 commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
+
+**`numcalc` is stricter**: it imports *nothing* from `bemkit` and depends only on stdlib
++ numpy (no meshio/gmsh/scipy). `sim` may import `numcalc`; never the reverse. The split
+is what everything NumCalc-shaped goes through — `deck_from_config` (`sim/builder.py`)
+holds every bemkit opinion, `Deck` (`numcalc/deck.py`) holds only what the solver reads.
+Adding a NumCalc setting is therefore one `Deck` field plus one line each in
+`write()`/`read()`, not six edits across four layers. The rule is also what keeps the
+layer extractable as a standalone `pynumcalc` package — see
+`docs/numcalc-feature-coverage.md` §4 for the decision and §4.5 for the trigger.
 
 **Scope**: public meshing is gmsh generation from STEP CAD and tessellated scan
 surfaces (`geometry/` holds remesh sources; `mesh/` files are trusted as-is);
@@ -391,14 +406,14 @@ bins are independent (`-istart`/`-iend`), and `be.out/be.{i}/` outputs are disjo
 variant can be split across several processes/machines and merged trivially (no merge step
 needed — outputs just land in the same `be.out/`).
 
-- `Runner` ABC (`bemkit.sim.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
+- `Runner` ABC (`bemkit.numcalc.runner`): `submit(job)` / `poll(handle)` / `fetch(job)`.
   `LocalRunner` is the only implementation today (subprocess with CWD=variant dir); SSH or
   scheduler-based runners would implement the same interface — transfer the bundle, start
   NumCalc, report status, bring `be.out/` back.
 - `Job(name, nc_dir, steps=(istart, iend) | None)` — one NumCalc invocation, optionally
   scoped to a 1-based inclusive bin range.
 - `bem MODEL run` only computes frequency bins absent from `be.out/`/`be.npz` (the
-  default) — it uses `bemkit.sim.status.missing_bins(nc_dir, nf)` to compute the gap, so
+  default) — it uses `bemkit.numcalc.status.missing_bins(nc_dir, nf)` to compute the gap, so
   partial/failed runs resume without redoing completed bins, and a complete run is a
   no-op. `--force` recomputes everything from scratch — required after re-exporting a
   changed mesh or config, since bin presence says nothing about which export produced it.
@@ -412,7 +427,7 @@ needed — outputs just land in the same `be.out/`).
   `bem MODEL all` stays foreground: it is the blocking batch entry point.
 - **A live NumCalc aborts `run`.** Two processes in one variant directory race each
   other's `be.out/` writes, so `running_variants(model_dir, variants)`
-  (`bemkit.sim.status`) gates the run and it raises rather than quietly doing the other
+  (`bemkit.numcalc.status`) gates the run and it raises rather than quietly doing the other
   variants. `--force` is *not* an override — it `rmtree`s `be.out/`, which under a live
   solver is the one combination that must stay impossible. `--restart` kills the
   processes (SIGTERM, then SIGKILL) and then proceeds; on its own it resumes the missing
@@ -421,7 +436,7 @@ needed — outputs just land in the same `be.out/`).
   one line per variant: model, variant, completed/total bins, process count, pids. It is
   the cross-model companion to `bem MODEL` status, needed once runs detach — the answer
   lives in each process's cwd (`<model>/numcalc/<variant>/`), read via
-  `scan_numcalc()` (`bemkit.sim.status`), which is the undirected form of `numcalc_pids`.
+  `scan_numcalc()` (`bemkit.numcalc.status`), which is the undirected form of `numcalc_pids`.
 - `bem MODEL pack` **deletes `be.out/` by default**; `--keep-original` opts out. The
   deletion is gated on `_verify_round_trip` (every bin and quantity re-read from ASCII
   and compared at `rtol=1e-5`, keeping `be.out/` on any mismatch) and is reversible via
@@ -452,7 +467,7 @@ needed — outputs just land in the same `be.out/`).
   previous export. Sparse results are usable — frequency plots mark the
   computed bins — but anything crossing the whole band (`plot ir`, `plot etc`)
   raises `IncompleteBand` and is skipped with a reason.
-- `bemkit.sim.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
+- `bemkit.numcalc.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.
 - `be.npz` shadows `be.out/` everywhere, so `bem MODEL run` removes a leftover `be.npz`
@@ -460,14 +475,14 @@ needed — outputs just land in the same `be.out/`).
   the runs merge); re-run `pack` afterwards. A `--force` recompute also deletes the
   variant's old `NC*.out` logs so superseded warnings don't linger in `bem status`;
   resumes keep them.
-- Live jobs are detected, not tracked: `bemkit.sim.status.numcalc_pids(nc_dir)` scans
+- Live jobs are detected, not tracked: `bemkit.numcalc.status.numcalc_pids(nc_dir)` scans
   /proc for NumCalc processes whose CWD is the variant dir (works for `bem run` and
   manual `cd numcalc/<v> && NumCalc`; returns [] on platforms without /proc).
   `bem status` shows them (with `current_step` from the newest NC*.out log), and
   `bem run` skips variants that are already running so two NumCalc processes never
   race the same be.out/.
 - Bin presence ≠ convergence: NumCalc records non-convergence only in its log.
-  `bemkit.sim.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
+  `bemkit.numcalc.status.solver_warnings(nc_dir)` scans `NC*.out` for the two health strings
   ("Maximum number of iterations is reached", "Iteration method CGS failed") and maps them
   to bins; `bem status` and `bem run` surface them. Such warnings usually mean a defective
   mesh — re-mesh rather than raising `-nitermax`.
@@ -493,7 +508,8 @@ Points validated against mesh surface using Moller-Trumbore ray-casting (multi-d
 
 ## NC.inp Format
 
-See `bemkit/sim/templates/NC.inp` (package data). Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2` (specified velocity).
+Emitted by `Deck.write` (`bemkit/numcalc/deck.py`); there is no template file.
+Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2` (specified velocity).
 STEP colors: Blue (0,0,255) = rigid, Red (255,0,0) = vibrating.
 
 ### Driven-group resolution
@@ -577,7 +593,7 @@ fields 1-3:
   **position** in meters.
 
 A row copied between the sections is therefore accepted and silently wrong;
-`_SOURCE_TRIPLE` in `sim/writers.py` keeps the error message honest about which
+`_SOURCE_TRIPLE` in `sim/builder.py` keeps the error message honest about which
 triple the section wants. Keep point sources ≥1 average edge length off the
 surface (arXiv:2312.00005, Hint 3) — the Green's function is singular at zero
 distance.

@@ -449,6 +449,28 @@ class _Cursor:
         return self.i >= len(self.rows)
 
 
+def parse_bc_line(tokens, where=""):
+    """Parse one tokenised ``ELEM lo TO hi KIND re curve imag curve`` line.
+
+    Shared with the lenient section scanner in :mod:`bemkit.numcalc.readers`, so
+    the element ranges that determine ``A_vib`` are extracted by exactly the
+    same code that reads a full deck.
+
+    Raises:
+        ValueError: on anything NumCalc would reject (it needs at least 9
+            terms, ``NC_Input.cpp:833``).
+    """
+    if (len(tokens) < 9 or tokens[0].upper() != "ELEM"
+            or tokens[2].upper() != "TO"):
+        raise ValueError(
+            f"{where}malformed BOUNDARY line {' '.join(tokens)!r} — expected "
+            f"'ELEM lo TO hi KIND re curve imag curve' (NumCalc requires at "
+            f"least 9 terms, NC_Input.cpp:833)")
+    return BC(start=int(tokens[1]), end=int(tokens[3]), kind=tokens[4].upper(),
+              real=float(tokens[5]), curve_real=int(tokens[6]),
+              imag=float(tokens[7]), curve_imag=int(tokens[8]))
+
+
 def _read_boundary(cur):
     """Read ELEM lines up to RETU."""
     out = []
@@ -456,14 +478,7 @@ def _read_boundary(cur):
         row = cur.take()
         if row[0].upper() == "RETU":
             return out
-        if row[0].upper() != "ELEM" or len(row) < 9 or row[2].upper() != "TO":
-            raise ValueError(
-                f"{cur.path}: malformed BOUNDARY line {' '.join(row)!r} — "
-                f"expected 'ELEM lo TO hi KIND re curve imag curve' "
-                f"(NumCalc requires at least 9 terms, NC_Input.cpp:833)")
-        out.append(BC(start=int(row[1]), end=int(row[3]), kind=row[4].upper(),
-                      real=float(row[5]), curve_real=int(row[6]),
-                      imag=float(row[7]), curve_imag=int(row[8])))
+        out.append(parse_bc_line(row, where=f"{cur.path}: "))
 
 
 def _read_sources(cur):

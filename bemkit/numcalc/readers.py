@@ -133,9 +133,16 @@ def _read_numcalc_velocity_data(filepath: Path) -> np.ndarray:
 
 
 def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
-    """Read boundary condition assignments from NC.inp file.
+    """Read the driven (VELO) element indices from an NC.inp file.
 
-    Parses the BOUNDARY section to extract which elements have VELO (vibrating) BC.
+    Deliberately a *section scanner*, not a deck parser: this feeds ``A_vib``
+    and therefore every ``norm="acc"`` result, so it must keep working on a
+    partial or hand-edited bundle that ``Deck.read`` would reject. A missing
+    file or a missing BOUNDARY section means "nothing driven", not an error.
+
+    The individual ``ELEM`` lines are handed to
+    :func:`bemkit.numcalc.deck.parse_bc_line`, so the ranges are extracted by
+    the same code that reads a complete deck.
 
     Args:
         nc_inp_file: Path to NC.inp file
@@ -144,48 +151,31 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
         Dictionary with key "vibrating" mapping to array of element indices (0-indexed).
         E.g., {"vibrating": array([100, 101, 102, 200, 201, ...])}
     """
-    vibrating_elements = []
+    from bemkit.numcalc.deck import parse_bc_line
 
+    vibrating_elements = []
     try:
         with open(nc_inp_file, 'r') as f:
             in_boundary = False
             for line in f:
                 line = line.strip()
-
-                # Start of BOUNDARY section
                 if line.startswith("BOUNDARY"):
                     in_boundary = True
                     continue
-
-                # End of BOUNDARY section
                 if in_boundary and line in ("RETU", "##", ""):
                     break
-
-                # Parse ELEM lines: "ELEM 0 TO 24 VELO 1.0000 -1 0.0 -1"
-                # Note: Element indices in NC.inp are 0-indexed directly
                 if in_boundary and line.startswith("ELEM"):
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        try:
-                            elem_start = int(parts[1])  # Already 0-indexed
-                            # Handle "TO" keyword for ranges
-                            if "TO" in parts:
-                                to_idx = parts.index("TO")
-                                elem_end = int(parts[to_idx + 1])  # inclusive
-                                # Check for VELO keyword after range
-                                if "VELO" in parts[to_idx + 2:]:
-                                    vibrating_elements.extend(range(elem_start, elem_end + 1))
-                            else:
-                                # Single element: "ELEM 0 VELO ..."
-                                if len(parts) >= 3 and parts[2].upper() == "VELO":
-                                    vibrating_elements.append(elem_start)
-                        except (ValueError, IndexError):
-                            # A skipped ELEM line silently changes A_vib (and
-                            # thus normalization) — surface it instead.
-                            import warnings
-                            warnings.warn(
-                                f"Malformed ELEM line in {nc_inp_file}: {line!r}",
-                                stacklevel=2)
+                    try:
+                        bc = parse_bc_line(line.split(),
+                                           where=f"{nc_inp_file}: ")
+                    except ValueError as exc:
+                        # A skipped ELEM line silently changes A_vib (and
+                        # thus normalization) — surface it instead.
+                        import warnings
+                        warnings.warn(str(exc), stacklevel=2)
+                        continue
+                    if bc.kind == "VELO":
+                        vibrating_elements.extend(range(bc.start, bc.end + 1))
     except FileNotFoundError:
         pass
 
