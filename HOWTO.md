@@ -341,6 +341,44 @@ entry (`cap = [100, 100]` missing its velocity) or a typo'd key
 (`radios = 0.01`) fails immediately, naming the offending entry — it can
 never again silently export a rigid surface that solves to silence.
 
+### Non-rigid surfaces — `type` and `value`
+
+By default every element is sound-hard and a `[BOUNDARY]` entry drives it with a
+velocity. A geometric entry can carry any of NumCalc's four condition types
+instead:
+
+```toml
+[BOUNDARY]
+piston   = { near = [0, 0, 0.05], velocity = 1.0 }              # VELO (shorthand)
+driver   = { near = [0, 0, 0.05], type = "velo", value = [1.0, 0.5] }  # complex
+soft     = { near = [0, 0.1, 0], type = "pres" }                # sound-soft (0 Pa)
+absorber = { near = [0, 0, -0.1], radius = 0.05,
+             type = "admi", value = [0.4, -0.2] }               # absorbing
+wall     = { near = [0.2, 0, 0], type = "impe", value = [12.0, -3.0] }
+```
+
+| `type` | Meaning | Default `value` |
+|---|---|---|
+| `velo` | normal velocity (the default) | `1.0` |
+| `pres` | sound pressure — `0` is sound-soft | `0.0` |
+| `admi` | **normalized** admittance | `1.0` |
+| `impe` | **normalized** impedance | `1.0` |
+
+`value` is one number or `[real, imag]`. Give `velocity`/`v` *or* `type`/`value`,
+not both. Element selection is unchanged — anchors and radii work exactly as they
+do for a velocity condition, so an absorbing patch survives a remesh too.
+
+**`admi` and `impe` are normalized by ρ₀·c**, not SI. `admi = 1.0` is a matched,
+anechoic termination; an SI admittance is wrong by a factor of ~410 and looks
+entirely plausible on a plot, so values above 100 are rejected outright. Divide an
+SI admittance by ~1/408, or an SI impedance by ~408.
+
+An element may carry both `admi` and `velo` — a vibrating source on an absorbing
+surface. Write two entries with the same anchor.
+
+`TRAD`/`TRIM` (transfer admittance/impedance) are not offered: NumCalc parses them
+and then exits with "not supported".
+
 ### Incident sources (scattering) — plane waves / point sources
 Instead of (or in addition to) a vibrating surface, incident fields pass
 straight through to `NC.inp` as 8-value rows:

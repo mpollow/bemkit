@@ -293,10 +293,10 @@ in the writer. `Deck` already carries the fields; nothing asks for them yet.
 | NumCalc capability | bemkit | Where |
 |---|---|---|
 | `VELO`, real value | ✅ | `sim/builder.py` → `Deck.boundary` |
-| `VELO`, complex value | ⚠️ deck supports it; builder always writes `imag=0` | `numcalc/deck.py` `BC` |
-| `PRES` | ⚠️ same — deck writes/validates it, no config key | `BC.kind` |
-| `ADMI` / `IMPE` | ⚠️ same. **ρc-normalized** (§1.2) — needs a naming/validation decision | `BC.kind` |
-| `ADMI` + `VELO` on one element | ❌ two BC records, no config form | — |
+| `VELO`, complex value | ✅ `value = [re, im]` | `sim/boundary.py` |
+| `PRES` | ✅ `type = "pres"` | `sim/boundary.py` |
+| `ADMI` / `IMPE` | ✅ `type = "admi"`/`"impe"`; SI-magnitude guard | `config.py:_check_bc_type` |
+| `ADMI` + `VELO` on one element | ✅ two entries, same anchor | `sim/boundary.py` |
 | `CURVES` (frequency-dependent) | ⚠️ deck reads/writes the section; builder always emits `-1` | `numcalc/deck.py` `Curve` |
 | Plane waves | ⚠️ works, raw 8-value pass-through | `sim/builder.py:_sources` |
 | Point sources | ⚠️ same | same |
@@ -492,7 +492,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 |---|---|---|---|
 | 0 | `bemkit/numcalc/` deck + round-trip tests; `write_nc_inp` removed; boundary-test rule | medium | ✅ **Landed.** See §5.1. |
 | 1 | Solver knobs — `ClusEdgL0`, `IPRECOND`, `min_expansion_terms`, `ISOLVER` — plus the `[nc]` escape hatch | small | Two of the four are newly identified (§1.7). |
-| 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | The ρc-normalization (§1.2) is the risk, not the diff. |
+| 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | ✅ **Landed.** `type`/`value` on a geometric entry; values > 100 rejected as SI. |
 | 3 | Normalization semantics for non-velocity-driven models | small + decision | ✅ **Landed.** See §5.2. |
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
 | 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |

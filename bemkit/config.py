@@ -100,6 +100,52 @@ def _is_point(x):
     return isinstance(x, list) and len(x) == 3 and all(_is_num(c) for c in x)
 
 
+#: Boundary-condition types bemkit exposes. TRAD/TRIM are deliberately absent:
+#: NumCalc parses them and then hard-errors ("not supported").
+BC_TYPES = ("velo", "pres", "admi", "impe")
+
+#: Above this, an admittance or impedance is almost certainly in SI units
+#: rather than normalized by rho*c. Normalized values sit around 0-2 for
+#: admittance and 0.5-20 for impedance; an SI impedance for air starts near 400.
+_BC_IMPLAUSIBLE = 100.0
+
+
+def _check_bc_type(key, val, where):
+    """Validate the ``type``/``value`` pair of a geometric [BOUNDARY] entry."""
+    if "type" not in val and "value" not in val:
+        return
+    kind = str(val.get("type", "velo")).lower()
+    if kind not in BC_TYPES:
+        extra = ("  TRAD/TRIM are parsed by NumCalc and then hard-error, so "
+                 "they are not offered.") if kind in ("trad", "trim") else ""
+        raise ValueError(
+            f"{where}: entry '{key}': type must be one of "
+            f"{', '.join(BC_TYPES)}, got {val['type']!r}.{extra}")
+    if "velocity" in val or "v" in val:
+        raise ValueError(
+            f"{where}: entry '{key}': give either velocity/v (shorthand for a "
+            f"VELO condition) or type/value, not both")
+
+    value = val.get("value", 0.0 if kind == "pres" else 1.0)
+    if _is_num(value):
+        re_, im_ = float(value), 0.0
+    elif (isinstance(value, list) and len(value) == 2
+            and all(_is_num(x) for x in value)):
+        re_, im_ = float(value[0]), float(value[1])
+    else:
+        raise ValueError(
+            f"{where}: entry '{key}': value must be a number or [real, imag], "
+            f"got {value!r}")
+
+    if kind in ("admi", "impe") and max(abs(re_), abs(im_)) > _BC_IMPLAUSIBLE:
+        raise ValueError(
+            f"{where}: entry '{key}': {kind.upper()} value {value!r} looks "
+            f"like SI units. NumCalc wants a **normalized** quantity — "
+            f"admittance divided by rho0*c (so 1.0 is a matched, anechoic "
+            f"termination), impedance multiplied by the same. Divide an SI "
+            f"admittance by ~1/408, or an SI impedance by ~408.")
+
+
 def _check_bc_entry(key, val, where):
     """Validate one [BOUNDARY] entry: [s,e,v], [[s,e,v],...], or {near=...}.
 
@@ -107,11 +153,14 @@ def _check_bc_entry(key, val, where):
     library caller bypassing config.toml hits the same loud failures.
     """
     if isinstance(val, dict):
-        unknown = [k for k in val if k not in ("near", "radius", "velocity", "v")]
+        unknown = [k for k in val
+                   if k not in ("near", "radius", "velocity", "v",
+                                "type", "value")]
         if unknown:
             raise ValueError(
                 f"{where}: entry '{key}': unknown key(s) {', '.join(unknown)} "
-                f"(known: near, radius, velocity, v)")
+                f"(known: near, radius, velocity, v, type, value)")
+        _check_bc_type(key, val, where)
         near = val.get("near")
         if near is None:
             raise ValueError(f"{where}: entry '{key}': geometric entries need "

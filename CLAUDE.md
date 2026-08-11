@@ -602,6 +602,22 @@ cap = [[s1, e1, 1.0], [s2, e2, 1.0], ...]   # list of [start, end, velocity] ran
 
 Element indices are 0-indexed. Single element: `[7875, 7875, 1.0]` → `ELEM 7875 TO 7875 VELO 1.0000 -1 0.0 -1`.
 
+Condition types (`type`/`value` on a geometric entry; `velocity`/`v` stays the
+VELO shorthand — give one or the other, never both):
+
+```toml
+[BOUNDARY]
+soft     = { near = [0, 0.1, 0], type = "pres" }                 # 0 Pa = sound-soft
+absorber = { near = [0, 0, -0.1], radius = 0.05, type = "admi", value = [0.4, -0.2] }
+driver   = { near = [0, 0, 0.05], type = "velo", value = [1.0, 0.5] }  # complex
+```
+
+`type` ∈ velo/pres/admi/impe (`BC_TYPES` in config.py); `value` is a number or
+`[re, im]`. **admi/impe are ρ₀·c-normalized**, so 1.0 is a matched termination —
+values > 100 are rejected as almost certainly SI. TRAD/TRIM are refused by name
+(NumCalc parses then hard-errors). `resolve_boundary` returns `BCRange(start, end,
+kind, real, imag)`; literal `[s, e, v]` entries stay VELO-only.
+
 Geometric anchors (`bemkit/sim/boundary.py`) — resolved against the mesh at
 export time, so they survive remeshing; anchors/radii in meters:
 ```toml

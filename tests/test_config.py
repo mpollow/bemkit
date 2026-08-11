@@ -655,3 +655,50 @@ class TestNcEscapeHatch:
     def test_rejects_non_numeric_value(self, tmp_path):
         with pytest.raises(ValueError, match="must be a number"):
             self._cfg(tmp_path, 'isolver = "direct"\n')
+
+
+class TestBoundaryTypes:
+    """Config validation for the PRES/ADMI/IMPE surface (Tier 2)."""
+
+    def _cfg(self, tmp_path, entry):
+        (tmp_path / "config.toml").write_text(
+            "[bem]\nsr = 8000\nnbins = 5\n\n[BOUNDARY]\n" + entry)
+        return ModelConfig.from_dir(tmp_path)
+
+    def test_accepts_each_supported_type(self, tmp_path):
+        for kind in ("velo", "pres", "admi", "impe"):
+            self._cfg(tmp_path, f'w = {{ near = [0,0,0], type = "{kind}" }}\n')
+
+    def test_rejects_unsupported_type(self, tmp_path):
+        with pytest.raises(ValueError, match="type must be one of"):
+            self._cfg(tmp_path, 'w = { near = [0,0,0], type = "wibble" }\n')
+
+    def test_names_why_trad_is_absent(self, tmp_path):
+        """NumCalc parses TRAD and then hard-errors, so bemkit never emits it."""
+        with pytest.raises(ValueError, match="hard-error"):
+            self._cfg(tmp_path, 'w = { near = [0,0,0], type = "trad" }\n')
+
+    def test_rejects_velocity_and_type_together(self, tmp_path):
+        with pytest.raises(ValueError, match="not both"):
+            self._cfg(tmp_path,
+                      'w = { near = [0,0,0], type = "admi", velocity = 1.0 }\n')
+
+    def test_rejects_malformed_value(self, tmp_path):
+        with pytest.raises(ValueError, match=r"number or \[real, imag\]"):
+            self._cfg(tmp_path,
+                      'w = { near = [0,0,0], type = "admi", value = [1,2,3] }\n')
+
+    @pytest.mark.parametrize("entry", [
+        'w = { near = [0,0,0], type = "admi", value = 408.0 }\n',
+        'w = { near = [0,0,0], type = "impe", value = [400.0, 120.0] }\n',
+    ])
+    def test_rejects_si_units_for_admittance_and_impedance(self, tmp_path, entry):
+        """NumCalc wants rho*c-normalized values; an SI number is wrong by ~410
+        and looks entirely plausible on a plot."""
+        with pytest.raises(ValueError, match="normalized"):
+            self._cfg(tmp_path, entry)
+
+    def test_plausible_normalized_values_pass(self, tmp_path):
+        self._cfg(tmp_path, 'w = { near = [0,0,0], type = "admi", value = 1.0 }\n')
+        self._cfg(tmp_path,
+                  'w = { near = [0,0,0], type = "impe", value = [12.0, -3.0] }\n')

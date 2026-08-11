@@ -152,3 +152,39 @@ def test_solver_knobs_reach_the_solver(tmp_path, pytestconfig):
     assert "Minimum number of terms in the FMM expansion. = 6" in log
     # IPRECOND = -1 selects incomplete-LU with scanning degree 1.
     assert "incomplete LU-decomposition preconditioner" in log
+
+
+def test_mixed_boundary_condition_types_solve(tmp_path, pytestconfig):
+    """Tier 2: a driven element plus an absorbing one in the same deck.
+
+    ADMI takes a **normalized** admittance (Y / (rho0*c)), so 0.4 is a real,
+    strongly absorbing surface; an SI value here would be wrong by ~410 and
+    NumCalc would accept it without complaint.
+    """
+    from bemkit.meshing.io import read_mesh_triangles
+
+    model = tmp_path / "model"
+    shutil.copytree(pytestconfig.rootpath / GOLDEN_MODEL, model)
+    verts, tris = read_mesh_triangles(next((model / "mesh").iterdir()))
+    anchor = [float(x) for x in verts[tris].mean(axis=1)[2]]
+    (model / "config.toml").write_text(
+        (model / "config.toml").read_text()
+        + "\nabsorber = {{ near = [{:.6f}, {:.6f}, {:.6f}], "
+          'type = "admi", value = [0.4, -0.2] }}\n'.format(*anchor))
+    export_variant(ModelConfig.from_dir(model), "tetra", verbose=False)
+
+    nc_dir = model / "numcalc" / "tetra"
+    text = (nc_dir / "NC.inp").read_text()
+    assert "ELEM 0 TO 0 VELO 1.0 -1 0.0 -1" in text
+    assert "ELEM 2 TO 2 ADMI 0.4 -1 -0.2 -1" in text
+
+    proc = subprocess.run(["NumCalc", "-istart", "1", "-iend", "1"],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode == 0, proc.stdout[-2000:]
+    assert available_bins(nc_dir) == [1]
+
+    # The absorbing element must not count toward the vibrating area.
+    from bemkit.numcalc.readers import read_nc_inp_boundary_conditions
+    vib = read_nc_inp_boundary_conditions(nc_dir / "NC.inp")["vibrating"]
+    assert list(vib) == [0]

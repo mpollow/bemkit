@@ -144,7 +144,9 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
     # Materialise to a list first: vibrating_indices arrives as a numpy array
     # from the mesh's physical groups, and `array or []` raises.
     vib = [] if vibrating_indices is None else list(vibrating_indices)
-    elems = [(s, e, velocity) for s, e in _contiguous_ranges(vib)]
+    from bemkit.sim.boundary import BCRange
+    elems = [BCRange(s, e, "VELO", velocity, 0.0)
+             for s, e in _contiguous_ranges(vib)]
     had_boundary_table = "BOUNDARY" in v
     if boundary_ranges is not None:
         elems += list(boundary_ranges)
@@ -159,7 +161,8 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
             default_velocity=velocity))
 
     boundary = []
-    for s, e, v0 in elems:
+    for r in elems:
+        s, e = r.start, r.end
         if not (0 <= int(s) <= int(e) < n_obj_elements):
             raise ValueError(
                 f"BOUNDARY element range [{s}, {e}] for variant '{variant}' is "
@@ -167,8 +170,8 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
                 f"indices 0..{n_obj_elements - 1}). A stale index usually means "
                 f"the BC was picked on a different mesh — re-pick or use "
                 f"geometric 'near=' anchors.")
-        boundary.append(BC(start=int(s), end=int(e), kind="VELO",
-                           real=float(v0), imag=0.0,
+        boundary.append(BC(start=int(s), end=int(e), kind=r.kind,
+                           real=float(r.real), imag=float(r.imag),
                            curve_real=-1, curve_imag=-1))
 
     if not boundary and (had_boundary_table or vib):

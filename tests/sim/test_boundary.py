@@ -36,13 +36,13 @@ class TestResolveBoundary:
     def test_literal_passes_through(self, mesh_file):
         path, _, _ = mesh_file
         resolved = resolve_boundary({"cap": [1, 2, 1.0]}, "tetra", path)
-        assert resolved == {"cap": [(1, 2, 1.0)]}
+        assert resolved == {"cap": [(1, 2, "VELO", 1.0, 0.0)]}
 
     def test_literal_range_list(self, mesh_file):
         path, _, _ = mesh_file
         resolved = resolve_boundary(
             {"cap": [[0, 1, 1.0], [2, 3, 0.5]]}, "tetra", path)
-        assert resolved == {"cap": [(0, 1, 1.0), (2, 3, 0.5)]}
+        assert resolved == {"cap": [(0, 1, "VELO", 1.0, 0.0), (2, 3, "VELO", 0.5, 0.0)]}
 
     def test_geometric_single_anchor(self, mesh_file):
         path, vertices, triangles = mesh_file
@@ -51,7 +51,7 @@ class TestResolveBoundary:
         anchor = cents[target] + 1e-4  # nudge toward element 2's centroid
         resolved = resolve_boundary(
             {"drv": {"near": anchor.tolist()}}, "tetra", path)
-        assert resolved["drv"] == [(target, target, 1.0)]
+        assert resolved["drv"] == [(target, target, "VELO", 1.0, 0.0)]
 
     def test_geometric_multi_anchor(self, mesh_file):
         path, vertices, triangles = mesh_file
@@ -59,7 +59,7 @@ class TestResolveBoundary:
         resolved = resolve_boundary(
             {"patch": {"near": [cents[0].tolist(), cents[3].tolist()],
                        "velocity": 0.5}}, "tetra", path)
-        assert resolved["patch"] == [(0, 0, 0.5), (3, 3, 0.5)]
+        assert resolved["patch"] == [(0, 0, "VELO", 0.5, 0.0), (3, 3, "VELO", 0.5, 0.0)]
 
     def test_radius_selects_all_elements_within(self, mesh_file):
         path, vertices, triangles = mesh_file
@@ -69,7 +69,7 @@ class TestResolveBoundary:
         resolved = resolve_boundary(
             {"drv": {"near": anchor.tolist(), "radius": r, "velocity": 0.5}},
             "tetra", path)
-        assert resolved["drv"] == [(0, 3, 0.5)]  # all 4, collapsed to one range
+        assert resolved["drv"] == [(0, 3, "VELO", 0.5, 0.0)]  # all 4, collapsed to one range
 
     def test_radius_selects_subset(self, mesh_file):
         path, vertices, triangles = mesh_file
@@ -78,7 +78,7 @@ class TestResolveBoundary:
         r = float(d[1]) / 2  # smaller than the nearest other centroid
         resolved = resolve_boundary(
             {"drv": {"near": cents[1].tolist(), "radius": r}}, "tetra", path)
-        assert resolved["drv"] == [(1, 1, 1.0)]
+        assert resolved["drv"] == [(1, 1, "VELO", 1.0, 0.0)]
 
     def test_radius_multi_anchor_union(self, mesh_file):
         path, vertices, triangles = mesh_file
@@ -88,7 +88,7 @@ class TestResolveBoundary:
         resolved = resolve_boundary(
             {"drv": {"near": [cents[0].tolist(), cents[3].tolist()],
                      "radius": r}}, "tetra", path)
-        assert resolved["drv"] == [(0, 0, 1.0), (3, 3, 1.0)]
+        assert resolved["drv"] == [(0, 0, "VELO", 1.0, 0.0), (3, 3, "VELO", 1.0, 0.0)]
 
     def test_radius_with_no_elements_raises(self, mesh_file):
         path, _, _ = mesh_file
@@ -110,7 +110,7 @@ class TestResolveBoundary:
             "mouth": {"spot": [3, 3, 1.0]},
         }
         resolved = resolve_boundary(bc, "ear__r05", path)
-        assert resolved == {"spot": [(1, 1, 1.0)]}
+        assert resolved == {"spot": [(1, 1, "VELO", 1.0, 0.0)]}
 
     def test_no_boundary_returns_empty(self, mesh_file):
         path, _, _ = mesh_file
@@ -123,11 +123,11 @@ class TestResolveBoundary:
         resolved = resolve_boundary(
             {"drv": {"near": cents[2].tolist()}}, "tetra", path,
             default_velocity=0.25)
-        assert resolved["drv"] == [(2, 2, 0.25)]
+        assert resolved["drv"] == [(2, 2, "VELO", 0.25, 0.0)]
 
     def test_flatten(self):
-        assert flatten({"a": [(0, 0, 1.0)], "b": [(1, 2, 0.5), (3, 3, 1.0)]}) == \
-            [(0, 0, 1.0), (1, 2, 0.5), (3, 3, 1.0)]
+        assert flatten({"a": [(0, 0, "VELO", 1.0, 0.0)], "b": [(1, 2, "VELO", 0.5, 0.0), (3, 3, "VELO", 1.0, 0.0)]}) == \
+            [(0, 0, "VELO", 1.0, 0.0), (1, 2, "VELO", 0.5, 0.0), (3, 3, "VELO", 1.0, 0.0)]
 
 
 class TestLoudFailures:
@@ -154,3 +154,53 @@ class TestLoudFailures:
         with pytest.raises(ValueError, match="near"):
             resolve_boundary({"spot": {"near": [0.0, 0.0, 0.05]}},
                              "v1", mesh_file=None)
+
+
+class TestBoundaryConditionTypes:
+    """PRES / ADMI / IMPE and complex values (Tier 2).
+
+    Element *selection* is unchanged — geometric anchors work exactly as for a
+    velocity condition. Only the emitted value differs.
+    """
+
+    def test_admittance_with_complex_value(self, mesh_file):
+        path, _, _ = mesh_file
+        resolved = resolve_boundary(
+            {"wall": {"near": _centroids(*mesh_file[1:])[0].tolist(),
+                      "radius": 10.0,
+                      "type": "admi", "value": [0.4, -0.2]}}, "tetra", path)
+        for r in resolved["wall"]:
+            assert (r.kind, r.real, r.imag) == ("ADMI", 0.4, -0.2)
+
+    def test_pressure_defaults_to_sound_soft(self, mesh_file):
+        path, vertices, triangles = mesh_file
+        anchor = _centroids(vertices, triangles)[0].tolist()
+        resolved = resolve_boundary(
+            {"soft": {"near": anchor, "type": "pres"}}, "tetra", path)
+        assert resolved["soft"][0].kind == "PRES"
+        assert resolved["soft"][0].real == 0.0     # 0 = sound-soft
+
+    def test_complex_velocity(self, mesh_file):
+        """The imaginary part was hardcoded to 0 before Tier 2."""
+        path, vertices, triangles = mesh_file
+        anchor = _centroids(vertices, triangles)[0].tolist()
+        resolved = resolve_boundary(
+            {"drv": {"near": anchor, "type": "velo",
+                     "value": [1.0, 0.5]}}, "tetra", path)
+        assert (resolved["drv"][0].kind, resolved["drv"][0].imag) == ("VELO", 0.5)
+
+    def test_literal_form_is_still_velocity(self, mesh_file):
+        path, _, _ = mesh_file
+        resolved = resolve_boundary({"cap": [1, 2, 1.0]}, "tetra", path)
+        assert resolved["cap"][0].kind == "VELO"
+
+    def test_admi_and_velo_may_share_elements(self, mesh_file):
+        """A vibrating source on an absorbing surface: two entries, one range."""
+        path, vertices, triangles = mesh_file
+        anchor = _centroids(vertices, triangles)[0].tolist()
+        resolved = resolve_boundary(
+            {"drv": {"near": anchor, "velocity": 1.0},
+             "absorb": {"near": anchor, "type": "admi",
+                        "value": 0.3}}, "tetra", path)
+        kinds = {r.kind for rs in resolved.values() for r in rs}
+        assert kinds == {"VELO", "ADMI"}
