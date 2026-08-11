@@ -15,7 +15,7 @@ from bemkit.config import ModelConfig
 from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
 from bemkit.sim.export import export_variant
 from bemkit.numcalc.packing import clear_pack, has_results, is_packed, pack_variant
-from bemkit.numcalc.runner import plan_jobs, run_jobs
+from bemkit.numcalc.runner import plan_jobs, run_jobs, solver_flags
 from bemkit.numcalc.status import solver_warnings
 
 
@@ -276,7 +276,7 @@ class ExportStage(PipelineStage):
 
 
 def plan_run(config, variants, *, max_jobs=None, force=False, bins=None,
-             verbose=True):
+             options=(), verbose=True):
     """Work out what a run would do, without doing any of it.
 
     Shared by ``RunStage.run`` and the CLI's pre-flight: a backgrounded run
@@ -288,7 +288,7 @@ def plan_run(config, variants, *, max_jobs=None, force=False, bins=None,
     conjures up bins that resume/force wouldn't already have picked.
 
     Returns (pairs, jobs): the (variant, nc_dir) pairs that are exported, and
-    the planned jobs.
+    the planned jobs. ``options`` are extra NumCalc flags for every job.
     """
     pairs = []
     for v in variants:
@@ -299,7 +299,7 @@ def plan_run(config, variants, *, max_jobs=None, force=False, bins=None,
             continue
         pairs.append((v, nc_dir))
     jobs = plan_jobs(pairs, config.nbins - 1, max_jobs=max_jobs,
-                     missing_only=not force, bins=bins)
+                     missing_only=not force, bins=bins, options=options)
     return pairs, jobs
 
 
@@ -308,7 +308,8 @@ class RunStage(PipelineStage):
         return has_results(config.model_dir / "numcalc" / variant)
 
     def run(self, config, *, prefixes=None, max_jobs=None, force=False,
-            restart=False, bins=None):
+            restart=False, bins=None, nitermax=None,
+            check_normals=False, adapt_fmmlength=False):
         # plan_run/plan_jobs intersect bins with the missing ones, so a
         # preview never re-runs work a prior full run already completed.
         if max_jobs is not None and max_jobs < 1:
@@ -337,7 +338,10 @@ class RunStage(PipelineStage):
         if busy:
             raise RuntimeError(busy_error(busy))
 
+        options = solver_flags(nitermax=nitermax, check_normals=check_normals,
+                               adapt_fmmlength=adapt_fmmlength)
         pairs, jobs = plan_run(config, variants, max_jobs=max_jobs, force=force,
+                               options=options,
                                bins=bins)
         if not jobs:
             if bins is not None:

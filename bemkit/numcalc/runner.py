@@ -29,6 +29,10 @@ class Job:
     name: str
     nc_dir: Path
     steps: tuple[int, int] | None = None  # (istart, iend), 1-based inclusive
+    #: Extra NumCalc flags, e.g. ("-nitermax", "5000") or ("-check_normals",).
+    #: NumCalc exits(-1) on an unrecognised flag, so these are built by
+    #: solver_flags() rather than passed through from user input verbatim.
+    options: tuple[str, ...] = ()
 
     @property
     def log_name(self):
@@ -66,6 +70,7 @@ class LocalRunner(Runner):
         cmd = ["NumCalc"]
         if job.steps is not None:
             cmd += ["-istart", str(job.steps[0]), "-iend", str(job.steps[1])]
+        cmd += list(job.options)
         return subprocess.Popen(cmd, cwd=str(job.nc_dir),
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
@@ -85,6 +90,37 @@ class LocalRunner(Runner):
         except subprocess.TimeoutExpired:
             handle.kill()
             handle.wait()
+
+
+#: NumCalc's own flag set (NC_Main.cpp:150-186), minus -istart/-iend which the
+#: job planner owns. An unrecognised flag makes NumCalc exit(-1), so the CLI
+#: never forwards a raw string.
+SOLVER_FLAGS = {
+    "nitermax": "-nitermax",            # takes an int
+    "check_normals": "-check_normals",  # boolean
+    "adapt_fmmlength": "-adapt_fmmlength",  # boolean
+}
+
+
+def solver_flags(*, nitermax=None, check_normals=False, adapt_fmmlength=False):
+    """Build the extra NumCalc argv for a run.
+
+    Returns
+    -------
+    tuple of str
+    """
+    out = []
+    if nitermax is not None:
+        if not (isinstance(nitermax, int) and not isinstance(nitermax, bool)
+                and nitermax > 0):
+            raise ValueError(f"nitermax must be a positive integer, "
+                             f"got {nitermax!r}")
+        out += [SOLVER_FLAGS["nitermax"], str(nitermax)]
+    if check_normals:
+        out.append(SOLVER_FLAGS["check_normals"])
+    if adapt_fmmlength:
+        out.append(SOLVER_FLAGS["adapt_fmmlength"])
+    return tuple(out)
 
 
 def _contiguous(bins):
@@ -189,7 +225,8 @@ def _queue_order(weighted):
     return out
 
 
-def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False, bins=None):
+def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False, bins=None,
+               options=()):
     """Build the job list for a run.
 
     One job per variant, except that fewer variants than ``max_jobs`` would
@@ -201,6 +238,7 @@ def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False, bins=None):
     Args:
         variants: list of (name, nc_dir) pairs
         nf: number of frequency bins
+        options: extra NumCalc flags applied to every job (see solver_flags)
         max_jobs: NumCalc processes that may run at once (None: no fan-out)
         missing_only: only schedule bins absent from be.out/ (resume)
         bins: 1-based bins to restrict the run to (None: the whole band).
@@ -235,7 +273,8 @@ def plan_jobs(variants, nf, *, max_jobs=None, missing_only=False, bins=None):
             # range explicitly, so it can never collide with a full run's log.
             steps = (None if rng == (1, nf) and not missing_only and bins is None
                      else rng)
-            weighted.append((elem * _cost(rng), Job(name, nc_dir, steps)))
+            weighted.append((elem * _cost(rng),
+                             Job(name, nc_dir, steps, options=tuple(options))))
     return _queue_order(weighted)
 
 

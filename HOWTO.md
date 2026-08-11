@@ -658,6 +658,32 @@ until you fill it in.
 bins you did not name would still come from the previous export. To restart a
 partial run from scratch, delete `numcalc/<variant>/be.out/` first.
 
+### Will it fit in RAM?
+
+```bash
+bem examples/sphcap estimate-ram      # clustering only, no solve — seconds
+```
+
+Reports NumCalc's own estimate at the **highest** frequency, where FMM memory
+peaks. It under-estimates slightly (FMM matrices only, not the mesh and result
+arrays), but it is the number to compare against free RAM before committing to
+`-j 4`. `--all-bins` sweeps the whole band instead.
+
+If the answer is too big, shrink `cluster_edge_length` (below) before reaching
+for a coarser mesh.
+
+### Extra solver flags
+
+```bash
+bem MODEL run --nitermax 5000     # max CGS iterations (NumCalc default 1000)
+bem MODEL run --check-normals     # verify normal-vector consistency
+bem MODEL run --adapt-fmmlength   # adapt multipole truncation to cluster radii
+```
+
+`--check-normals` verifies that every element normal points into the **same**
+domain. It does *not* check they point outward, so a uniformly inverted mesh
+passes — that check is still on you (Hint 1).
+
 ### Tuning the solver
 
 The four `[bem]` solver knobs all default to NumCalc's own values, so leaving

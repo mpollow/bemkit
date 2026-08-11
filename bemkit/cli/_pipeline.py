@@ -35,7 +35,27 @@ def register(sub):
                    help="Kill NumCalc processes already running for the "
                         "selected variants, then run. Resumes missing bins; "
                         "add --force to recompute everything")
+    p.add_argument("--nitermax", type=int, metavar="N",
+                   help="Max CGS iterations before NumCalc gives up "
+                        "(NumCalc default: 1000). Non-convergence usually "
+                        "means a defective mesh — re-mesh before raising this")
+    p.add_argument("--check-normals", action="store_true",
+                   help="Have NumCalc verify all element normals point into "
+                        "the same domain. Note it does NOT check they point "
+                        "outward, so a uniformly inverted mesh still passes")
+    p.add_argument("--adapt-fmmlength", action="store_true",
+                   help="Adapt the multipole truncation to cluster radii "
+                        "(one of the two levers when expansion order L > 30)")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("estimate-ram",
+                       help="Run NumCalc's clustering only (no solve) and "
+                            "report its RAM estimate per variant")
+    _add_variant(p)
+    p.add_argument("--all-bins", action="store_true",
+                   help="Estimate across the whole band instead of only the "
+                        "highest frequency (where FMM memory peaks)")
+    p.set_defaults(func=cmd_estimate_ram)
 
     p = sub.add_parser("pack", help="Pack be.out/ into be.npz (~4x shrink) "
                                     "and remove be.out/")
@@ -190,7 +210,9 @@ def cmd_run(model_dir, args):
         return _detach_run(model_dir, config, args, bins)
     completed, failed = _run_stage(
         "run", config, prefixes=args.variant, max_jobs=args.jobs,
-        force=args.force, restart=args.restart, bins=bins)
+        force=args.force, restart=args.restart, bins=bins,
+        nitermax=args.nitermax, check_normals=args.check_normals,
+        adapt_fmmlength=args.adapt_fmmlength)
     if failed:
         sys.exit(f"NumCalc failed for: {', '.join(sorted({j.name for j in failed}))}")
 
@@ -225,8 +247,15 @@ def _detach_run(model_dir, config, args, bins=None):
         if msg:
             sys.exit(msg)
 
+    from bemkit.numcalc.runner import solver_flags
+    try:
+        options = solver_flags(nitermax=args.nitermax,
+                               check_normals=args.check_normals,
+                               adapt_fmmlength=args.adapt_fmmlength)
+    except ValueError as e:
+        sys.exit(str(e))
     _, jobs = plan_run(config, variants, max_jobs=args.jobs, force=args.force,
-                       bins=bins)
+                       bins=bins, options=options)
     if not jobs:
         if bins is not None:
             print(f"  Nothing to run (all {len(bins)} selected bin(s) already "
@@ -245,6 +274,12 @@ def _detach_run(model_dir, config, args, bins=None):
         argv.append("--force")
     if args.restart:
         argv.append("--restart")
+    if args.nitermax is not None:
+        argv += ["--nitermax", str(args.nitermax)]
+    if args.check_normals:
+        argv.append("--check-normals")
+    if args.adapt_fmmlength:
+        argv.append("--adapt-fmmlength")
     # `is not None`, not truthiness: the supervisor re-resolves the selection
     # from these flags, so a selector that is present but empty must still be
     # forwarded as present — dropping it would silently run the whole band.
@@ -276,6 +311,65 @@ def cmd_pack(model_dir, args):
     from bemkit.cli import load_model_config
     _run_stage("pack", load_model_config(model_dir), prefixes=args.variant,
                delete_original=not args.keep_original)
+
+
+def cmd_estimate_ram(model_dir, args):
+    """Report NumCalc's own RAM estimate for each exported variant.
+
+    Runs the clustering pass only (``-estimate_ram``), no BEM solve, so it is
+    fast. It answers the question our ``-j`` default of 1 currently answers by
+    being conservative: how much memory one solve actually needs.
+
+    Estimated at the **highest** frequency by default, because FMM memory grows
+    with frequency and the top bin is the one that has to fit. NumCalc slightly
+    *under*-estimates: the figure covers the FMM matrices, not the mesh and
+    result arrays.
+    """
+    import subprocess
+
+    from bemkit.cli import load_model_config
+    from bemkit.pipeline import require_numcalc
+    from bemkit.sim.discovery import discover_variants
+
+    try:
+        require_numcalc()
+    except RuntimeError as e:
+        sys.exit(str(e))
+
+    config = load_model_config(model_dir)
+    variants = discover_variants(model_dir, args.variant, need_object_mesh=True)
+    if not variants:
+        sys.exit(f"No exported variants in {model_dir / 'numcalc'}. "
+                 f"Run 'export' first.")
+
+    nf = config.nbins - 1
+    cmd = ["NumCalc", "-estimate_ram"]
+    if not args.all_bins:
+        cmd += ["-istart", str(nf), "-iend", str(nf)]
+    scope = "whole band" if args.all_bins else f"bin {nf} ({config.freq_array()[-1]:.0f} Hz)"
+    print(f"NumCalc RAM estimate ({scope}):")
+
+    for v in variants:
+        nc_dir = model_dir / "numcalc" / v
+        memory = nc_dir / "Memory.txt"
+        memory.unlink(missing_ok=True)
+        proc = subprocess.run(cmd, cwd=str(nc_dir), capture_output=True,
+                              text=True)
+        if proc.returncode != 0 or not memory.exists():
+            tail = (proc.stdout or proc.stderr).strip().splitlines()
+            reason = tail[-1] if tail else f"exit {proc.returncode}"
+            print(f"  {v}: failed — {reason}")
+            continue
+        # Memory.txt rows are "<step> <frequency Hz> <GB>", no header.
+        peak = 0.0
+        for line in memory.read_text().splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    peak = max(peak, float(parts[2]))
+                except ValueError:
+                    pass
+        print(f"  {v}: {peak:.3f} GB")
 
 
 def cmd_ps(model_dir, args):

@@ -155,6 +155,11 @@ bem examples/sphcap run --restart      # kill the running NumCalc first, then re
 bem examples/sphcap run --preview 8    # 8 bins across the band, log-spaced
 bem examples/sphcap run --freq 1000 4000   # only the bins nearest these
 bem examples/sphcap run --bins 4 16 64     # literal 1-based bins
+bem examples/sphcap run --nitermax 5000    # max CGS iterations
+bem examples/sphcap run --check-normals    # NumCalc verifies normal consistency
+bem examples/sphcap run --adapt-fmmlength  # adapt multipole truncation to clusters
+bem examples/sphcap estimate-ram           # clustering only; RAM at the top bin
+bem examples/sphcap estimate-ram --all-bins
 #   A partial run merges into a later full run: `bem MODEL run` then computes
 #   only what is still missing. --force cannot be combined with these (it
 #   discards every bin, which would mix exports).
@@ -503,6 +508,15 @@ needed — outputs just land in the same `be.out/`).
   previous export. Sparse results are usable — frequency plots mark the
   computed bins — but anything crossing the whole band (`plot ir`, `plot etc`)
   raises `IncompleteBand` and is skipped with a reason.
+- **NumCalc's own flags** (`solver_flags()` in `numcalc/runner.py`, carried on
+  `Job.options`): `--nitermax N`, `--check-normals`, `--adapt-fmmlength` on
+  `bem run`, plus `bem MODEL estimate-ram` for `-estimate_ram`. NumCalc
+  `exit(-1)`s on an unrecognised flag, so the CLI builds the argv rather than
+  forwarding strings. `--check-normals` verifies all normals point into the
+  *same* domain — **not** that they point outward, so a uniformly inverted mesh
+  still passes. `estimate-ram` runs clustering only and reads `Memory.txt`
+  (`<step> <freq Hz> <GB>`, no header), defaulting to the highest bin because
+  FMM memory peaks there.
 - `bemkit.numcalc.status`: `available_bins(nc_dir)`, `missing_bins(nc_dir, nf)`,
   `is_complete(nc_dir, nf)` — derive job state directly from `be.out/`/`be.npz`, no separate
   bookkeeping file.

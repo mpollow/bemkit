@@ -249,3 +249,31 @@ class TestRunJobs:
         assert runner.poll(handle) is None   # still running
         runner.cancel(handle)
         assert handle.poll() is not None      # terminated
+
+
+class TestSolverFlags:
+    """Extra NumCalc argv (Tier 6). An unrecognised flag is exit(-1), so the
+    CLI never forwards a raw string — solver_flags builds the list."""
+
+    def test_empty_by_default(self):
+        from bemkit.numcalc.runner import solver_flags
+        assert solver_flags() == ()
+
+    def test_builds_each_flag(self):
+        from bemkit.numcalc.runner import solver_flags
+        assert solver_flags(nitermax=500) == ("-nitermax", "500")
+        assert solver_flags(check_normals=True) == ("-check_normals",)
+        assert solver_flags(adapt_fmmlength=True) == ("-adapt_fmmlength",)
+
+    @pytest.mark.parametrize("bad", [0, -5, 1.5, True, "many"])
+    def test_rejects_bad_nitermax(self, bad):
+        from bemkit.numcalc.runner import solver_flags
+        with pytest.raises(ValueError, match="positive integer"):
+            solver_flags(nitermax=bad)
+
+    def test_options_ride_along_on_every_planned_job(self, tmp_path):
+        from bemkit.numcalc.runner import plan_jobs
+        (tmp_path / "a").mkdir()
+        jobs = plan_jobs([("a", tmp_path / "a")], 8,
+                         options=("-nitermax", "500"))
+        assert jobs and all(j.options == ("-nitermax", "500") for j in jobs)

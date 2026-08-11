@@ -188,3 +188,51 @@ def test_mixed_boundary_condition_types_solve(tmp_path, pytestconfig):
     from bemkit.numcalc.readers import read_nc_inp_boundary_conditions
     vib = read_nc_inp_boundary_conditions(nc_dir / "NC.inp")["vibrating"]
     assert list(vib) == [0]
+
+
+def test_check_normals_catches_the_inconsistently_wound_fixture(solved):
+    """Tier 6: -check_normals is wired through and actually bites.
+
+    The golden tetrahedron's triangles are NOT consistently wound — edge 0->1
+    appears in both [0,1,2] and [0,1,3] — so NumCalc's half-edge tally fails.
+    That makes it a good positive test of the flag: an inconsistent mesh must
+    be rejected, not silently solved. (It only checks that all normals point
+    into the *same* domain, not that they point outward.)
+    """
+    nc_dir, _, _ = solved
+    proc = subprocess.run(["NumCalc", "-istart", "1", "-iend", "1",
+                           "-check_normals"],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode != 0
+    assert "differently ordered" in proc.stdout + proc.stderr
+
+
+def test_solver_flags_are_accepted_by_numcalc(solved):
+    """An unrecognised flag makes NumCalc exit(-1), so the ones bemkit emits
+    have to be exactly right."""
+    from bemkit.numcalc.runner import solver_flags
+
+    nc_dir, _, _ = solved
+    opts = solver_flags(nitermax=500, adapt_fmmlength=True)
+    assert opts == ("-nitermax", "500", "-adapt_fmmlength")
+    proc = subprocess.run(["NumCalc", "-istart", "1", "-iend", "1", *opts],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode == 0, proc.stdout[-1500:]
+
+
+def test_estimate_ram_reports_a_figure(solved):
+    """-estimate_ram runs clustering only and writes Memory.txt
+    ("<step> <freq Hz> <GB>", no header)."""
+    nc_dir, _, _ = solved
+    (nc_dir / "Memory.txt").unlink(missing_ok=True)
+    proc = subprocess.run(["NumCalc", "-estimate_ram", "-istart", "1",
+                           "-iend", "1"],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode == 0, proc.stdout[-1500:]
+    rows = [ln.split() for ln in
+            (nc_dir / "Memory.txt").read_text().splitlines() if ln.strip()]
+    assert rows and len(rows[0]) >= 3
+    assert float(rows[0][2]) > 0

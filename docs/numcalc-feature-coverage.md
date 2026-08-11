@@ -306,10 +306,10 @@ in the writer. `Deck` already carries the fields; nothing asks for them yet.
 | `ISOLVER` (`methodSolver_`) | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.isolver` |
 | `ClusEdgL0` | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.cluster_edge_length` |
 | Preconditioner | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.preconditioner` |
-| `-nitermax` | ❌ | — |
-| `-estimate_ram` | ❌ | — |
-| `-check_normals` | ❌ | — |
-| `-adapt_fmmlength` | ❌ | — |
+| `-nitermax` | ✅ `bem run --nitermax` | `numcalc/runner.py:solver_flags` |
+| `-estimate_ram` | ✅ `bem MODEL estimate-ram` | `cli/_pipeline.py` |
+| `-check_normals` | ✅ `bem run --check-normals` | `numcalc/runner.py:solver_flags` |
+| `-adapt_fmmlength` | ✅ `bem run --adapt-fmmlength` | `numcalc/runner.py:solver_flags` |
 | `-istart` / `-iend` | ✅ | `numcalc/runner.py` |
 | Solver-convergence check (Hint 5) | ✅ | `numcalc/status.py:solver_warnings` |
 
@@ -324,7 +324,7 @@ comment is now emitted by `Deck.write` and is correct. No action needed.
 
 | # | Hint | bemkit status |
 |---|---|---|
-| 1 | Normal vectors point away from the scatterer | ⚠️ **[corrected]** — see below. |
+| 1 | Normal vectors point away from the scatterer | ⚠️ **[corrected]** — see below. NumCalc's own partial check is now reachable via `bem run --check-normals`; the *outward* question is still unanswered. |
 | 2 | 6–8 elements per wavelength | ⚠️ implicit. `[mesh] lc_max` is documented as "~6 elements per wavelength at max freq", but nothing verifies it against `sr`/`nbins` after meshing. `element_areas` already exists. |
 | 3 | ≥ 1 average edge length between an external source and the surface | ❌ **not checked** — and this is the validation that matters most for incident sources. bemkit already computes exactly this quantity for fieldpoints (`min_surface_distance_factor × avg_edge_length`); point sources need the same test. |
 | 4 | Keep elements as regular as possible | ❌ not measured. Aspect-ratio/skew histogram would be cheap from `read_mesh_triangles`. |
@@ -496,7 +496,7 @@ Re-sequenced around the deck refactor and the corrected sizing.
 | 3 | Normalization semantics for non-velocity-driven models | small + decision | ✅ **Landed.** See §5.2. |
 | 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
 | 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |
-| 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | New. `estimate-ram` answers the question our `-j` default currently answers by being conservative. |
+| 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | ✅ **Landed.** `bem run --nitermax/--check-normals/--adapt-fmmlength`, `bem MODEL estimate-ram`. |
 | 7 | Non-uniform frequency lists | medium | New. Needs an `analysis/` decision (§1.6). |
 | 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 3, 4, 6, 7 | medium | The differentiator (§4.6). |
 
