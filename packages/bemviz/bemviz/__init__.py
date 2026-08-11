@@ -1,25 +1,22 @@
-"""bemviz — plotting and web export for bemkit results.
+"""bemviz — 3D inspection and web export for bemkit results.
 
-Everything that needs matplotlib or pyvista, kept out of `bemkit` so that
+Everything that needs pyvista or matplotlib, kept out of `bemkit` so that
 producing and reading results never drags a display stack in. Depends on
 bemkit (for `SimulationData`/`BEMResult`), never the other way round.
 
-The 2D plot functions all take an Axes and a `BEMResult` and return artists;
-`bemviz.viz.scene.BEMScene` does 3D (lazy pyvista). `export_web` writes an
-auralizer bundle.
+`bemviz.viz.scene.BEMScene` renders 3D scenes (lazy pyvista) and
+`ResultsViewer` is the interactive viewer behind `bem MODEL results`.
+`export_web` writes an auralizer bundle.
 
-Registers the `plot`, `geometry`, `results` and `export-web` subcommands into
-the `bem` CLI through the `bemkit.cli` entry-point group — the same seam any
-third-party plugin uses.
+Registers the `geometry`, `results` and `export-web` subcommands into the `bem`
+CLI through the `bemkit.cli` entry-point group — the same seam any third-party
+plugin uses.
+
+The 2D plotting family (`bem MODEL plot`: freq/ir/polar/isobaric/...) was
+removed on 2026-08-12; recover it from git history if it is wanted back.
 """
 
-from bemviz.viz import (  # noqa: F401
-    angle_impulse_response, angle_response, cmap_for_quantity, contour,
-    directivity_levels, energy_time_curve, format_polar_axes, freq_magnitude,
-    freq_phase, freq_real_imag, heatmap, impulse_response, isobaric,
-    level_label, onaxis_response, polar_balloon_slice, polar_directivity,
-    scatter_field, spherical_heatmap,
-)
+from bemviz.viz._style import cmap_for_quantity  # noqa: F401
 
 
 def __getattr__(name):
@@ -32,7 +29,6 @@ def __getattr__(name):
 
 def register_cli(sub):
     """Add bemviz's subcommands to the `bem` CLI (entry point: bemkit.cli)."""
-    from bemviz import cli_plot, cli_viz3d, cli_web
-    cli_plot.register(sub)
+    from bemviz import cli_viz3d, cli_web
     cli_viz3d.register(sub)
     cli_web.register(sub)

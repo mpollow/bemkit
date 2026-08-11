@@ -24,10 +24,10 @@ packages/
 │                       #                  fieldpoints, export, discovery, snapshot
 │                       #   analysis/    — SimulationData, BEMResult, normalization
 │                       #   pipeline.py  — stages; cli/ — bem entry point
-└── bemviz/             ~4.4k lines — plotting (matplotlib/pyvista)
-    └── bemviz/         #   viz/         — 2D plots + BEMScene/ResultsViewer
+└── bemviz/             ~2.6k lines — 3D inspection + web export (pyvista)
+    └── bemviz/         #   viz/         — BEMScene / ResultsViewer (3D)
                         #   web.py       — auralizer bundle exporter
-                        #   cli_*.py     — plot/geometry/results/export-web,
+                        #   cli_*.py     — geometry/results/export-web,
                         #                  registered via the bemkit.cli group
 ```
 
@@ -45,13 +45,14 @@ stack. Both rules are checked in `packages/bemkit/tests/test_boundaries.py`.
 
 The CLI reassembles itself from whatever is installed: `bemkit` ships
 `check/init/status/mesh/export/run/estimate-ram/pack/ps/all`, and `bemviz` adds
-`plot/geometry/results/export-web` through the `bemkit.cli` entry-point group —
+`geometry/results/export-web` through the `bemkit.cli` entry-point group —
 the same seam the private `bemlab` uses for `bem MODEL verify`.
 
 **Layer rule**: `meshing`/`sim` never import `analysis`, and never
 use pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-Trumbore +
 Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
-commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
+commands that need them (`geometry`, `results`). Enforced by
+`packages/bemkit/tests/test_boundaries.py`.
 
 **Solver knobs and the `[nc]` hatch**: the four `[bem]` solver keys map onto `Deck`
 fields (`solver` → `Deck.isolver`; the rest share their name), and `[nc]` sets any
@@ -145,17 +146,6 @@ bem examples/sphcap estimate-ram --all-bins
 bem examples/sphcap pack               # be.out/ → be.npz (~4× shrink), then remove be.out/
 bem examples/sphcap pack --keep-original     # keep be.out/ after the verified pack
 bem ps                                 # every running NumCalc, any model: model/variant/bins/pid
-bem examples/sphcap plot               # freq + ir plots (all sets)
-bem examples/sphcap plot freq          # frequency magnitude (off-axis fan on a circular set)
-bem examples/sphcap plot ir
-bem examples/sphcap plot polar
-bem examples/sphcap plot isobaric      # angle x frequency map (circular set)
-bem examples/sphcap plot onaxis        # distance-compensated response (on-axis set)
-bem examples/sphcap plot plane --freq 1000
-bem examples/sphcap plot phase
-bem examples/sphcap plot etc
-bem examples/sphcap plot sphere --freq 1000
-bem examples/sphcap plot contour --freq 1000
 bem examples/sphcap all                # mesh -> export -> run
 # --variant goes AFTER the subcommand:
 bem examples/sphcap export --variant foo
@@ -197,11 +187,6 @@ docs/bundle-format.md, guarded there by a golden-manifest test). The
 diagnostic `bem MODEL check ...` family ships separately via the
 `bemkit.cli` entry-point group (private `bemlab` package).
 
-`bem MODEL plot [TYPE] [SET]` options: `--variant` (repeatable), `--freq` (plane/sphere/contour),
-`--freqs` (polar), `--angles` (freq/ir on a circular set; default `0,±30,±60,±90`),
-`--ref` (onaxis/max/globalmax/number), `--clim LO HI`, `--contours DB` (0 disables),
-`--linear-freq`, `--value-func`, `--filled`
-
 `bem MODEL geometry` options: `--variant` (repeatable), `--no-bc`, `--no-mesh`, `--no-grid`,
 `--mesh-opacity`, `--mesh-color`, `--grid-color`, `--point-size`, `--show-edges`,
 `--bc-vibrating-color`, `--camera` (xz/xy/yz/iso), `--background`, `--screenshot`
@@ -221,7 +206,7 @@ partial-band selection works identically on a non-uniform band.
 `snapshot.json` records the resolved frequency list for a non-uniform model
 (`sr`/`nbins` cannot express it), and `SimulationData` reads it back.
 `BEMResult.is_uniform_band` gates the time domain: `impulse_response` (and hence
-`plot ir`/`plot etc`) raises `IncompleteBand` on a non-uniform band rather than
+`BEMResult.impulse_response`) raises `IncompleteBand` on a non-uniform band rather than
 inverse-FFT-ing something meaningless.
 
 ### Normalization: raw / acc / auto
@@ -233,8 +218,8 @@ surface) has no vibrating area, and `SimulationData.A_vib` is None.
 - `norm="raw"` — NumCalc's own output; always available; the `SimulationData` default.
 - `norm="acc"` — raises `NoVelocityDrive` when there is no drive, rather than
   returning raw under an acc label (which is what it used to do).
-- `norm="auto"` — acc when available, raw otherwise. The **viz default**, so plots
-  label their axis from the resolved norm and never claim Pa/m/s² over Pascals.
+- `norm="auto"` — acc when available, raw otherwise. What a display layer should
+  key off, so nothing labels a scattering result in acceleration-normalized units.
 
 `sim.is_velocity_driven` / `result.has_acc` expose the state;
 `sim.effective_norm(norm)` / `result.effective_norm(norm)` resolve it. A scattering
@@ -524,8 +509,8 @@ needed — outputs just land in the same `be.out/`).
   the results merge with no extra step. `--force` refuses to combine with a
   selection: it discards every bin, so the unnamed ones would come from the
   previous export. Sparse results are usable — frequency plots mark the
-  computed bins — but anything crossing the whole band (`plot ir`, `plot etc`)
-  raises `IncompleteBand` and is skipped with a reason.
+  computed bins — but anything crossing the whole band
+  (`BEMResult.impulse_response`) raises `IncompleteBand` with a reason.
 - **NumCalc's own flags** (`solver_flags()` in `numcalc/runner.py`, carried on
   `Job.options`): `--nitermax N`, `--check-normals`, `--adapt-fmmlength` on
   `bem run`, plus `bem MODEL estimate-ram` for `-estimate_ram`. NumCalc
@@ -705,60 +690,17 @@ exact pressure for axisymmetric spherical cap vibration via SH expansion.
 `sphcap_pressure(eval_points, frequencies, c0, rho0, angle_deg, radius_mm, nmax)` → raw pressure array.
 Normalization matches BEM pipeline: velocity BC (v=1) → raw pressure → ÷(rho0·omega·A_vib) → pressure_acc.
 
-## Visualization: bemviz.viz
+## Visualization: bemviz
 
-Composable matplotlib/PyVista visualizations. All 2D functions take an Axes and BEMResult, return artists.
+**3D inspection only.** The 2D plotting family — `bem MODEL plot`
+(freq/ir/polar/isobaric/onaxis/plane/phase/etc/sphere/contour) plus
+`viz/{freq,time,polar,field,directivity,_angles}.py` — was **removed on
+2026-08-12**: the plots were not useful in practice. Recover from git history
+(`git show 2535eba:packages/bemviz/bemviz/viz/freq.py`) if wanted back.
 
-2D plots: `freq_magnitude`, `freq_phase`, `freq_real_imag`, `impulse_response`, `energy_time_curve`, `polar_directivity`, `polar_balloon_slice`, `heatmap`, `contour`, `scatter_field`, `spherical_heatmap`
-
-### Dataset-tailored plots
-
-These read the *geometry* of a fieldpoint set and refuse the wrong one, so
-`bem MODEL plot <type>` over all sets plots the ones that fit and skips the
-rest with a reason. `bemkit/viz/_angles.py` answers the two questions they
-share — is this set a circle about the origin (`circle_angles`, and the angle
-of every point), is it collinear through the origin (`axis_positions`) — from
-the coordinates alone, since a `BEMResult` carries no record of the
-`[fieldpoints.<name>]` table that made it.
-
-| Function | Set | What it shows |
-|---|---|---|
-| `isobaric` (`viz.directivity`) | circular | angle × frequency map, level in color |
-| `angle_response` (`viz.freq`) | circular | frequency response at 0°, ±30°, ±60°, ±90° |
-| `angle_impulse_response` (`viz.time`) | circular | IRs of selected directions, overlaid |
-| `onaxis_response` (`viz.freq`) | on-axis | frequency response × r (1/r decay removed) |
-
-Angle convention (shared by `polar_directivity(angle_key="auto")`): for a
-circle whose plane normal is axis *n*, 0° is on axis `(n+1)%3` and +90° on
-`(n+2)%3`. A `dims = "zx"` polar set therefore has 0° on +z. Angles run
--180°…180°, and `angle_indices` snaps a requested direction to the nearest
-measured one, dropping requests outside the covered arc — so a half circle
-just yields fewer curves.
-
-dB reference (`directivity_levels`, used by `isobaric`, `polar_directivity`
-and `angle_response`): `"onaxis"` (default for the maps — every frequency
-referenced to its own 0°, so the plot is directivity only), `"max"`,
-`"globalmax"`, or a number for absolute levels. `--ref` on the CLI.
-
-A ±θ pair always shares a color and is separated by line style
-(`_style.angle_styles`), so the pairing survives grayscale and color blindness
-— on an axisymmetric source the two curves land on top of each other, which is
-itself the symmetry check.
-
-3D scenes (`BEMScene`, in `bemviz.viz.scene`): Pure rendering — all methods accept pre-loaded numpy arrays, no file I/O.
-- `add_mesh(nodes, elements)` — generic triangular mesh
-- `add_object_mesh(nodes, elements, bc_elements=None)` — ObjectMesh with optional BC coloring
-- `add_eval_grid(points)` — evaluation point cloud
-- `add_field_points(result, freq)` — BEMResult eval points colored by value
-- `add_surface_pressure(nodes, elements, scalars, rgba=False)` — surface colored by pre-computed scalars
-- `add_intensity_arrows(points, pressure, velocity)` — acoustic intensity vectors (computes I = ½Re(p·v*))
-- `add_impedance_points(points, scalars)` — eval points colored by pre-computed impedance
-- Quantities: `magnitude_db`, `magnitude`, `phase`, `real`, `imag`
-- Convenience methods: `add_screenshot_hotkey()`, `add_variant_slider()`, `show_or_screenshot()`
-
-`ResultsViewer` (`bemviz.viz.results_viewer`): Interactive viewer that owns data loading, frequency/variant sliders, and clim key bindings. Loads NumCalc files on demand and passes data to BEMScene. Backs `bem MODEL results`.
-
-Point selection: `points=None` (all), int, slice, array, or bool mask.
+What remains: `BEMScene` (3D rendering, lazy pyvista), `ResultsViewer` (the
+interactive viewer behind `bem MODEL results`), `_symmetry` (ghost geometry for
+`[SYMMETRY]` models) and `web.py`.
 
 ## Reference
 

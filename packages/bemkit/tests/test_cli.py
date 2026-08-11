@@ -27,8 +27,7 @@ def _bemviz_cli_installed():
 
 @pytest.mark.skipif(not _bemviz_cli_installed(),
                     reason="bemviz not installed (entry point absent)")
-@pytest.mark.parametrize("argv", [["x", "plot", "--help"],
-                                  ["x", "geometry", "--help"],
+@pytest.mark.parametrize("argv", [["x", "geometry", "--help"],
                                   ["x", "results", "--help"]])
 def test_bemviz_help_exits_zero(argv):
     with pytest.raises(SystemExit) as e:
@@ -113,7 +112,7 @@ def test_geometry_still_accepts_the_superseded_show_edges_flag():
 
 
 @pytest.mark.parametrize("command", ["run", "export", "pack", "all",
-                                     "plot", "geometry", "results", "export-web"])
+                                     "geometry", "results", "export-web"])
 def test_variant_flag_accumulates_across_repeats_and_spaces(command):
     # The bug: `--variant a --variant b` used to keep only ['b'] (last wins).
     base = [command] if command != "export-web" else [command, "--out", "d"]

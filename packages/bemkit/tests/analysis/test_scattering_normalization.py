@@ -129,17 +129,14 @@ class TestScatteringModel:
         with pytest.raises(NoVelocityDrive, match="norm='raw'"):
             sim.result(None).data("pressure", "acc")
 
-    def test_plots_label_raw_units(self, sim):
-        """The whole point: a scattering plot must not claim Pa/m/s²."""
-        matplotlib = pytest.importorskip("matplotlib")
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from bemviz.viz.freq import freq_magnitude
+    def test_consumers_resolve_auto_to_raw(self, sim):
+        """What a display layer must key off: "auto" reports *raw* here, so
+        nothing can label a scattering result in acceleration-normalized units.
 
-        fig, ax = plt.subplots()
-        freq_magnitude(ax, sim.result(None))      # norm defaults to "auto"
-        assert "m/s" not in ax.get_ylabel(), ax.get_ylabel()
-        plt.close(fig)
+        (This used to assert on a matplotlib axis label, until the 2D plotting
+        family was removed on 2026-08-12.)"""
+        assert sim.result(None).effective_norm("auto") == "raw"
+        assert sim.effective_norm("auto") == "raw"
 
 
 class TestVelocityDrivenModelUnchanged:
@@ -160,16 +157,9 @@ class TestVelocityDrivenModelUnchanged:
         r = sim.result(None)
         assert r.has_acc and r.effective_norm("auto") == "acc"
 
-    def test_plots_still_label_acc_units(self, sim):
-        matplotlib = pytest.importorskip("matplotlib")
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from bemviz.viz.freq import freq_magnitude
-
-        fig, ax = plt.subplots()
-        freq_magnitude(ax, sim.result(None))
-        assert "m/s" in ax.get_ylabel(), ax.get_ylabel()
-        plt.close(fig)
+    def test_consumers_resolve_auto_to_acc(self, sim):
+        assert sim.result(None).effective_norm("auto") == "acc"
+        assert sim.effective_norm("auto") == "acc"
 
 
 def test_unknown_norm_is_rejected(tmp_path):

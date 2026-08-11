@@ -11,14 +11,14 @@ The whole pipeline is five verbs:
 mesh  →  export  →  run  →  pack  →  plot / results / export-web
 ```
 
-`bem MODEL all` chains `mesh → export → run → plot` in one shot.
+`bem MODEL all` chains `mesh → export → run` in one shot.
 
 ---
 
 ## 0. Prerequisites (one-time)
 
 ```bash
-# Install bemkit + all optional deps (gmsh, matplotlib, pyvista, scipy)
+# Install all three packages + optional deps (gmsh, pyvista, scipy)
 pip install -e .[all]
 #   ...or a subset: .[meshing] for gmsh, .[viz] for 2D plots, .[viz3d] for 3D,
 #   .[analytic] for scipy (sphcap analytic solution)
@@ -109,8 +109,8 @@ octaves properly. Partial-band selection still works (`--freq`, `--bins`,
 `--preview` index the same array), and `snapshot.json` records the resolved
 frequencies so results stay labelled correctly.
 
-**No time domain.** `plot ir` and `plot etc` are an inverse FFT of the band and
-have no meaning on a non-uniform one; they refuse with `IncompleteBand` rather
+**No time domain.** `BEMResult.impulse_response` is an inverse FFT of the band
+and has no meaning on a non-uniform one; it refuses with `IncompleteBand` rather
 than transforming nonsense. Keep `sr`/`nbins` if you need impulse responses.
 
 > **Units matter.** Fieldpoint `.npy` files are in **meters**. `.msh` meshes are
@@ -731,9 +731,9 @@ The bins land on the model's normal frequency grid, so nothing is wasted: a
 later `bem examples/sphcap run` computes only what is still missing and the
 results merge into one set.
 
-`bem status` shows a partial run as `◐  (8/64 bins)`. Frequency-domain plots
-work on partial results and mark the computed bins; time-domain plots
-(`plot ir`, `plot etc`) need the whole band and are skipped with a message
+`bem status` shows a partial run as `◐  (8/64 bins)`. Frequency-domain results
+are usable straight away; anything crossing the whole band
+(`BEMResult.impulse_response`) needs every bin and raises `IncompleteBand`
 until you fill it in.
 
 `--force` cannot be combined with a selection — it discards every bin, so the
@@ -831,15 +831,10 @@ other variants of the same model still pack.
 
 ## 8. Look at the results
 
-### 2D plots → `plots/*.png`
-```bash
-bem examples/sphcap plot                    # frequency magnitude + impulse responses (all sets)
-bem examples/sphcap plot freq
-bem examples/sphcap plot polar
-bem examples/sphcap plot plane  --freq 1000
-bem examples/sphcap plot sphere --freq 1000
-bem examples/sphcap plot phase | etc | ir | contour
-```
+> **2D plots were removed on 2026-08-12.** `bem MODEL plot` and the
+> freq/ir/polar/isobaric/plane/... family are gone; they were not useful in
+> practice. Use `SimulationData` (below) to get the arrays and plot whatever you
+> actually want, or recover the old module from git history.
 
 ### Interactive 3D field/surface inspection
 ```bash
@@ -892,15 +887,15 @@ the `BEMResult` class it hands to viz functions is internal.
 # 1. author examples/sphcap/config.toml (fieldpoint sets + BC or STEP colors),
 #    drop geometry in geometry/ or mesh/ — or point [geometry].exec at a script
 
-bem examples/sphcap geometry          # 2. eyeball mesh + BCs + eval grid (3D)
-bem examples/sphcap all               # 3. mesh → export → run → plot
+bem examples/sphcap check             # 2. mesh diagnostics before spending hours
+bem examples/sphcap geometry          # 3. eyeball mesh + BCs + eval grid (3D)
+bem examples/sphcap all               # 4. mesh → export → run
 #    ...or step through:
 #    bem examples/sphcap mesh
 #    bem examples/sphcap export
 #    bem examples/sphcap run -j 4
 #    bem examples/sphcap pack
-#    bem examples/sphcap plot
 
-bem examples/sphcap                   # 4. status: everything complete, no warnings?
-bem examples/sphcap results onaxis --freq 1000   # 5. inspect the field in 3D
+bem examples/sphcap                   # 5. status: everything complete, no warnings?
+bem examples/sphcap results onaxis --freq 1000   # 6. inspect the field in 3D
 ```

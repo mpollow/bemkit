@@ -84,7 +84,6 @@ class BEMScene:
         -------
         pyvista Actor
         """
-        from bemviz.viz.field import _get_values
         pv = self._pv
 
         use_rgba = (value_func == "phase" and alpha_from_db is not None)
@@ -165,7 +164,6 @@ class BEMScene:
         -------
         pyvista Actor
         """
-        from bemviz.viz.field import _get_values
         pv = self._pv
 
         vals = _get_values(result, freq, value_func, quantity, norm)
