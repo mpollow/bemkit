@@ -67,6 +67,15 @@ bem_type = 4          # 4 = DMLFMBEM, O(N log N)  [recommended default]
 time_factor = -1.0    # e^{-iωt} convention
 is_internal = 0       # 0 = exterior (radiation) problem
 
+# Solver knobs — every default below is NumCalc's own, so omitting them all
+# changes nothing. Reach for them when a run misbehaves, not before. See
+# "Tuning the solver" further down.
+cluster_edge_length = 0.0   # ClusEdgL0 (m); 0 = NumCalc default. Shrink when a
+                            #   large mesh exhausts RAM.
+preconditioner = 0          # IPRECOND in [-3, 2]; negative = incomplete-LU depth
+min_expansion_terms = 0     # 0 = NumCalc default (8); otherwise 5..10
+solver = 0                  # ISOLVER: 0 iterative (CGS), 4 direct (needs bem_type = 0)
+
 # Mesh sizing (mm). Aim for ~6 elements per wavelength at the highest frequency.
 [mesh]
 lc_min = 5.0          # finest element edge
@@ -610,6 +619,46 @@ until you fill it in.
 `--force` cannot be combined with a selection — it discards every bin, so the
 bins you did not name would still come from the previous export. To restart a
 partial run from scratch, delete `numcalc/<variant>/be.out/` first.
+
+### Tuning the solver
+
+The four `[bem]` solver knobs all default to NumCalc's own values, so leaving
+them out is the same as before they existed. Change one when a run misbehaves:
+
+| Symptom | Knob |
+|---|---|
+| A large mesh exhausts RAM, or `bem status` reports expansion order `L > 30` | `cluster_edge_length` — shrink the FMM bounding box (try `0.05`). The documented remedy in arXiv:2312.00005 §3.3.2. |
+| The iterative solver converges slowly or not at all | `preconditioner` — negative values select incomplete-LU depth (`-1`, `-2`, `-3`) |
+| Same, or you want a reference answer on a small mesh | `solver = 4` with `bem_type = 0` — the direct Gauss solver, O(N³) |
+| Accuracy at high frequency | `min_expansion_terms` — 5..10, default 8 |
+
+Two combinations are rejected at config load, because NumCalc accepts them and
+then quietly does something else: `solver = 4` with any FMM `bem_type` (it
+falls back to iterative), and `preconditioner` alongside `solver = 4` (it is
+forced to 2). Non-convergence usually means a defective mesh — re-mesh before
+reaching for these.
+
+**Anything not listed above** can still be set, via the raw `[nc]` table, which
+names fields on the NumCalc input deck directly:
+
+```toml
+[nc]
+min_expansion_terms = 9
+isolver = 0
+```
+
+`[nc]` is applied last and wins over `[bem]`. It only accepts scalar deck
+fields: values that are *derived* (frequencies, boundary conditions, sources,
+symmetry, mesh counts) must be set in the section they come from, so
+`config.toml` keeps describing what was actually exported. From Python, the
+same escape hatch is just an attribute:
+
+```python
+from bemkit.sim.builder import deck_from_config
+deck = deck_from_config(config, "myvariant", counts)
+deck.cluster_edge_length = 0.05
+deck.write(nc_dir / "NC.inp")
+```
 
 ---
 

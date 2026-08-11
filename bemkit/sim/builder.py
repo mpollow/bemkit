@@ -119,13 +119,19 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
     v = dict(config.raw) if hasattr(config, "raw") else dict(config)
     if hasattr(config, "__dataclass_fields__"):
         for name in ("modelname", "sr", "nbins", "bem_type", "air_density",
-                     "speed_of_sound", "time_factor", "is_internal"):
+                     "speed_of_sound", "time_factor", "is_internal",
+                     "solver", "min_expansion_terms", "cluster_edge_length",
+                     "preconditioner"):
             v.setdefault(name, getattr(config, name))
     v.setdefault("time_factor", 1.0)
     v.setdefault("is_internal", 0)
     v.setdefault("bem_type", 4)
     v.setdefault("air_density", 1.2)
     v.setdefault("speed_of_sound", 340.0)
+    v.setdefault("solver", 0)
+    v.setdefault("min_expansion_terms", 0)
+    v.setdefault("cluster_edge_length", 0.0)
+    v.setdefault("preconditioner", 0)
 
     n_frequencies = v["nbins"] - 1
     frequencies = freq_grid(v["sr"], v["nbins"])
@@ -174,7 +180,7 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
         print(f"Mesh: {n_obj_nodes} nodes, {n_obj_elements} elements | "
               f"EvalGrid: {n_eval_nodes} nodes")
 
-    return Deck(
+    deck = Deck(
         title=v["modelname"],
         frequencies=frequencies,
         speed_of_sound=v["speed_of_sound"],
@@ -182,6 +188,12 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
         time_factor=v["time_factor"],
         bem_type=v["bem_type"],
         is_internal=v["is_internal"],
+        # config.toml calls it `solver`; NumCalc calls it ISOLVER, and the deck
+        # keeps the solver's own name.
+        isolver=v["solver"],
+        min_expansion_terms=v["min_expansion_terms"],
+        cluster_edge_length=v["cluster_edge_length"],
+        preconditioner=v["preconditioner"],
         n_total_nodes=n_obj_nodes + n_eval_nodes,
         n_total_elements=n_obj_elements + n_eval_elements,
         symmetry_planes=planes,
@@ -193,3 +205,12 @@ def deck_from_config(config, variant, counts, *, vibrating_indices=None,
         header=_header(config, variant, counts, n_frequencies,
                        fieldpoint_offsets),
     )
+
+    # The raw escape hatch, applied last: [nc] names Deck fields directly, so a
+    # NumCalc setting with no curated config key is still reachable without
+    # bemkit growing a schema entry for it. config validation has already
+    # rejected unknown and derived fields.
+    for key, value in (v.get("nc") or {}).items():
+        setattr(deck, key, value)
+    deck.validate()
+    return deck

@@ -173,3 +173,65 @@ def test_written_deck_is_a_complete_nc_inp(tmp_path):
     assert text.startswith("##")            # header block
     assert "POST PROCESS" in text and text.endswith("END\n")
     assert "{" not in text                  # no unresolved placeholders
+
+
+class TestSolverKnobs:
+    """The four settings bemkit hardcoded until Tier 1, plus the raw hatch."""
+
+    def test_curated_keys_reach_the_deck(self):
+        cfg = _config(bem_type=0, solver=4, min_expansion_terms=7,
+                      cluster_edge_length=0.05)
+        deck = _build(cfg)
+        # config.toml says `solver`; the deck keeps NumCalc's name, ISOLVER.
+        assert deck.isolver == 4
+        assert deck.min_expansion_terms == 7
+        assert deck.cluster_edge_length == 0.05
+
+    def test_defaults_reproduce_the_pre_tier1_deck(self):
+        deck = _build(_config())
+        assert (deck.isolver, deck.min_expansion_terms,
+                deck.cluster_edge_length, deck.preconditioner) == (0, 0, 0.0, 0)
+
+    def test_knobs_land_in_the_right_nc_inp_fields(self, tmp_path):
+        """Main Parameters I is positional; a knob in the wrong column is a
+        different setting entirely."""
+        cfg = _config(bem_type=0, solver=4, min_expansion_terms=7,
+                      cluster_edge_length=0.05)
+        _build(cfg).write(tmp_path / "NC.inp")
+        lines = (tmp_path / "NC.inp").read_text().splitlines()
+
+        mp1 = lines[lines.index("## 1. Main Parameters I") + 1].split()
+        assert mp1[3] == "7"     # minExpansionTermsFMM_
+        assert mp1[7] == "0"     # methodBEM_
+        assert mp1[8] == "4"     # methodSolver_ (ISOLVER)
+
+        mp2 = lines[lines.index("## 2. Main Parameters II") + 1].split()
+        assert float(mp2[3]) == 0.05   # ClusEdgL0
+        assert mp2[4] == "0"           # IPRECOND
+
+
+class TestNcOverrides:
+    def test_nc_table_sets_deck_fields(self):
+        deck = _build(_config(nc={"min_expansion_terms": 9,
+                                  "cluster_edge_length": 0.02}))
+        assert deck.min_expansion_terms == 9
+        assert deck.cluster_edge_length == 0.02
+
+    def test_nc_wins_over_a_curated_key(self):
+        """[nc] is applied last: it is the escape hatch, not a second opinion."""
+        deck = _build(_config(min_expansion_terms=6,
+                              nc={"min_expansion_terms": 9}))
+        assert deck.min_expansion_terms == 9
+
+    def test_nc_values_are_still_validated_against_numcalc(self):
+        """The hatch skips bemkit's schema, never NumCalc's own limits."""
+        with pytest.raises(ValueError, match=r"\[5, 10\]"):
+            _build(_config(nc={"min_expansion_terms": 3}))
+
+    def test_python_callers_can_patch_the_deck_directly(self):
+        """deck_from_config is pure and returns a plain object, so a script
+        needs no config surface at all to reach a NumCalc setting."""
+        deck = _build(_config())
+        deck.cluster_edge_length = 0.01
+        deck.validate()
+        assert deck.cluster_edge_length == 0.01

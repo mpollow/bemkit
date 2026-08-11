@@ -76,6 +76,14 @@ use pyvista/matplotlib at all — fieldpoint validation is pure numpy (Möller-T
 Eberly kernels). matplotlib/pyvista are only imported lazily inside `analysis`/`viz`/`cli`
 commands that need them (`plot`, `geometry`, `results`). Enforced by `tests/test_boundaries.py`.
 
+**Solver knobs and the `[nc]` hatch**: the four `[bem]` solver keys map onto `Deck`
+fields (`solver` → `Deck.isolver`; the rest share their name), and `[nc]` sets any
+scalar `Deck` field directly, applied last. Derived fields (frequencies, boundary,
+sources, symmetry, mesh counts) are rejected there by name, pointing at the section
+they really come from. Two combinations NumCalc accepts and then silently ignores —
+`solver = 4` with an FMM `bem_type`, and `preconditioner` alongside `solver = 4` —
+are rejected at config load and again in `Deck.validate`.
+
 **`numcalc` is stricter**: it imports *nothing* from `bemkit` and depends only on stdlib
 + numpy (no meshio/gmsh/scipy). `sim` may import `numcalc`; never the reverse. The split
 is what everything NumCalc-shaped goes through — `deck_from_config` (`sim/builder.py`)
@@ -276,6 +284,14 @@ speed_of_sound = 340.0
 bem_type = 4              # 0=TBEM O(N³), 1=SLFMBEM O(N^1.5), 4=DMLFMBEM O(N log N) [default]
 time_factor = -1.0
 is_internal = 0
+# Solver knobs; defaults are NumCalc's own, so omitting them changes nothing.
+solver = 0                # ISOLVER: 0 iterative (CGS), 4 direct (needs bem_type=0)
+min_expansion_terms = 0   # 0 = NumCalc default (8); otherwise 5..10
+cluster_edge_length = 0.0 # ClusEdgL0 (m); 0 = NumCalc default
+preconditioner = 0        # IPRECOND in [-3, 2]; negative = incomplete-LU depth
+
+[nc]                      # optional raw escape hatch: sets Deck fields directly
+min_expansion_terms = 9   # applied last, wins over [bem]; scalars only
 
 [geometry]                # optional: script that writes geometry/ sources
 exec = "./make_geometry.py"   # string or list; run by `bem mesh`

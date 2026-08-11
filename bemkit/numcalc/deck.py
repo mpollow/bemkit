@@ -163,6 +163,13 @@ class Deck:
             raise ValueError(f"bem_type must be 0, 1 or 4, got {self.bem_type}")
         if self.isolver not in (0, 4):
             raise ValueError(f"isolver (ISOLVER) must be 0 or 4, got {self.isolver}")
+        if self.isolver == 4 and self.bem_type != 0:
+            # NC_Input.cpp:290 downgrades this to the iterative solver without
+            # a word, so the deck would not do what it says.
+            raise ValueError(
+                f"isolver = 4 (direct) requires bem_type = 0 (TBEM); with "
+                f"bem_type = {self.bem_type} NumCalc silently falls back to the "
+                f"iterative solver")
         if self.min_expansion_terms != 0 and not (5 <= self.min_expansion_terms <= 10):
             raise ValueError(
                 f"min_expansion_terms must be 0 (NumCalc default 8) or in [5, 10], "

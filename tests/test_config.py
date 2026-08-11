@@ -573,3 +573,85 @@ class TestFromDictAndTypedAccessors:
         assert cfg.boundary_cfg == {}
         assert cfg.symmetry_cfg == {}
         assert cfg.default_velocity == 1.0
+
+
+# ── Solver knobs and the raw [nc] escape hatch (Tier 1) ─────────────────────
+
+class TestSolverKnobs:
+    """The four NumCalc solver settings bemkit used to hardcode.
+
+    Every default is NumCalc's own, so a config that sets none of them
+    produces exactly the deck bemkit wrote before they existed.
+    """
+
+    def _cfg(self, tmp_path, body):
+        (tmp_path / "config.toml").write_text(
+            f"[bem]\nsr = 8000\nnbins = 5\n{body}")
+        return ModelConfig.from_dir(tmp_path)
+
+    def test_defaults_are_numcalcs_own(self, tmp_path):
+        c = self._cfg(tmp_path, "")
+        assert (c.solver, c.min_expansion_terms,
+                c.cluster_edge_length, c.preconditioner) == (0, 0, 0.0, 0)
+
+    def test_values_are_typed_through(self, tmp_path):
+        c = self._cfg(tmp_path, "bem_type = 0\nsolver = 4\n"
+                                "min_expansion_terms = 7\n"
+                                "cluster_edge_length = 0.05\n")
+        assert c.solver == 4 and c.min_expansion_terms == 7
+        assert c.cluster_edge_length == 0.05
+
+    @pytest.mark.parametrize("body, match", [
+        ("solver = 1\n", "must be 0"),
+        ("min_expansion_terms = 3\n", r"\[5, 10\]"),
+        ("min_expansion_terms = 11\n", r"\[5, 10\]"),
+        ("cluster_edge_length = -1.0\n", "non-negative"),
+        ("preconditioner = 3\n", r"\[-3, 2\]"),
+        ("preconditioner = -4\n", r"\[-3, 2\]"),
+    ])
+    def test_out_of_range_values_are_rejected(self, tmp_path, body, match):
+        with pytest.raises(ValueError, match=match):
+            self._cfg(tmp_path, body)
+
+    def test_direct_solver_without_tbem_is_rejected(self, tmp_path):
+        """NumCalc downgrades this to the iterative solver without a word
+        (NC_Input.cpp:290), so the setting would silently do nothing."""
+        with pytest.raises(ValueError, match="only applies with bem_type = 0"):
+            self._cfg(tmp_path, "solver = 4\n")          # bem_type defaults to 4
+
+    def test_preconditioner_with_direct_solver_is_rejected(self, tmp_path):
+        """NumCalc forces IPRECOND to 2 for the direct solver (NC_Input.cpp:323)."""
+        with pytest.raises(ValueError, match="ignored when solver = 4"):
+            self._cfg(tmp_path, "bem_type = 0\nsolver = 4\npreconditioner = -1\n")
+
+
+class TestNcEscapeHatch:
+    def _cfg(self, tmp_path, body):
+        (tmp_path / "config.toml").write_text(
+            f"[bem]\nsr = 8000\nnbins = 5\n\n[nc]\n{body}")
+        return ModelConfig.from_dir(tmp_path)
+
+    def test_accepts_scalar_deck_fields(self, tmp_path):
+        c = self._cfg(tmp_path, "min_expansion_terms = 9\nisolver = 0\n")
+        assert c.raw["nc"] == {"min_expansion_terms": 9, "isolver": 0}
+
+    def test_rejects_unknown_deck_field(self, tmp_path):
+        with pytest.raises(ValueError, match="unknown deck field 'nitermax'"):
+            self._cfg(tmp_path, "nitermax = 5000\n")
+
+    @pytest.mark.parametrize("key, points_at", [
+        ("frequencies", r"\[bem\] sr/nbins"),
+        ("boundary", r"\[BOUNDARY\]"),
+        ("symmetry_planes", r"\[SYMMETRY\]"),
+        ("n_total_elements", "the exported mesh"),
+    ])
+    def test_rejects_derived_fields_and_says_where_they_come_from(
+            self, tmp_path, key, points_at):
+        """Letting a raw table shadow a derived field would make config.toml
+        stop describing what was actually exported."""
+        with pytest.raises(ValueError, match=points_at):
+            self._cfg(tmp_path, f"{key} = 1\n")
+
+    def test_rejects_non_numeric_value(self, tmp_path):
+        with pytest.raises(ValueError, match="must be a number"):
+            self._cfg(tmp_path, 'isolver = "direct"\n')

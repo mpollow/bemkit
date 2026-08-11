@@ -198,11 +198,11 @@ fields were undocumented here:
 |---|---|---|---|
 | 0 | `numElementGroups_` | element-group count | hardcoded `2` |
 | 1,2 | `numElements_`, `numNodes_` | must be ≥ 1 | computed |
-| 3 | `minExpansionTermsFMM_` | **Minimum FMM expansion terms.** `0` ⇒ default 8; must otherwise be in `[5, 10]` or hard error. | hardcoded `0` |
+| 3 | `minExpansionTermsFMM_` | **Minimum FMM expansion terms.** `0` ⇒ default 8; must otherwise be in `[5, 10]` or hard error. | `[bem] min_expansion_terms` |
 | 4 | `numSymmetricPlanes_` | must be in `[0, 3]` | computed |
 | 5,6 | — | read, never used | `2 2` |
 | 7 | `methodBEM_` | `0` TBEM, `1` SLFMBEM, `4` DMLFMBEM | `[bem] bem_type` |
-| 8 | `methodSolver_` | **ISOLVER**: `0` iterative (CGS) or `4` direct (Gauss); anything else is a hard error. **Silently forced to `0` whenever FMM is active** (`:290`). | hardcoded `0` |
+| 8 | `methodSolver_` | **ISOLVER**: `0` iterative (CGS) or `4` direct (Gauss); anything else is a hard error. **Silently forced to `0` whenever FMM is active** (`:290`). | `[bem] solver` — the silent fallback is rejected at config load |
 
 `minExpansionTermsFMM_` is the knob behind Hint 8 (expansion order `L > 30`) —
 the paper gives the hint, and this is one of the two levers that move it (the
@@ -220,8 +220,8 @@ nplanewaves  npointsources  isInternal  ClusEdgL0  IPRECOND
 
 | Field | Variable | Notes |
 |---|---|---|
-| 3 | `ClusEdgL0_` | **FMM initial bounding-box edge length**, metres. `0.0` ⇒ NumCalc's default, `(√N·A₀)^½`. |
-| 4 | `methodPreconditioner_` | Must be in `[-3, 2]`. Negative values select incomplete-LU scanning degree: `-1`→1, `-2`→2, `≤-3`→3, each with `methodPreconditioner_=0`. Forced to `2` when the direct solver is used. |
+| 3 | `ClusEdgL0_` | **FMM initial bounding-box edge length**, metres. `0.0` ⇒ NumCalc's default, `(√N·A₀)^½`. Exposed as `[bem] cluster_edge_length`. |
+| 4 | `methodPreconditioner_` | Must be in `[-3, 2]`. Negative values select incomplete-LU scanning degree: `-1`→1, `-2`→2, `≤-3`→3, each with `methodPreconditioner_=0`. Forced to `2` when the direct solver is used. Exposed as `[bem] preconditioner`. |
 
 Only these five fields are read; trailing values are ignored.
 
@@ -302,10 +302,10 @@ in the writer. `Deck` already carries the fields; nothing asks for them yet.
 | Point sources | ⚠️ same | same |
 | Element selection by geometry | ✅ and better than NumCalc needs | `sim/boundary.py` |
 | Non-uniform frequency list | ⚠️ deck holds explicit Hz; builder always builds the FFT grid | `Deck.frequencies` |
-| `minExpansionTermsFMM_` | ⚠️ deck field, default `0` (⇒ 8); no config key | `Deck.min_expansion_terms` |
-| `ISOLVER` (`methodSolver_`) | ⚠️ deck field, default `0`; no config key | `Deck.isolver` |
-| `ClusEdgL0` | ⚠️ deck field, default `0.0`; no config key | `Deck.cluster_edge_length` |
-| Preconditioner | ⚠️ deck field, default `0`; no config key | `Deck.preconditioner` |
+| `minExpansionTermsFMM_` | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.min_expansion_terms` |
+| `ISOLVER` (`methodSolver_`) | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.isolver` |
+| `ClusEdgL0` | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.cluster_edge_length` |
+| Preconditioner | ✅ `[bem]` key + `[nc]` | `sim/builder.py` → `Deck.preconditioner` |
 | `-nitermax` | ❌ | — |
 | `-estimate_ram` | ❌ | — |
 | `-check_normals` | ❌ | — |
@@ -331,7 +331,7 @@ comment is now emitted by `Deck.write` and is correct. No action needed.
 | 5 | Check the iterative solver converged | ✅ `solver_warnings` scans `NC*.out` for both strings; surfaced in `bem status` and after a run. |
 | 6 | Elements approximately the same size, at least locally | ❌ not measured. Directly relevant: the graded meshes bemkit produces (`lc_min`→`lc_max`) are exactly the case the hint warns about, and FMM stability depends on it. |
 | 7 | Subdivision-loop error ⇒ overlaps, or a source too close | ❌ the error string is not in `_SOLVER_WARNINGS`. One-line addition to an existing mechanism. |
-| 8 | Expansion order `L > 30` ⇒ check convergence and plausibility | ❌ `L` is reported per level in `NC.out` and is not parsed. The two levers are `minExpansionTermsFMM_` (§1.7) and `-adapt_fmmlength` (§1.10), neither exposed. |
+| 8 | Expansion order `L > 30` ⇒ check convergence and plausibility | ⚠️ `L` is reported per level in `NC.out` and is still not parsed, so nothing tells you to act. Both levers are now reachable: `[bem] min_expansion_terms` and `[bem] cluster_edge_length` (§1.7, §1.8); `-adapt_fmmlength` (§1.10) is not. |
 | 9 | Check the plausibility of your results | — user's job, but sparse/partial results now make this easier. |
 | — | Mesh must be watertight, each edge in exactly two elements | ❌ not checked by bemkit; partially checked by `-check_normals`. |
 
@@ -527,6 +527,36 @@ Three things worth recording for whoever picks up Tier 1:
   result, and its tests deliberately exercise NC.inp *fragments* that a strict deck
   parser rejects. It now shares `deck.parse_bc_line`, which was the part actually worth
   deduplicating.
+
+### 5.3 Tier 1, as built
+
+Four curated `[bem]` keys — `solver`, `min_expansion_terms`,
+`cluster_edge_length`, `preconditioner` — plus a raw `[nc]` table that sets any
+scalar `Deck` field directly and is applied last. Every default is NumCalc's
+own, so a config that sets none of them produces byte-identical output to
+before, which is what the golden test checks.
+
+Three notes for later tiers:
+
+- **The curated/raw split works as designed.** Adding these four cost one line
+  each in `_BEM_KEYS`, the `ModelConfig` dataclass and the builder — the deck
+  already had the fields from Tier 0. The `[nc]` hatch means a knob with no
+  user story (say `n_element_groups`) needs no schema entry at all.
+- **`[nc]` rejects *derived* fields by name**, pointing at the section they
+  really come from (`frequencies` → `[bem] sr/nbins`, `boundary` →
+  `[BOUNDARY]`). Letting a raw table shadow those would make `config.toml` stop
+  describing what was exported, which is the one thing an escape hatch must not
+  cost.
+- **Two combinations are rejected that NumCalc merely ignores**: `solver = 4`
+  with an FMM `bem_type` (silently downgraded, `NC_Input.cpp:290`) and
+  `preconditioner` alongside `solver = 4` (forced to 2, `:323`). Both are
+  checked at config load *and* in `Deck.validate`, so the `[nc]` hatch and
+  direct Python callers cannot route around them.
+
+Verified against the real solver: NumCalc's own log echoes
+`Minimum number of terms in the FMM expansion. = 6` and the incomplete-LU
+preconditioner for a deck built from these keys
+(`tests/numcalc/test_solver_integration.py`).
 
 ### 5.2 The normalization decision (Tier 3)
 

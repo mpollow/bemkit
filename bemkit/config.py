@@ -26,6 +26,35 @@ _BEM_KEYS = {
     "bem_type": 4,
     "time_factor": -1.0,
     "is_internal": 0,
+    # -- solver knobs; every default is NumCalc's own, so omitting them all
+    #    reproduces the deck bemkit wrote before they existed --
+    "solver": 0,               # ISOLVER: 0 iterative (CGS), 4 direct (Gauss)
+    "min_expansion_terms": 0,  # 0 = NumCalc's default of 8; else 5..10
+    "cluster_edge_length": 0.0,  # ClusEdgL0 in m; 0 = NumCalc's own default
+    "preconditioner": 0,       # IPRECOND in [-3, 2]
+}
+
+#: Deck fields the raw ``[nc]`` escape hatch may set. Deliberately only the
+#: scalars: everything else on the deck is *derived* (frequencies from
+#: sr/nbins, boundary from [BOUNDARY], counts from the mesh), and letting a
+#: raw table shadow those would make the config lie about what was exported.
+_NC_OVERRIDE_FIELDS = (
+    "speed_of_sound", "air_density", "time_factor",
+    "bem_type", "is_internal", "n_element_groups",
+    "min_expansion_terms", "isolver", "cluster_edge_length", "preconditioner",
+)
+
+#: Derived deck fields, named so the error can say where they really come from.
+_NC_DERIVED = {
+    "frequencies": "[bem] sr/nbins",
+    "boundary": "[BOUNDARY]",
+    "plane_waves": '["PLANE WAVES"]',
+    "point_sources": '["POINT SOURCES"]',
+    "symmetry_planes": "[SYMMETRY]",
+    "symmetry_coordinates": "[SYMMETRY]",
+    "title": "modelname",
+    "n_total_nodes": "the exported mesh",
+    "n_total_elements": "the exported mesh",
 }
 
 _MESH_KEYS = ("lc_min", "lc_max", "dist_min", "dist_max", "distance")
@@ -174,6 +203,71 @@ def _check_sources(tbl, section, path):
                     f"[nr, a, b, c, ampl_re, -1, ampl_im, -1], got {r!r}")
 
 
+def _check_solver_keys(bem, path):
+    """Range-check the [bem] solver knobs against what NumCalc accepts.
+
+    NumCalc hard-errors on most of these, but two of them fail *quietly*
+    instead, which is why they are checked here rather than left to the solver:
+    a direct solve is silently downgraded to iterative whenever FMM is on
+    (``NC_Input.cpp:290``), and the preconditioner is silently forced to 2 when
+    the direct solver runs (``:323``).
+    """
+    where = f"{path}: [bem]"
+    bem_type = bem.get("bem_type", 4)
+    solver = bem.get("solver", 0)
+    if solver not in (0, 4):
+        raise ValueError(f"{where}: solver (ISOLVER) must be 0 (iterative CGS) "
+                         f"or 4 (direct Gauss), got {solver!r}")
+    if solver == 4 and bem_type != 0:
+        raise ValueError(
+            f"{where}: solver = 4 (direct) only applies with bem_type = 0 "
+            f"(TBEM); with bem_type = {bem_type} NumCalc silently falls back to "
+            f"the iterative solver, so the setting would do nothing. Set "
+            f"bem_type = 0 as well, or drop solver.")
+
+    met = bem.get("min_expansion_terms", 0)
+    if not (isinstance(met, int) and not isinstance(met, bool)
+            and (met == 0 or 5 <= met <= 10)):
+        raise ValueError(
+            f"{where}: min_expansion_terms must be 0 (NumCalc's default of 8) "
+            f"or an integer in [5, 10], got {met!r}")
+
+    cel = bem.get("cluster_edge_length", 0.0)
+    if not (_is_num(cel) and cel >= 0):
+        raise ValueError(f"{where}: cluster_edge_length must be a "
+                         f"non-negative number (meters, 0 = NumCalc's "
+                         f"default), got {cel!r}")
+
+    pre = bem.get("preconditioner", 0)
+    if not (isinstance(pre, int) and not isinstance(pre, bool)
+            and -3 <= pre <= 2):
+        raise ValueError(f"{where}: preconditioner (IPRECOND) must be an "
+                         f"integer in [-3, 2], got {pre!r}")
+    if solver == 4 and pre != 0:
+        raise ValueError(
+            f"{where}: preconditioner is ignored when solver = 4 — NumCalc "
+            f"forces it to 2 for the direct solver. Drop one of the two.")
+
+
+def _check_nc(tbl, path):
+    """Validate the raw [nc] deck-override table."""
+    where = f"{path}: [nc]"
+    if not isinstance(tbl, dict):
+        raise ValueError(f"{where} must be a table")
+    for key, val in tbl.items():
+        if key in _NC_DERIVED:
+            raise ValueError(
+                f"{where}: '{key}' is derived from {_NC_DERIVED[key]} and "
+                f"cannot be overridden here — set it there instead, so the "
+                f"config keeps describing what was exported")
+        if key not in _NC_OVERRIDE_FIELDS:
+            raise ValueError(
+                f"{where}: unknown deck field '{key}' "
+                f"(settable: {', '.join(_NC_OVERRIDE_FIELDS)})")
+        if not _is_num(val):
+            raise ValueError(f"{where}: '{key}' must be a number, got {val!r}")
+
+
 def _validate(raw, path):
     """Validate config.toml structure; raise ValueError with migration hints."""
     old = [k for k in _BEM_KEYS if k in raw]
@@ -193,6 +287,7 @@ def _validate(raw, path):
     if unknown:
         raise ValueError(f"{path}: unknown [bem] key(s): {', '.join(unknown)} "
                          f"(known: {', '.join(_BEM_KEYS)})")
+    _check_solver_keys(bem, path)
 
     geo = raw.get("geometry", {})
     if not isinstance(geo, dict):
@@ -277,6 +372,8 @@ def _validate(raw, path):
     # Physics sections: a silent mistake here yields plausible-but-wrong
     # results (a dropped BC exports a rigid surface that solves to silence),
     # so they get the same typo guard as the solver/mesh sections.
+    if "nc" in raw:
+        _check_nc(raw["nc"], path)
     if "BOUNDARY" in raw:
         _check_boundary(raw["BOUNDARY"], path)
     if "SYMMETRY" in raw:
@@ -303,6 +400,10 @@ class ModelConfig:
     bem_type: int = 4
     time_factor: float = -1.0
     is_internal: int = 0
+    solver: int = 0
+    min_expansion_terms: int = 0
+    cluster_edge_length: float = 0.0
+    preconditioner: int = 0
     mesh_cfg: dict = field(default_factory=dict)
     geometry_cfg: dict = field(default_factory=dict)
     fieldpoints_cfg: dict = field(default_factory=dict)
@@ -331,6 +432,10 @@ class ModelConfig:
             bem_type=bem.get("bem_type", 4),
             time_factor=bem.get("time_factor", -1.0),
             is_internal=bem.get("is_internal", 0),
+            solver=bem.get("solver", 0),
+            min_expansion_terms=bem.get("min_expansion_terms", 0),
+            cluster_edge_length=bem.get("cluster_edge_length", 0.0),
+            preconditioner=bem.get("preconditioner", 0),
             mesh_cfg=raw.get("mesh", {}),
             geometry_cfg=raw.get("geometry", {}),
             fieldpoints_cfg=raw.get("fieldpoints", {}),

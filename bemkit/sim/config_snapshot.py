@@ -22,9 +22,13 @@ _LEGACY_SNAPSHOT_NAME = "config.json"
 # these between snapshot and live config is worth warning about.
 _INTERPRETIVE_KEYS = ("sr", "nbins", "air_density", "speed_of_sound")
 
-# Every scalar recorded in the snapshot.
+# Every scalar recorded in the snapshot. The solver knobs do not change how a
+# result is *interpreted* (so they are not in _INTERPRETIVE_KEYS and never
+# raise a drift warning), but they do change how it was computed, which is
+# exactly what a provenance record is for.
 _SNAPSHOT_KEYS = _INTERPRETIVE_KEYS + (
-    "modelname", "bem_type", "time_factor", "is_internal")
+    "modelname", "bem_type", "time_factor", "is_internal",
+    "solver", "min_expansion_terms", "cluster_edge_length", "preconditioner")
 
 
 def _bemkit_version():

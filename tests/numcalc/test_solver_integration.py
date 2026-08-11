@@ -122,3 +122,33 @@ def test_results_are_finite_and_driven(solved):
         assert np.abs(data).max() > 0, (
             f"{quantity} is identically zero — the deck's boundary condition "
             f"did not drive the surface")
+
+
+def test_solver_knobs_reach_the_solver(tmp_path, pytestconfig):
+    """Tier 1's four knobs are positional fields in Main Parameters I/II — a
+    value in the wrong column is a different setting entirely, and NumCalc
+    would accept it. Assert against NumCalc's own echo of what it parsed.
+
+    cluster_edge_length is 4.0 m because NumCalc rejects a cluster smaller than
+    the elements ("Inputed value of cluster diameter for level 0 is too
+    small!") and this fixture's elements are ~1 m.
+    """
+    model = tmp_path / "model"
+    shutil.copytree(pytestconfig.rootpath / GOLDEN_MODEL, model)
+    cfg = (model / "config.toml").read_text().replace(
+        "[bem]",
+        "[bem]\ncluster_edge_length = 4.0\npreconditioner = -1\n"
+        "min_expansion_terms = 6", 1)
+    (model / "config.toml").write_text(cfg)
+    export_variant(ModelConfig.from_dir(model), "tetra", verbose=False)
+
+    nc_dir = model / "numcalc" / "tetra"
+    proc = subprocess.run(["NumCalc", "-istart", "1", "-iend", "1"],
+                          cwd=nc_dir, capture_output=True, text=True,
+                          timeout=300)
+    assert proc.returncode == 0, proc.stdout[-2000:]
+
+    log = (nc_dir / "NC1-1.out").read_text()
+    assert "Minimum number of terms in the FMM expansion. = 6" in log
+    # IPRECOND = -1 selects incomplete-LU with scanning degree 1.
+    assert "incomplete LU-decomposition preconditioner" in log

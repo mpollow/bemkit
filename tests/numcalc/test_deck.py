@@ -179,3 +179,21 @@ class TestReadErrors:
         (tmp_path / "NC.inp").write_text("NotMesh2HRTF 1.0\n")
         with pytest.raises(ValueError, match="Mesh2HRTF"):
             Deck.read(tmp_path / "NC.inp")
+
+
+class TestSolverKnobValidation:
+    """NumCalc accepts these combinations and then quietly does something else,
+    which is worse than rejecting them."""
+
+    def test_direct_solver_requires_tbem(self):
+        with pytest.raises(ValueError, match="silently falls back"):
+            _minimal(isolver=4, bem_type=4).validate()
+
+    def test_direct_solver_with_tbem_is_fine(self):
+        _minimal(isolver=4, bem_type=0).validate()
+
+    def test_knobs_round_trip(self, tmp_path):
+        d = _minimal(bem_type=0, isolver=4, min_expansion_terms=9,
+                     cluster_edge_length=0.05, preconditioner=0)
+        d.write(tmp_path / "NC.inp")
+        assert Deck.read(tmp_path / "NC.inp") == d
