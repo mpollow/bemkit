@@ -761,6 +761,9 @@ def test_run_stage_does_not_swallow_the_bin_selection(tmp_path, monkeypatch):
         return jobs, []
 
     monkeypatch.setattr(pipeline, "run_jobs", fake_run_jobs)
+    # The stage checks for the solver before planning; this test is about the
+    # bins reaching plan_jobs, not about NumCalc being installed.
+    monkeypatch.setattr(pipeline, "require_numcalc", lambda: None)
 
     pipeline.STAGES["run"].run(ModelConfig.from_dir(tmp_path), bins=[2, 5])
 

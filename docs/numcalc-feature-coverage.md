@@ -503,6 +503,18 @@ Re-sequenced around the deck refactor and the corrected sizing.
 
 Tiers 1–6 are additive and touch one layer each once Tier 0 lands.
 
+**All eight have landed** (2026-08-11). What remains from §1 and §3, deliberately:
+
+- **Hint 7** — the subdivision-loop error string is still not in
+  `_SOLVER_WARNINGS`. One line, whenever a real run produces one to match against.
+- **Hint 8** — expansion order `L` is reported per level in `NC.out` and still
+  not parsed, so nothing tells you to reach for the two levers that now exist
+  (`min_expansion_terms`, `cluster_edge_length`, `--adapt-fmmlength`).
+- **`TRAD`/`TRIM`, `numPointSources_ = -1`, Main Parameters III** — refused or
+  ignored on purpose (§1.12).
+- **Frequency-dependent source amplitudes** — `CURVES` is wired for boundary
+  conditions only; the source rows still write `-1`.
+
 ### 5.1 Tier 0, as built
 
 `bemkit/numcalc/` now holds the NumCalc format and process layer — `deck.py`,
