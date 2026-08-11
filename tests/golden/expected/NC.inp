@@ -26,7 +26,7 @@ model
 ##
 ## 2. Main Parameters II
 0 0 0 0.0000e+00 0 0 0
-# NumCalc reads five fields here (NC_Input.cpp:292); the trailing two are
+# NumCalc reads five fields here (NC_Input.cpp:294-298); the trailing two are
 # ignored. 4th = ClusEdgL0, the FMM initial bounding-box edge length in m:
 # 0 means NumCalc's default of (sqrt(N)*A0)^0.5. Shrinking it gives smaller
 # cluster radii, a shorter multipole expansion L, and lower peak memory --

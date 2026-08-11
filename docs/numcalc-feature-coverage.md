@@ -1,37 +1,50 @@
 # NumCalc feature coverage — what bemkit exposes, what it doesn't
 
-**Date:** 2026-07-26
-**Source:** Kreuzer, Pollack, Brinkmann & Majdak, *NumCalc: An open-source BEM
+**Date:** 2026-08-11 (supersedes the 2026-07-26 revision)
+**Sources:** Kreuzer, Pollack, Brinkmann & Majdak, *NumCalc: An open-source BEM
 code for solving acoustic scattering problems*, arXiv:2312.00005v3 (2024-10-31),
-cross-checked against the NumCalc parser at
-`mesh2hrtf/NumCalc/src/NC_Input.cpp`.
+cross-checked against the NumCalc solver at `mesh2hrtf/NumCalc/src/` —
+`NC_Input.cpp`, `NC_Main.cpp`, `NC_EquationSystem.cpp` — and against Mesh2HRTF's
+own Python exporter, `mesh2hrtf/Mesh2Input/`.
 
 Where the paper and the source disagree, **the source wins** and the
-disagreement is noted.
+disagreement is noted. The same rule now applies to this document's own history:
+the 2026-07-26 revision was written against `NC_Input.cpp` alone, and reading the
+other two translation units contradicted it twice. Those corrections are marked
+**[corrected]** below.
 
 ## Summary
 
-Incident sources are not a missing feature — `bem` already writes plane waves
-and point sources into `NC.inp` correctly, and NumCalc reads them. What is
-missing is everything *around* them: typed configuration, validation against
-the paper's hints, and the result-normalisation semantics that a
-non-velocity-driven model needs.
+Incident sources are not a missing feature — `bem` already writes plane waves and
+point sources into `NC.inp` correctly. Boundary-condition *types* are the visible
+gap, but they are not the largest one.
 
-No part of this requires architectural change. The BEM layer already has the
-right shape: `[BOUNDARY]` selects elements (including by geometric anchor) and
-`write_nc_inp` emits one line per range. Adding pressure/admittance conditions
-is a change to *what value* is written, not to *how elements are chosen*. The
-one change with a genuine cross-layer tail is normalisation, which lives in
-`analysis/`, not `sim/`.
+The largest gap is that **bemkit cannot express a non-uniform frequency list.**
+NumCalc's frequency grid is a piecewise-linear curve evaluated in Hz (§1.6);
+bemkit hardwires a two-point curve that collapses to the uniform FFT grid. That
+is the right default for HRTF and impulse-response work and should stay the
+default, but log-spaced or third-octave sweeps are currently inexpressible, and
+nothing in the config surface hints that they are possible.
 
-Rough sizing: four small, independent increments (Tiers 1, 2, 5 below), one
-medium (Tier 3), and one that needs a design decision (Tier 4).
+The second finding is architectural and is new to this revision (§4). Full
+NumCalc coverage is *small* — roughly 300–500 lines of writer and validation
+against bemkit's current 10 631. What does not scale is the **threading cost**:
+`write_nc_inp` takes a `ModelConfig`, so every new solver knob costs edits in
+`config.py`, a resolver, `sim/writers.py`, `templates/NC.inp`, the config
+snapshot, the tests and `HOWTO.md`. The recommendation is a `bemkit/numcalc/`
+deck module with no inward imports — full coverage in one place, and an
+extraction seam if a standalone `pynumcalc` ever earns its own distribution.
 
 ---
 
 ## 1. What NumCalc actually accepts
 
-### 1.1 Boundary conditions (`NC_Input.cpp:1227-1290`)
+### 1.1 Boundary conditions
+
+Line grammar: `NC_Input.cpp:809-877`. Keyword dispatch: `NC_Input.cpp:1227-1259`.
+(The `NC_ReadBoundaryConditions` at `:883` is a deprecated copy that scans for
+`IMAG`/`NEGA` keywords; it is commented out and does not run. Read only the
+version at `:792`.)
 
 ```
 ELEM e1 TO e2 <bctype> real(v0) curve1 imag(v0) curve2
@@ -41,21 +54,42 @@ ELEM e1 TO e2 <bctype> real(v0) curve1 imag(v0) curve2
 |---|---|---|
 | `VELO` | 0 | Particle velocity normal to the element. `0` ⇒ sound-hard (the default for any element with no BC line). |
 | `PRES` | 1 | Sound pressure. `0` ⇒ sound-soft. |
-| `ADMI` | 2 | Admittance (absorbing materials). |
-| `IMPE` | 2 | Impedance. Converted internally to admittance: `Y = 1/Z`, i.e. `re/(re²+im²)`, `-im/(re²+im²)`. |
+| `ADMI` | 2 | **Normalized** surface admittance — see §1.2. |
+| `IMPE` | 2 | Normalized impedance. Converted internally to admittance: `Y = 1/Z`, i.e. `re/(re²+im²)`, `-im/(re²+im²)`. |
 | `TRAD`, `TRIM` | 3 | **Parsed, then hard-error**: "Transfer admittance/impedance boundary condition is not supported!" Do not expose. |
 
 Behaviours worth knowing, none of which are in the paper's prose:
 
-- **`IMPE` with value `0+0i` silently becomes `PRES` sound-soft** (`:1268-1273`).
+- **`IMPE` with value `0+0i` silently becomes `PRES` sound-soft** (`:1269-1272`).
 - **`IMPE` combined with a curve is a hard `exit(-1)`**, with the message
   "Please use ADMI conditions. They work with CURVES." So a frequency-dependent
   surface must be expressed as admittance, never impedance.
 - **An element may carry both `ADMI` and `VELO`** — this is how a vibrating
   source on an absorbing surface is modelled (paper, Appendix A).
-- A BC line needs **at least 9 whitespace-separated terms** (`:1232`).
+- A BC line needs **at least 9 whitespace-separated terms** (`:833`).
 
-### 1.2 Curve references are all-or-nothing (`NC_Input.cpp:1244-1250`)
+### 1.2 `ADMI` is ρc-normalized, not SI
+
+The single highest-risk item in this document. NumCalc expects
+**admittance ÷ (ρ₀·c)** — dimensionless — so `Y = 1.0` is a matched, anechoic
+termination, not `1 m/(Pa·s)`.
+
+Two independent confirmations:
+
+- `NC_EquationSystem.cpp:1914-1915` applies `gammfact` to `zbval1` under the
+  comment *"for surface (normalized) admittance boundary condition"*, where
+  `gammfact = waveNumbers_ * harmonicTimeFactor_` (`:1835`).
+- Mesh2HRTF's own `Mesh2Input/Materials/write_material.py:27-31`:
+  *"The admittance must be normalized, i.e., admittance/(rho*c) has to be
+  provided."*
+
+`IMPE` inherits the same normalization, since NumCalc merely reciprocates it.
+
+Passing an SI admittance yields a result that is wrong by a factor of ~410 and
+looks entirely plausible on a plot. Whatever config surface exposes `ADMI` must
+name the convention in the key itself or validate the magnitude.
+
+### 1.3 Curve references are all-or-nothing (`NC_Input.cpp:844-849`)
 
 ```
 ERROR: Curves have to be specified for all parts of a Boundary or Source.
@@ -68,7 +102,35 @@ real part with a constant imaginary part is rejected. Any future `CURVES`
 support must enforce the pairing at config-validation time rather than letting
 NumCalc fail at solve time.
 
-### 1.3 Incident sources (`NC_Input.cpp:1013-1068`)
+### 1.4 The `CURVES` section — abscissa is Hz **[corrected]**
+
+The previous revision claimed curve nodes are *indexed by frequency step*, which
+made a curve "only meaningful alongside the `sr`/`nbins` grid" and coupled to
+partial-band runs. **That is wrong.** `NC_Input.cpp:1141` reads the abscissa as a
+frequency, and `NC_EquationSystem.cpp:1997-2018` interpolates on `frequency_` in
+Hz, clamped flat below the first node and above the last.
+
+**Curves are completely decoupled from the frequency grid**, and therefore from
+partial-band runs. This removes the only stated risk in the old Tier 3.
+
+Format (reference implementation: `Mesh2Input/mesh2input.py:1346-1367`), written
+immediately before `POST PROCESS`:
+
+```
+CURVES
+<n_curves> <max_points_per_curve>
+<curve_id> <n_points>
+<freq_hz> <value> 0.0        # third field is read and ignored
+...
+```
+
+The curve carries a real scale factor applied to that part of the BC value. A
+complex frequency-dependent admittance therefore needs **two** curves, one per
+part, scaling real and imaginary independently — an arbitrary complex `Y(f)`
+cannot be expressed with fewer. Mesh2HRTF's exporter writes the constant as
+`1.0` on the BC line and lets the curves carry the whole value.
+
+### 1.5 Incident sources (`NC_Input.cpp:1002-1069`)
 
 ```
 PLANE WAVES
@@ -79,16 +141,74 @@ Nr  X0 Y0 Z0  Real(P0) curve1 Imag(P0) curve2
 ```
 
 - Both require **exactly 8 terms**; anything else is a hard error.
-- **The parser only compares the first token** — `chterms[0].compare("PLANE")`.
-  So `PLANE` and `PLANE WAVES` are equally valid. The paper's Appendix C.4
-  documents `POINT`/`PLANE` while its own example listing uses `PLANE WAVES`;
-  both work, and **bemkit's current spelling is correct**.
+- **The parser only compares the first token** — `chterms[0].compare("PLANE")`
+  (`:1017`) and `chterms[0].compare("POINT")` (`:1046`). So `PLANE` and
+  `PLANE WAVES` are equally valid. The paper's Appendix C.4 documents
+  `POINT`/`PLANE` while its own example listing uses `PLANE WAVES`; both work,
+  and **bemkit's current spelling is correct**.
 - **For a plane wave, fields 1–3 are a direction, not a position**, and NumCalc
-  **normalises it itself** (`Vcnorm_dim3_(dirinw[i], dw)`). The user need not
+  **normalises it itself** (`Vcnorm_dim3_(dirinw[i], dw)`, `:1034`). The user need not
   supply a unit vector — but a zero vector is a division by zero.
 - For a point source, fields 1–3 are a position in metres.
+- **`numPointSources_ = -1` is a reserved internal value**: it generates a
+  built-in "test point source" used to check the accuracy of the program
+  (`NC_Main.cpp:347`). Never expose it as a user-facing count.
 
-### 1.4 Main Parameters II is richer than we use (`NC_Input.cpp:292-322`)
+### 1.6 The frequency grid is a curve, not a range — bemkit's largest gap
+
+Three pieces combine to define which frequencies are solved:
+
+1. **Controlparameter II** (`NC_Input.cpp:207-209`) supplies `numFrequencies_`,
+   `frequencyStepIncrement_` and `firstFrequencyStep_`.
+2. **Load Frequency Curve** supplies `npoicurv` pairs of `time frequency`.
+3. **`NC_ComputeFrequencies`** (`NC_Input.cpp:1686`) maps step *i* to
+   `t = first + (i+1)·increment`, then **piecewise-linearly interpolates the
+   curve** at `t` to get the frequency in Hz — clamped flat outside its range.
+
+bemkit writes a fixed two-point curve (`sim/templates/NC.inp:19-22`) with
+`increment = 1e-6` and `first = 0`, spanning `(0, 0)` to
+`(n_freq·1e-6, sr/2)`. The interpolation then collapses to the uniform FFT grid
+
+```
+f_i = (i+1) · sr / (2 · (nbins − 1))
+```
+
+which is exactly right for HRTF and impulse-response work and should remain the
+default. But the mechanism is general: **NumCalc natively supports log-spaced,
+third-octave, or fully arbitrary frequency lists**, and bemkit cannot express any
+of them.
+
+This is the one gap a raw escape hatch cannot fully paper over, because
+`analysis/` assumes an FFT grid: `plot ir` and `plot etc` inverse-transform the
+band, and `config.freq_bin`/`resolve_bins` snap onto a uniform grid. Supporting
+non-uniform lists means deciding what those functions do when handed one —
+almost certainly raise the existing `IncompleteBand`-style refusal with a clear
+reason, the same pattern partial-band runs already established.
+
+### 1.7 Main Parameters I is richer than we use (`NC_Input.cpp:247-253`)
+
+bemkit writes `2 {n_elem} {n_nodes} 0 {n_sym} 2 2 {bem_type} 0`. Four of the nine
+fields were undocumented here:
+
+| Field | Variable | Notes | bemkit |
+|---|---|---|---|
+| 0 | `numElementGroups_` | element-group count | hardcoded `2` |
+| 1,2 | `numElements_`, `numNodes_` | must be ≥ 1 | computed |
+| 3 | `minExpansionTermsFMM_` | **Minimum FMM expansion terms.** `0` ⇒ default 8; must otherwise be in `[5, 10]` or hard error. | hardcoded `0` |
+| 4 | `numSymmetricPlanes_` | must be in `[0, 3]` | computed |
+| 5,6 | — | read, never used | `2 2` |
+| 7 | `methodBEM_` | `0` TBEM, `1` SLFMBEM, `4` DMLFMBEM | `[bem] bem_type` |
+| 8 | `methodSolver_` | **ISOLVER**: `0` iterative (CGS) or `4` direct (Gauss); anything else is a hard error. **Silently forced to `0` whenever FMM is active** (`:290`). | hardcoded `0` |
+
+`minExpansionTermsFMM_` is the knob behind Hint 8 (expansion order `L > 30`) —
+the paper gives the hint, and this is one of the two levers that move it (the
+other is `-adapt_fmmlength`, §1.10).
+
+`methodSolver_ = 4` is only reachable with `bem_type = 0` (TBEM), which makes it
+a small-mesh reference-solution tool rather than a production setting. Selecting
+it also forces `methodPreconditioner_ = 2` (`:323`).
+
+### 1.8 Main Parameters II (`NC_Input.cpp:295-323`)
 
 ```
 nplanewaves  npointsources  isInternal  ClusEdgL0  IPRECOND
@@ -96,7 +216,7 @@ nplanewaves  npointsources  isInternal  ClusEdgL0  IPRECOND
 
 | Field | Variable | Notes |
 |---|---|---|
-| 3 | `ClusEdgL0_` | **FMM initial bounding-box edge length.** `0.0` ⇒ NumCalc's default, `(√N·A₀)^½`. |
+| 3 | `ClusEdgL0_` | **FMM initial bounding-box edge length**, metres. `0.0` ⇒ NumCalc's default, `(√N·A₀)^½`. |
 | 4 | `methodPreconditioner_` | Must be in `[-3, 2]`. Negative values select incomplete-LU scanning degree: `-1`→1, `-2`→2, `≤-3`→3, each with `methodPreconditioner_=0`. Forced to `2` when the direct solver is used. |
 
 Only these five fields are read; trailing values are ignored.
@@ -106,11 +226,57 @@ initial bounding box as *the* remedy when the multipole expansion length `L`
 blows up memory on large meshes (Sec. 3.3.1, Sec. 4.2, Conclusions), and
 Sec. 4.2 says a large `L` also destabilises the solver.
 
-### 1.5 Command-line (`Appendix D`)
+### 1.9 Main Parameters III and IV
 
-- `NumCalc --estimate_ram` — runs **clustering only**, no BEM solve, and reports
-  estimated memory. Slightly underestimates (ignores mesh/result arrays).
-- `NumCalc -istart N -iend M` — already used by bemkit's job planner.
+**Main Parameters III** (`NC_Input.cpp:325-326`) is consumed and **entirely
+discarded** — no assignment of any kind. It is a required placeholder line and
+nothing more. Documented here so nobody hunts for its meaning again.
+
+**Main Parameters IV** (`NC_Input.cpp:329-336`) reads only three fields:
+`speedOfSound_`, `densityOfMedium_`, `harmonicTimeFactor_`. Note that
+**`harmonicTimeFactor_` is coerced to ±1** — `if (harmonicTimeFactor_ != -1.0)
+harmonicTimeFactor_ = 1.0` (`:334`) — so it is a convention switch, not a scale.
+Fields 3 and beyond are ignored, and the solver tolerance `epsilon_` is hardcoded
+to `1e-6` (`:340`), not configurable from the deck.
+
+Both a speed of sound below 300 and a density below 1.0 produce warnings, not
+errors — so an accidental unit mistake in `[bem]` is survivable but silent in
+`NC.inp` terms.
+
+### 1.10 Command line (`NC_Main.cpp:150-186`)
+
+The complete flag set:
+
+| Flag | Effect | bemkit |
+|---|---|---|
+| `-istart N` / `-iend M` | 1-based inclusive bin range | ✅ `sim/runner.py` |
+| `-nitermax N` | max CGS iterations | ❌ |
+| `-estimate_ram` | clustering only, no solve; writes `Memory.txt` | ❌ |
+| `-check_normals` | half-edge orientation consistency check | ❌ |
+| `-adapt_fmmlength` | adapt multipole truncation to cluster radii | ❌ |
+| `-h` | usage | — |
+
+An **unrecognised flag makes NumCalc `exit(-1)`**, so a runner that passes
+through unknown options must validate them itself.
+
+`-adapt_fmmlength` is the second lever on Hint 8, alongside `ClusEdgL0`.
+
+### 1.11 Prior art: the only other Python writer requires Blender
+
+`mesh2hrtf/Mesh2Input/mesh2input.py` is the sole existing Python NC.inp writer:
+1389 lines, `import bpy` at module scope, and the writer itself lives inside a
+`bpy.types.Operator.execute` method. **It cannot be imported as a library.**
+
+It remains the best available reference for the `CURVES` format (§1.4) and for
+the material CSV convention (`Materials/write_material.py`), but there is no
+reusable code to adopt. This matters for §4: a dependency-light NC.inp
+reader/writer is a genuine hole in the ecosystem, not a duplicate.
+
+### 1.12 What must never be exposed
+
+- `TRAD` / `TRIM` — parsed, then hard-error.
+- `numPointSources_ = -1` — internal accuracy self-test (§1.5).
+- Main Parameters III — read and discarded (§1.9).
 
 ---
 
@@ -118,32 +284,32 @@ Sec. 4.2 says a large `L` also destabilises the solver.
 
 | NumCalc capability | bemkit | Where |
 |---|---|---|
-| `VELO`, real value | ✅ | `sim/writers.py:292` |
+| `VELO`, real value | ✅ | `sim/writers.py:310` |
 | `VELO`, complex value | ❌ imaginary part hardcoded `0.0` | same line |
 | `PRES` | ❌ | — |
 | `ADMI` / `IMPE` | ❌ | — |
 | `ADMI` + `VELO` on one element | ❌ | — |
-| `CURVES` (frequency-dependent) | ❌ curve refs hardcoded `-1` | `writers.py:292,305` |
-| Plane waves | ⚠️ works, raw 8-value pass-through | `writers.py:165-180, 300-308` |
+| `CURVES` (frequency-dependent) | ❌ curve refs hardcoded `-1` | `writers.py:310` |
+| Plane waves | ⚠️ works, raw 8-value pass-through | `writers.py:170, 318-326` |
 | Point sources | ⚠️ same | same |
 | Element selection by geometry | ✅ and better than NumCalc needs | `sim/boundary.py` |
-| `ClusEdgL0` | ❌ hardcoded `0.0000e+00` | `sim/templates/NC.inp:28` |
-| Preconditioner | ❌ hardcoded `0` | same |
-| `--estimate_ram` | ❌ | — |
-| `-istart/-iend` | ✅ | `sim/runner.py:68` |
+| Non-uniform frequency list | ❌ hardwired 2-point curve ⇒ FFT grid | `sim/templates/NC.inp:19-22` |
+| `minExpansionTermsFMM_` | ❌ hardcoded `0` (⇒ 8) | `templates/NC.inp:25` |
+| `ISOLVER` (`methodSolver_`) | ❌ hardcoded `0` | same line |
+| `ClusEdgL0` | ❌ hardcoded `0.0000e+00` | `templates/NC.inp:28` |
+| Preconditioner | ❌ hardcoded `0` | same line |
+| `-nitermax` | ❌ | — |
+| `-estimate_ram` | ❌ | — |
+| `-check_normals` | ❌ | — |
+| `-adapt_fmmlength` | ❌ | — |
+| `-istart` / `-iend` | ✅ | `sim/runner.py` |
 | Solver-convergence check (Hint 5) | ✅ | `sim/status.py:solver_warnings` |
 
-Two accuracy problems in the current source support:
-
-1. **The documentation mislabels plane-wave fields.** `writers.py:178` and
-   `HOWTO.md` both describe the row as `[nr, x0, y0, z0, ...]`. For a plane wave
-   those three numbers are a **direction**. A user copying the point-source
-   example and changing the section name gets a plane wave travelling toward the
-   origin-relative point they thought they were placing a source at.
-2. **The `NC.inp` template comment is wrong.** "forth value is a NumCalc
-   parameter (test 0.05 if issues)" describes `ClusEdgL0_`, the FMM bounding-box
-   edge length. The advice is accidentally sound — 0.05 m shrinks the box — but
-   it reads as folklore rather than the documented memory/stability knob it is.
+**Both accuracy problems flagged in the 2026-07-26 revision are now closed.**
+Plane-wave fields are documented as a *direction* in `HOWTO.md:339-356` and
+enforced by `_SOURCE_TRIPLE` (`sim/writers.py:170`); the `NC.inp` template
+comment now correctly identifies `ClusEdgL0` and `IPRECOND`
+(`sim/templates/NC.inp:29-35`). No action needed.
 
 ---
 
@@ -151,127 +317,193 @@ Two accuracy problems in the current source support:
 
 | # | Hint | bemkit status |
 |---|---|---|
-| 1 | Normal vectors point away from the scatterer | ❌ **not checked.** NumCalc does not check either, and the paper calls a flipped normal the most common error that still produces plausible-looking output. A watertight mesh admits a cheap global orientation test (signed volume via the divergence theorem). |
+| 1 | Normal vectors point away from the scatterer | ⚠️ **[corrected]** — see below. |
 | 2 | 6–8 elements per wavelength | ⚠️ implicit. `[mesh] lc_max` is documented as "~6 elements per wavelength at max freq", but nothing verifies it against `sr`/`nbins` after meshing. `element_areas` already exists. |
-| 3 | ≥ 1 average edge length between an external source and the surface | ❌ **not checked** — and this is the validation that matters most for the feature being added. bemkit already computes exactly this quantity for fieldpoints (`min_surface_distance_factor × avg_edge_length`); point sources need the same test. |
+| 3 | ≥ 1 average edge length between an external source and the surface | ❌ **not checked** — and this is the validation that matters most for incident sources. bemkit already computes exactly this quantity for fieldpoints (`min_surface_distance_factor × avg_edge_length`); point sources need the same test. |
 | 4 | Keep elements as regular as possible | ❌ not measured. Aspect-ratio/skew histogram would be cheap from `read_mesh_triangles`. |
 | 5 | Check the iterative solver converged | ✅ `solver_warnings` scans `NC*.out` for both strings; surfaced in `bem status` and after a run. |
 | 6 | Elements approximately the same size, at least locally | ❌ not measured. Directly relevant: the graded meshes bemkit produces (`lc_min`→`lc_max`) are exactly the case the hint warns about, and FMM stability depends on it. |
 | 7 | Subdivision-loop error ⇒ overlaps, or a source too close | ❌ the error string is not in `_SOLVER_WARNINGS`. One-line addition to an existing mechanism. |
-| 8 | Expansion order `L > 30` ⇒ check convergence and plausibility | ❌ `L` is reported per level in `NC.out` and is not parsed. |
+| 8 | Expansion order `L > 30` ⇒ check convergence and plausibility | ❌ `L` is reported per level in `NC.out` and is not parsed. The two levers are `minExpansionTermsFMM_` (§1.7) and `-adapt_fmmlength` (§1.10), neither exposed. |
 | 9 | Check the plausibility of your results | — user's job, but sparse/partial results now make this easier. |
-| — | Mesh must be watertight, each edge in exactly two elements | ❌ not checked. |
+| — | Mesh must be watertight, each edge in exactly two elements | ❌ not checked by bemkit; partially checked by `-check_normals`. |
+
+**Hint 1 correction.** The previous revision stated that "NumCalc does not check
+either". It does — behind an opt-in flag. `-check_normals` (`NC_Main.cpp:181`)
+routes to `NC_checkedges()` (`NC_Input.cpp:741`, called at `:516`), which builds a
+half-edge tally: for every node it accumulates signed incoming and outgoing
+half-edge indices and requires the sum to be zero, skipping evaluation elements.
+
+Two limits matter, and neither is obvious from the flag's name:
+
+- It verifies that all normals point into the **same** domain, **not** that they
+  point outward. A uniformly inverted mesh passes cleanly.
+- It is off by default, so nobody gets it for free.
+
+So bemkit still has something to add here — a signed-volume test on a watertight
+mesh answers the *outward* question that `-check_normals` does not — but the
+honest framing is "NumCalc offers a partial check we do not invoke", not "NumCalc
+offers nothing".
 
 Hints 1, 3, 4, 6 and 7 are all *mesh or setup* diagnostics that bemkit is well
-placed to provide and currently does not. They are independent of the source
-feature and could ship as a `bem MODEL check` family (the CLI already reserves
-that name for the private `bemlab` package — worth reconsidering).
+placed to provide and currently does not. They could ship as a `bem MODEL check`
+family (the CLI reserves that name for the private `bemlab` package — worth
+reconsidering).
 
 ---
 
-## 4. Proposed increments
+## 4. Architecture: does a standalone `pynumcalc` make sense?
 
-### Tier 1 — typed incident sources (small)
+The question behind this document: if bemkit grows to cover every NumCalc
+setting, on top of meshing, analysis, visualization, a CLI and a web exporter,
+does that justify splitting the NumCalc layer into its own package?
 
-Replace the raw 8-value row with a declarative table, keeping the current form
-working:
+**Decision: build an extract-ready subpackage inside bemkit now; do not split the
+repository until a named trigger fires.**
 
-```toml
-[sources.plane1]
-type = "plane"
-direction = [0, 0, 1]      # normalised by NumCalc; reject a zero vector
-amplitude = 1.0            # or [re, im]
+### 4.1 The size fear is misplaced
 
-[sources.spk]
-type = "point"
-position = [0.0, -1.5, 0.0]   # metres
-amplitude = 1.0
+Full grammar coverage is roughly **300–500 lines** of writer plus validation.
+For scale, bemkit is 10 631 lines today, of which `viz/` alone is ~2 700 and
+`cli/` ~1 630. Feature-completeness against NumCalc is not what would make bemkit
+big.
+
+### 4.2 The coupling is the real problem
+
+`write_nc_inp(config, variant, nc_dir, ...)` takes a `ModelConfig`. **The NC.inp
+writer is config.toml-shaped**, so each new knob costs edits in `config.py`
+(schema + validation), a resolver or `sim/writers.py`, `sim/templates/NC.inp`,
+`sim/config_snapshot.py`, the tests, and `HOWTO.md`. Six touch points per knob,
+across four layers, is what scales badly — not the knob count.
+
+The extraction seam also **does not exist yet**, contrary to what the layer rule
+implies. `CLAUDE.md` documents only `sim ↛ analysis/viz`, and `sim/` really does
+respect that — but it has undeclared inward dependencies that any extraction must
+cut first:
+
+- `sim/discovery.py:5` and `sim/boundary.py:23` import `bemkit.config`
+- `sim/writers.py:9`, `sim/boundary.py:24`, `sim/export.py:6` and
+  `sim/fieldpoints.py:223` import `bemkit.meshing.io`
+
+### 4.3 The fix is a document model, not a repository
+
+Introduce `bemkit/numcalc/`: a typed, faithful, round-trippable representation of
+an NC.inp deck that knows nothing about config.toml, meshes, variants or bemkit.
+
+```
+bemkit/numcalc/          numpy-only, zero bemkit.* imports
+  deck.py       Deck dataclass — frequencies (explicit Hz), medium, solver,
+                symmetry, boundary, plane_waves, point_sources, curves
+                + Deck.read(path) / Deck.write(path)
+  grammar.py    per-section emit + validation; one place per NumCalc knob
+
+bemkit/sim/builder.py    deck_from_config(config, variant, mesh) -> Deck
+                         bemkit's opinions live HERE: the FFT frequency grid,
+                         physical-group -> VELO, mm/m unit scaling
 ```
 
-Work: a `sim/sources.py` mirroring `sim/boundary.py`'s shape (validate → emit
-rows), config schema entries, and two validations — reject a zero direction
-vector, and enforce Hint 3 by rejecting a point source closer than one average
-edge length to the surface (reusing the mesh data `resolve_boundary` already
-loads). Fix the mislabelled docs while there.
+`write_nc_inp` becomes a thin shim over `builder` + `Deck.write`, keeping its
+current signature. Adding a NumCalc feature then costs: one field, one line in
+`write()`, one in `read()`, one round-trip test.
 
-*No change to `write_nc_inp`'s emit loop; it already writes the rows.*
+Four things this buys:
 
-### Tier 2 — `PRES` / `ADMI` / `IMPE` boundary conditions (small)
+1. **Full coverage without config bloat.** `config.toml` keeps only curated keys
+   with a real user story. A raw `[nc]` table and a Python hook
+   (`deck = deck_from_config(...); deck.solver.nitermax = 5000`) reach the other
+   100% without a TOML key per NumCalc field. This is what makes "support
+   everything" compatible with "keep the config legible".
+2. **The extraction seam, for free.** A module with no inward imports becomes
+   `pynumcalc` via `git mv` plus a compatibility shim, on the day it is wanted.
+3. **Immediate value, not deferred.** `Deck.read()` collapses today's two ad-hoc
+   NC.inp re-parsers — `read_nc_inp_boundary_conditions` (`sim/readers.py:135`)
+   and `read_nc_inp_symmetry` (`:195`) — into one tested reader. The variant
+   directory is already a self-contained bundle; a real reader is what makes it
+   introspectable.
+4. **Round-trip equality is the test that makes completeness tractable.**
+   `read(write(deck)) == deck` over a corpus of decks is a single property that
+   covers every field at once. Without it, "all settings" is untestable and will
+   rot.
 
-The emit line becomes:
+**Enforcement.** `tests/test_boundaries.py` already carries
+`CORE = ["config.py", "meshing", "sim"]` (`:18`) and walks the package for
+forbidden imports. Extend it with a rule that nothing under `bemkit/numcalc/`
+imports `bemkit.*`. Without that check the seam closes again within a month and
+the extraction option is quietly lost.
 
-```python
-nc.write(f'ELEM {s} TO {e} {bctype} {re:.4f} {c1} {im:.4f} {c2}\n')
-```
+### 4.4 Why not a separate repository now
 
-Element *selection* needs nothing: `resolve_boundary` already returns ranges,
-and geometric anchors work unchanged. What is needed is a per-entry type and a
-complex value in the config schema:
+- **No second consumer exists.** `bemlab` extends the *CLI* through the
+  `bemkit.cli` entry-point group (`cli/__init__.py:52-54`), not the writer;
+  `bemkit-auralizer` consumes web bundles, not decks. A package with one consumer
+  is a module.
+- **Repository count is already four** — bemkit, bemgeo, bemlab,
+  bemkit-auralizer. A fifth must earn its place.
+- **A premature split has real costs**: version skew, a second CI and changelog,
+  and a cross-repo pull request for every feature touching both sides. Nearly
+  every increment in §5 touches both sides.
 
-```toml
-[BOUNDARY.cap]
-absorber = { near = [0, 0, 0.05], radius = 0.02, type = "admi", value = [0.003, -0.001] }
-```
+### 4.5 The extraction trigger
 
-Plus: reject `TRAD`/`TRIM`, convert or reject `IMPE`+curve per §1.2, and allow
-an element to carry both `ADMI` and `VELO` (two emitted lines for one entry).
+Naming the trigger is what makes deferral honest rather than indefinite. Extract
+`pynumcalc` as its own distribution when **either**:
 
-### Tier 3 — `CURVES` (medium)
+- a second consumer needs decks without bemkit's meshing and analysis stack, **or**
+- the deck library is offered upstream or published — for which there is a real
+  ecosystem gap, since the only existing Python writer requires Blender (§1.11).
 
-A new section writer after the sources, plus frequency-step→value curves. The
-awkward part is not the format but the **coupling to the frequency grid**: curve
-nodes are indexed by *frequency step*, so a curve is only meaningful alongside
-the `sr`/`nbins` grid — and now also alongside partial-band runs, where only
-some steps are computed. The all-or-nothing `-1` rule (§1.2) must be enforced at
-config time.
+Until then the subpackage boundary delivers the same design benefit at none of
+the coordination cost.
 
-### Tier 4 — normalisation semantics (small code, needs a decision)
+### 4.6 What stays in bemkit regardless
+
+Two things are bemkit's own value and must not migrate into a generic deck
+library:
+
+- **Geometric BC anchors** (`sim/boundary.py`) — `near=`/`radius=` resolution
+  against the mesh at export time. NumCalc has no concept of these; they are the
+  reason a BC survives a remesh.
+- **The mesh-quality diagnostics of §3.** NumCalc performs none of them by
+  default and, as the paper puts it, "will produce *some* results, and it is up to
+  the user to check the validity". That is the gap where bemkit adds value the
+  solver does not — and it needs the meshing layer, so it could never live in
+  `pynumcalc` anyway.
+
+---
+
+## 5. Roadmap
+
+Re-sequenced around the deck refactor and the corrected sizing.
+
+| | Work | Size | Note |
+|---|---|---|---|
+| 0 | `bemkit/numcalc/` deck + round-trip tests; `write_nc_inp` → shim; boundary-test rule | medium | Prerequisite. Pure refactor, no behavioural change. |
+| 1 | Solver knobs — `ClusEdgL0`, `IPRECOND`, `min_expansion_terms`, `ISOLVER` — plus the `[nc]` escape hatch | small | Two of the four are newly identified (§1.7). |
+| 2 | `PRES` / `ADMI` / `IMPE`, complex values, `ADMI`+`VELO` on one element | small | The ρc-normalization (§1.2) is the risk, not the diff. |
+| 3 | Normalization semantics for non-velocity-driven models | small + decision | Still the one that silently produces wrong numbers. See §5.1. |
+| 4 | Typed incident sources + Hint 3 distance validation | small | Unchanged from the previous revision. |
+| 5 | `CURVES` | small | **Re-sized down** — Hz abscissa, no grid coupling (§1.4). |
+| 6 | CLI flags — `-nitermax`, `-check_normals`, `-estimate_ram`, `-adapt_fmmlength` | small | New. `estimate-ram` answers the question our `-j` default currently answers by being conservative. |
+| 7 | Non-uniform frequency lists | medium | New. Needs an `analysis/` decision (§1.6). |
+| 8 | Mesh-quality diagnostics (`bem MODEL check`) — hints 1, 3, 4, 6, 7 | medium | The differentiator (§4.6). |
+
+Tiers 1–6 are additive and touch one layer each once Tier 0 lands.
+
+### 5.1 The normalization decision (Tier 3)
 
 `pressure_acc` divides by `ρ₀·ω·A_vib`, and `A_vib` comes from
 `read_nc_inp_boundary_conditions`, which parses `VELO` lines **and only `VELO`
 lines** (`sim/readers.py:135-192`). Consequences once Tier 2 lands:
 
 - A `PRES`- or `ADMI`-only model gets `A_vib = None` and an unnormalised result
-  with a warning that reads like a bug.
-- A model mixing `VELO` and `ADMI` on the same elements would double-count area
-  unless the reader distinguishes them.
+  with a warning that reads like a bug rather than a correct description of a
+  scattering problem.
+- A model mixing `VELO` and `ADMI` on the same elements double-counts area unless
+  the reader distinguishes them.
+- A `VELO 0.0` line already counts toward `A_vib` today — a pre-existing trap that
+  mixed BCs make easier to hit.
 
-The decision: does `norm="acc"` stay the default for models with no velocity
-drive, or does the result layer learn to pick `raw` automatically and say so?
-The same question already exists for pure scattering setups (documented in
-`CLAUDE.md`), so Tier 4 is worth doing *with* Tier 1 rather than after it.
-
-### Tier 5 — expose the two hardcoded solver knobs (trivial)
-
-```toml
-[bem]
-cluster_edge_length = 0.05   # ClusEdgL0; 0 = NumCalc default
-preconditioner = 0           # [-3, 2]
-```
-
-Two template fields and two validated config keys. Worth pairing with a
-`bem MODEL estimate-ram` wrapper around `NumCalc --estimate_ram`, which answers
-the question our `-j` default (1) currently answers by being conservative.
-
----
-
-## 5. Answer to "would that require big modifications?"
-
-**No.** Ranked by risk:
-
-- **Tiers 1, 2 and 5 are additive** and touch one layer each. The reason they
-  are cheap is that bemkit already separates *which elements* (`sim/boundary.py`,
-  with geometric anchors NumCalc has no concept of) from *what is written*
-  (`sim/writers.py`). Only the latter changes.
-- **Tier 3 is self-contained** but couples to the frequency grid, which the
-  partial-band work has just made more interesting.
-- **Tier 4 is the only one that crosses into `analysis/`**, and it is a
-  semantics decision, not a large diff. It is also the one that will silently
-  produce wrong numbers if skipped — a `PRES`-driven model normalised as if it
-  were velocity-driven is not obviously wrong on a plot.
-
-The largest *genuine* gap the paper exposes is not the source or BC types at
-all: it is that bemkit performs **none of the mesh-quality checks** the paper
-spends ten hints on (§3), while NumCalc explicitly performs none either and
-"will produce *some* results, and it is up to the user to check the validity".
-That is the area where bemkit could add value that NumCalc does not.
+The decision: does `norm="acc"` stay available for models with no velocity drive,
+or does the result layer detect the case and say so? `SimulationData` already
+defaults to `raw`, so this is mostly about making the warning tell the truth —
+but it should be settled *with* Tier 2, not after it.
