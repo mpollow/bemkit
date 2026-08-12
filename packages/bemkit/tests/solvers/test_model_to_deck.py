@@ -144,3 +144,14 @@ def test_bc_selecting_no_elements_is_rejected():
     m = _model(bcs=[BC(Elements([]), Velocity(1.0))])
     with pytest.raises(ValueError, match="no elements"):
         model_to_deck(m, n_eval_nodes=1, n_eval_elements=1)
+
+
+def test_time_factor_is_set_explicitly_not_left_to_the_deck_default():
+    """NumCalc coerces a non -1.0 value to +1.0 silently, so the translation
+    must state the convention rather than rely on any default agreeing."""
+    deck = model_to_deck(_model(), n_eval_nodes=1, n_eval_elements=1)
+    assert deck.time_factor == -1.0
+
+    m = Model(MESH, FREQS, Medium(), bcs=[BC(Group("vibrating"), Velocity(1.0))],
+              time_factor=1.0)
+    assert model_to_deck(m, n_eval_nodes=1, n_eval_elements=1).time_factor == 1.0

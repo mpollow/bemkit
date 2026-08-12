@@ -49,13 +49,24 @@ class Model:
     """
 
     def __init__(self, mesh, frequencies, medium=None, *, bcs=(), sources=(),
-                 fields=None, exterior=True):
+                 fields=None, exterior=True, time_factor=-1.0):
         self.mesh = mesh
         self.frequencies = np.asarray(frequencies, dtype=float)
         self.medium = medium if medium is not None else Medium()
         self.bcs = tuple(bcs)
         self.sources = tuple(sources)
         self.exterior = bool(exterior)
+        # Only -1 and +1 exist, and the check is strict on purpose: NumCalc
+        # coerces anything that is not exactly -1.0 to +1.0
+        # (NC_Input.cpp:334), silently flipping the sign of every imaginary
+        # part. A typo or an omission must not be able to choose the
+        # convention for you.
+        self.time_factor = float(time_factor)
+        if self.time_factor not in (-1.0, 1.0):
+            raise ValueError(
+                f"time_factor must be exactly -1.0 (e^-iwt) or +1.0 (e^+iwt), "
+                f"got {time_factor!r}. NumCalc silently reads anything else "
+                f"as +1.0, so there is no safe middle value.")
 
         if self.frequencies.ndim != 1 or len(self.frequencies) == 0:
             raise ValueError("a model needs at least one frequency")

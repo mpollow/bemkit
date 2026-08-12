@@ -146,3 +146,25 @@ def test_circle_rejects_non_positive_resolution():
 def test_plane_rejects_non_positive_resolution():
     with pytest.raises(ValueError, match="res"):
         plane("xy", res=0)
+
+
+class TestTimeConvention:
+    """The sign convention for every imaginary part.
+
+    NumCalc coerces anything that is not exactly -1.0 to +1.0
+    (NC_Input.cpp:334), so an omitted or mistyped value silently selects
+    e^+iwt. It therefore lives on the Model and is always passed explicitly.
+    """
+
+    def test_defaults_to_e_minus_iwt(self):
+        assert Model(MESH, fft_grid(8000, 5), Medium()).time_factor == -1.0
+
+    def test_plus_one_is_allowed_explicitly(self):
+        m = Model(MESH, fft_grid(8000, 5), Medium(), time_factor=1.0)
+        assert m.time_factor == 1.0
+
+    @pytest.mark.parametrize("bad", [0.0, 0.5, -0.999, 2, -2.0])
+    def test_anything_else_is_rejected(self, bad):
+        """NumCalc would read these as +1.0 without a word."""
+        with pytest.raises(ValueError, match="exactly -1.0"):
+            Model(MESH, fft_grid(8000, 5), Medium(), time_factor=bad)
