@@ -111,3 +111,32 @@ def test_numcalc_uses_only_stdlib_and_numpy():
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], (
         "pynumcalc may only use stdlib and numpy:\n  " + "\n  ".join(bad))
+
+
+def test_model_layer_imports_nothing_of_ours():
+    """model/ is pure data — the bottom of the spine.
+
+    If it ever imports geometry, solvers, results or view, the layering has
+    inverted and the Model stops being independently testable, which is the
+    whole reason two solver backends can be compared on one problem.
+    """
+    bad = []
+    for f in sorted((PKG / "model").rglob("*.py")):
+        for mod, lineno in _all_imports(ast.parse(f.read_text())):
+            if mod.startswith("bemkit.") and not mod.startswith("bemkit.model"):
+                bad.append(f"{f.name}:{lineno} imports {mod}")
+    assert bad == [], ("bemkit/model must import nothing else from bemkit:\n  "
+                       + "\n  ".join(bad))
+
+
+def test_model_layer_needs_only_numpy():
+    """No meshio, no gmsh, no scipy, no solver — a Model must be constructible
+    with nothing installed but numpy."""
+    banned = ("meshio", "gmsh", "scipy", "matplotlib", "pyvista", "pynumcalc")
+    bad = []
+    for f in sorted((PKG / "model").rglob("*.py")):
+        for mod, lineno in _all_imports(ast.parse(f.read_text())):
+            if mod.split(".")[0] in banned:
+                bad.append(f"{f.name}:{lineno} imports {mod}")
+    assert bad == [], ("bemkit/model may only use stdlib and numpy:\n  "
+                       + "\n  ".join(bad))
