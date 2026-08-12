@@ -5,5 +5,7 @@ imports this; it imports nothing of ours back.
 """
 
 from bemkit.model.mesh import Medium, Mesh
+from bemkit.model.select import Elements, Group, Near, Selector, Where
 
-__all__ = ["Mesh", "Medium"]
+__all__ = ["Mesh", "Medium",
+           "Selector", "Group", "Elements", "Near", "Where"]
