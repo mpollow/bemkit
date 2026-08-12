@@ -56,6 +56,7 @@ from bemkit.geometry.load import load_mesh
 from bemkit.study import load_study
 from bemkit.results import MemoryStore, NpzStore, Results, Store
 from bemkit.solvers import Solver, Status
+from bemkit.solvers.bempp import BemppSolver
 from bemkit.solvers.numcalc import NumCalcSolver
 
 # -- Job control, straight through from pynumcalc --
@@ -77,7 +78,7 @@ __all__ = [
     # geometry
     "load_mesh", "MeshInfo", "find_mesh_file",
     # study / solve / results
-    "load_study", "Solver", "Status", "NumCalcSolver",
+    "load_study", "Solver", "Status", "NumCalcSolver", "BemppSolver",
     "Results", "Store", "MemoryStore", "NpzStore",
     # job control
     "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",

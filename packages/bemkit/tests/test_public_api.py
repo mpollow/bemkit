@@ -26,7 +26,7 @@ def test_public_api_surface():
         # getting a mesh off disk
         "load_mesh", "MeshInfo", "find_mesh_file",
         # study / solve / results
-        "load_study", "Solver", "Status", "NumCalcSolver",
+        "load_study", "Solver", "Status", "NumCalcSolver", "BemppSolver",
         "Results", "Store", "MemoryStore", "NpzStore",
         # job control, straight through from pynumcalc
         "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",
@@ -82,7 +82,7 @@ def test_demoted_plumbing_stays_off_the_root():
 
 
 @pytest.mark.parametrize("heavy", ["matplotlib", "pyvista", "meshio", "gmsh",
-                                   "scipy"])
+                                   "scipy", "bempp_cl"])
 def test_core_import_stays_light(heavy):
     """`import bemkit` must pull in nothing but numpy and pynumcalc.
 
