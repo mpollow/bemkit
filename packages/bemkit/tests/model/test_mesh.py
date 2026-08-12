@@ -22,8 +22,8 @@ def test_centroids():
 
 def test_areas():
     m = Mesh(VERT, TRI)
-    assert m.areas.shape == (2,)
-    assert np.all(m.areas > 0)
+    # Both triangles are right triangles with unit legs -> area 0.5 each.
+    np.testing.assert_allclose(m.areas, [0.5, 0.5])
 
 
 def test_rejects_ragged_triangles():
@@ -41,7 +41,24 @@ def test_unknown_group_is_rejected_at_construction():
         Mesh(VERT, TRI, groups={"bad": np.array([5])})
 
 
+def test_rejects_boolean_mask_group():
+    mask = np.array([False, True])
+    with pytest.raises(ValueError, match="np.nonzero\\(mask\\)\\[0\\]"):
+        Mesh(VERT, TRI, groups={"vibrating": mask})
+
+
 def test_medium_defaults_and_impedance():
     med = Medium()
     assert (med.c, med.rho) == (343.0, 1.2)
     assert med.z0 == pytest.approx(343.0 * 1.2)
+
+
+def test_medium_rejects_nonpositive_c_or_rho():
+    with pytest.raises(ValueError, match="c must be positive"):
+        Medium(c=-300.0)
+    with pytest.raises(ValueError, match="rho must be positive"):
+        Medium(rho=-5.0)
+    with pytest.raises(ValueError):
+        Medium(c=0.0)
+    with pytest.raises(ValueError):
+        Medium(rho=0.0)

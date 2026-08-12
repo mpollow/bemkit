@@ -17,6 +17,12 @@ class Medium:
     c: float = 343.0
     rho: float = 1.2
 
+    def __post_init__(self):
+        if self.c <= 0:
+            raise ValueError(f"c must be positive, got {self.c}")
+        if self.rho <= 0:
+            raise ValueError(f"rho must be positive, got {self.rho}")
+
     @property
     def z0(self):
         """Characteristic impedance rho*c — the normalisation admittance and
@@ -46,15 +52,23 @@ class Mesh:
         if len(self.triangles) and (self.triangles.min() < 0
                                     or self.triangles.max() >= len(self.vertices)):
             raise ValueError(
-                f"triangle index out of range: the mesh has "
+                f"triangle index out of range: max index "
+                f"{self.triangles.max()} but the mesh has "
                 f"{len(self.vertices)} vertices")
         self.groups = {}
         for name, idx in (groups or {}).items():
-            idx = np.asarray(idx, dtype=int)
+            idx = np.asarray(idx)
+            if idx.dtype == bool:
+                raise ValueError(
+                    f"group {name!r}: boolean masks are not accepted as "
+                    f"element indices (silently mis-parses as 0/1 integer "
+                    f"indices) — pass np.nonzero(mask)[0] instead")
+            idx = idx.astype(int)
             if len(idx) and (idx.min() < 0 or idx.max() >= len(self.triangles)):
                 raise ValueError(
-                    f"group {name!r}: element index out of range "
-                    f"(mesh has {len(self.triangles)} elements)")
+                    f"group {name!r}: element index out of range: max "
+                    f"index {idx.max()} but the mesh has "
+                    f"{len(self.triangles)} elements")
             self.groups[name] = idx
 
     @property
