@@ -1,16 +1,31 @@
-"""Model -> NumCalc Deck.
+"""Model -> NumCalc Deck, and the Solver that drives NumCalc end to end.
 
 This is the single place NumCalc-isms are allowed to live. The model layer
 above (:mod:`bemkit.model`) knows nothing of decks, element ranges or CURVES;
 :mod:`pynumcalc` below knows nothing of models. Everything opinionated about
 *how* a solver-neutral :class:`~bemkit.model.Model` becomes an ``NC.inp`` deck
-belongs here.
+belongs here — ``model_to_deck`` for the translation, :class:`NumCalcSolver`
+for the write-run-ingest pipeline built on top of it.
 """
 
+import json
+import tempfile
+from pathlib import Path
+
+from pynumcalc import (
+    available_bins, missing_bins, numcalc_pids, plan_jobs, run_jobs,
+    solver_warnings,
+)
 from pynumcalc.deck import BC as DeckBC
 from pynumcalc.deck import Curve, Deck, Source, _contiguous_ranges
+from pynumcalc.meshfiles import (
+    write_eval_grid_elements, write_eval_grid_nodes, write_object_mesh,
+)
 
 from bemkit.model.sources import PlaneWave, PointSource
+from bemkit.results.results import Results
+from bemkit.solvers import fieldpoints
+from bemkit.solvers.base import Status
 
 #: NumCalc supports frequency CURVES for ADMI only: it ignores them for
 #: VELO/PRES and exit(-1)s on IMPE with a curve, telling you to use ADMI
@@ -158,3 +173,123 @@ def model_to_deck(model, *, n_eval_nodes, n_eval_elements, header=None,
     )
     deck.validate()
     return deck
+
+
+def _save_offsets(offsets, path):
+    """Write the field-point offsets next to the bundle, as plain JSON.
+
+    Metadata only — the offsets a solve *used* travel with the returned
+    Results (see :meth:`Results.from_beout`); this file is what lets a bundle
+    be inspected, or re-ingested, without re-running the solve.
+    """
+    with open(path, "w") as f:
+        json.dump({name: idx.tolist() for name, idx in offsets.items()}, f)
+
+
+class NumCalcSolver:
+    """Run NumCalc on a Model.
+
+    The working directory is the bundle: self-contained, relocatable, and
+    resumable because bins are independent. With ``workdir=None`` a temporary
+    one is used and the results are materialised into memory before cleanup —
+    right for a quick comparison, wrong for a model too big to hold in RAM.
+    """
+
+    name = "numcalc"
+
+    def solve(self, model, *, workdir=None, bins=None, jobs=1):
+        """Solve ``model`` with NumCalc and return a :class:`Results`.
+
+        Args:
+            model: the Model to solve.
+            workdir: bundle directory. Created if it does not exist. When
+                None, a temporary directory is used and cleaned up before
+                this call returns — the returned Results is fully
+                materialised into memory first, so it survives the cleanup,
+                but this is only appropriate for a model whose results fit
+                comfortably in RAM.
+            bins: 1-based frequency indices to compute (None = all).
+            jobs: max concurrent NumCalc processes (see ``pynumcalc.plan_jobs``).
+
+        Raises:
+            ValueError: every field point was dropped by validation (or the
+                model has none to begin with).
+            RuntimeError: NumCalc exited non-zero for one or more jobs.
+        """
+        if workdir is not None:
+            workdir = Path(workdir)
+            workdir.mkdir(parents=True, exist_ok=True)
+            return self._solve_in(model, workdir, bins=bins, jobs=jobs)
+
+        with tempfile.TemporaryDirectory(prefix="bemkit-numcalc-") as tmp:
+            results = self._solve_in(model, Path(tmp), bins=bins, jobs=jobs)
+            results.materialise()
+        return results
+
+    def _solve_in(self, model, workdir, *, bins, jobs):
+        raw_points, _ = fieldpoints.combine(model.fields)
+        if len(raw_points) == 0:
+            raise ValueError(
+                "model has no field points to evaluate -- NumCalc needs at "
+                "least one EvalGrid point (boundary-only results are not "
+                "yet supported by this solver)")
+
+        mask = fieldpoints.validate(raw_points, model.mesh,
+                                    exterior=model.exterior)
+        points, offsets = fieldpoints.combine(model.fields, mask)
+        if len(points) == 0:
+            raise ValueError(
+                f"all {len(raw_points)} field point(s) were dropped by "
+                f"validation (on the wrong side of the surface, or too "
+                f"close to it) -- check the field-point sets against the "
+                f"mesh and Model.exterior")
+
+        write_object_mesh(model.mesh.vertices, model.mesh.triangles, workdir)
+        write_eval_grid_nodes(points, workdir)
+        n_eval_elements = write_eval_grid_elements(len(points), workdir)
+
+        deck = model_to_deck(model, n_eval_nodes=len(points),
+                             n_eval_elements=n_eval_elements)
+        deck.write(workdir / "NC.inp")
+        _save_offsets(offsets, workdir / "eval_offsets.json")
+
+        nf = len(model.frequencies)
+        jobs_to_run = plan_jobs([(workdir.name, workdir)], nf,
+                                max_jobs=jobs, bins=bins)
+        completed, failed = run_jobs(jobs_to_run, max_jobs=jobs)
+        if failed:
+            logs = ", ".join(str(j.nc_dir / j.log_name) for j in failed)
+            raise RuntimeError(
+                f"NumCalc failed for {len(failed)} of {len(jobs_to_run)} "
+                f"job(s) in {workdir} -- see {logs}")
+
+        return Results.from_beout(workdir, model.frequencies, offsets)
+
+    def status(self, workdir):
+        """Status of a run in ``workdir`` (see ``bemkit.solvers.base.Status``).
+
+        The frequency count comes from the bundle's own ``NC.inp`` (via
+        ``Deck.read``), not from a Model the caller may not have at hand --
+        a workdir is meant to be inspectable on its own.
+
+        Raises:
+            FileNotFoundError: ``workdir`` has no ``NC.inp`` yet (nothing
+                has been exported there), so "how many bins are missing"
+                has no answer -- reporting a vacuous ``complete`` would be
+                actively misleading.
+        """
+        workdir = Path(workdir)
+        nc_inp = workdir / "NC.inp"
+        if not nc_inp.exists():
+            raise FileNotFoundError(
+                f"{nc_inp} does not exist -- nothing has been exported to "
+                f"{workdir} yet (call solve() first)")
+
+        deck = Deck.read(nc_inp)
+        nf = len(deck.frequencies)
+        return Status(
+            bins_present=tuple(available_bins(workdir)),
+            bins_missing=tuple(missing_bins(workdir, nf)),
+            running_pids=tuple(numcalc_pids(workdir)),
+            warnings=tuple(solver_warnings(workdir)),
+        )
