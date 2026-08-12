@@ -1,7 +1,8 @@
 """Unified `bem` command-line interface.
 
-Heavy layers (analysis, viz, matplotlib, pyvista) are imported lazily
-inside command functions only — `bem MODEL export` must work without them.
+A study is a directory holding a ``model.py``; the CLI builds its Models and
+drives them through a solver. Heavy layers (viz, matplotlib, pyvista) are
+imported lazily inside command functions only.
 """
 
 import argparse
@@ -37,7 +38,11 @@ class VariantAction(argparse.Action):
 
 
 def load_model_config(model_dir):
-    """ModelConfig.from_dir with CLI-friendly errors."""
+    """ModelConfig.from_dir with CLI-friendly errors.
+
+    Only the config.toml stack (``_legacy``/``_pipeline``/``_init``) still
+    calls this; it goes when they do.
+    """
     from bemkit.config import ModelConfig
     try:
         return ModelConfig.from_dir(model_dir)
@@ -66,44 +71,42 @@ def _register_plugins(sub):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
 
-    # model_dir is effectively optional (defaults to the current directory,
+    # study_dir is effectively optional (defaults to the current directory,
     # see below) but must stay a required positional for argparse — so the
     # usage string is written by hand to show the truth.
     parser = argparse.ArgumentParser(
-        prog="bem", usage="bem [MODEL_DIR] [COMMAND] [options]",
-        description="BEM pipeline for NumCalc models. "
-        "Run `bem` (or `bem COMMAND`) from inside a model directory, "
-        "or pass MODEL_DIR explicitly.")
+        prog="bem", usage="bem [STUDY_DIR] [COMMAND] [options]",
+        description="BEM studies driven from model.py. "
+        "Run `bem` (or `bem COMMAND`) from inside a study directory, "
+        "or pass STUDY_DIR explicitly.")
     parser.add_argument(
-        "model_dir", metavar="MODEL_DIR",
-        help="Path to model directory (default: current directory)")
+        "study_dir", metavar="STUDY_DIR",
+        help="Path to study directory (default: current directory)")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND",
-                                prog="bem [MODEL_DIR]")
+                                prog="bem [STUDY_DIR]")
 
-    from bemkit.cli import _check, _init, _pipeline
+    from bemkit.cli import _check, _commands
     _check.register(sub)
-    _init.register(sub)
-    _pipeline.register(sub)
-    # plot / geometry / results / export-web come from bemviz, through the
-    # same entry-point group any third-party plugin uses.
+    _commands.register(sub)
+    # geometry / results / export-web come from bemviz, through the same
+    # entry-point group any third-party plugin uses.
     _register_plugins(sub)
 
-    # argparse can't reliably combine an *optional* model_dir positional with
-    # the subparsers action - e.g. `nargs="?"` on model_dir makes plain
-    # `bem MODEL_DIR` (no COMMAND) ambiguous and fails to parse. So model_dir
+    # argparse can't reliably combine an *optional* study_dir positional with
+    # the subparsers action - e.g. `nargs="?"` on study_dir makes plain
+    # `bem STUDY_DIR` (no COMMAND) ambiguous and fails to parse. So study_dir
     # stays required from argparse's point of view, and we resolve the
     # "default to cwd" behavior ourselves before argparse ever sees the
     # tokens: if the first token names a known subcommand, or there are no
-    # tokens at all, there's no model_dir token to consume, so insert "."
-    # explicitly. A model directory that happens to share a name with a
-    # subcommand (e.g. a dir literally called "mesh") must be passed as
-    # "./mesh" to disambiguate.
+    # tokens at all, there's no study_dir token to consume, so insert "."
+    # explicitly. A study directory that happens to share a name with a
+    # subcommand (e.g. a dir literally called "check") must be passed as
+    # "./check" to disambiguate.
     if not argv or argv[0] in sub.choices:
         argv = ["."] + argv
 
     args = parser.parse_args(argv)
-    model_dir = Path(args.model_dir).resolve()
+    study_dir = Path(args.study_dir).resolve()
     if args.command is None:
-        from bemkit.cli._pipeline import show_status
-        return show_status(model_dir)
-    return args.func(model_dir, args)
+        return _commands.show_status(study_dir)
+    return args.func(study_dir, args)

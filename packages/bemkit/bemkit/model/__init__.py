@@ -9,7 +9,9 @@ imports this; it imports nothing of ours back.
 from bemkit.model.conditions import (
     Admittance, Condition, Impedance, Pressure, Velocity,
 )
-from bemkit.model.fields import circle, fft_grid, on_axis, plane
+from bemkit.model.fields import (
+    circle, fft_grid, on_axis, plane, resolve_bins,
+)
 from bemkit.model.mesh import Medium, Mesh
 from bemkit.model.problem import BC, Model, ResolvedBC
 from bemkit.model.select import Elements, Group, Near, Selector, Where
@@ -20,5 +22,5 @@ __all__ = [
     "Selector", "Group", "Elements", "Near", "Where",
     "Condition", "Velocity", "Pressure", "Admittance", "Impedance",
     "PlaneWave", "PointSource",
-    "fft_grid", "on_axis", "circle", "plane",
+    "fft_grid", "on_axis", "circle", "plane", "resolve_bins",
 ]

@@ -197,7 +197,7 @@ class NumCalcSolver:
 
     name = "numcalc"
 
-    def solve(self, model, *, workdir=None, bins=None, jobs=1):
+    def solve(self, model, *, workdir=None, bins=None, jobs=1, options=()):
         """Solve ``model`` with NumCalc and return a :class:`Results`.
 
         Args:
@@ -208,8 +208,16 @@ class NumCalcSolver:
                 materialised into memory first, so it survives the cleanup,
                 but this is only appropriate for a model whose results fit
                 comfortably in RAM.
-            bins: 1-based frequency indices to compute (None = all).
+            bins: 1-based frequency indices to compute (None = all). Taken
+                literally: this is *the* set to compute, not a wish
+                intersected with what is already present. A caller that
+                wants a resume passes the missing bins (the CLI does).
             jobs: max concurrent NumCalc processes (see ``pynumcalc.plan_jobs``).
+            options: extra NumCalc argv flags for every job, as built by
+                ``pynumcalc.solver_flags`` (``-nitermax``, ``-check_normals``,
+                ``-adapt_fmmlength``). NumCalc-specific and deliberately not
+                part of the solver-neutral ``Solver`` protocol — a backend
+                that is not NumCalc has nothing to do with these.
 
         Raises:
             ValueError: every field point was dropped by validation (or the
@@ -219,14 +227,31 @@ class NumCalcSolver:
         if workdir is not None:
             workdir = Path(workdir)
             workdir.mkdir(parents=True, exist_ok=True)
-            return self._solve_in(model, workdir, bins=bins, jobs=jobs)
+            return self._solve_in(model, workdir, bins=bins, jobs=jobs,
+                                  options=options)
 
         with tempfile.TemporaryDirectory(prefix="bemkit-numcalc-") as tmp:
-            results = self._solve_in(model, Path(tmp), bins=bins, jobs=jobs)
+            results = self._solve_in(model, Path(tmp), bins=bins, jobs=jobs,
+                                     options=options)
             results.materialise()
         return results
 
-    def _solve_in(self, model, workdir, *, bins, jobs):
+    def export(self, model, workdir):
+        """Write the NumCalc bundle for ``model`` into ``workdir``.
+
+        Everything NumCalc reads — ObjectMesh/, EvalGrid/, NC.inp and the
+        field-point offsets — and nothing it writes. Split out of
+        :meth:`solve` because exporting is useful on its own: ``bem
+        estimate-ram`` needs a bundle to point NumCalc's clustering pass at,
+        and has no business solving anything to get one.
+
+        Returns:
+            ``{set name: (k,) int array}`` — the field-point offsets that
+            survived validation, as :class:`Results` needs them.
+        """
+        workdir = Path(workdir)
+        workdir.mkdir(parents=True, exist_ok=True)
+
         raw_points, _ = fieldpoints.combine(model.fields)
         if len(raw_points) == 0:
             raise ValueError(
@@ -252,10 +277,14 @@ class NumCalcSolver:
                              n_eval_elements=n_eval_elements)
         deck.write(workdir / "NC.inp")
         _save_offsets(offsets, workdir / "eval_offsets.json")
+        return offsets
+
+    def _solve_in(self, model, workdir, *, bins, jobs, options=()):
+        offsets = self.export(model, workdir)
 
         nf = len(model.frequencies)
         jobs_to_run = plan_jobs([(workdir.name, workdir)], nf,
-                                max_jobs=jobs, bins=bins)
+                                max_jobs=jobs, bins=bins, options=options)
         completed, failed = run_jobs(jobs_to_run, max_jobs=jobs)
         if failed:
             logs = ", ".join(str(j.nc_dir / j.log_name) for j in failed)

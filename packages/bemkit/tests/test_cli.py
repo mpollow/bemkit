@@ -2,7 +2,7 @@ import argparse
 
 import pytest
 
-from bemkit.cli import main
+from bemkit.cli._legacy import main
 
 
 #: The plotting subcommands ship in the separate `bemviz` distribution and plug
@@ -37,7 +37,7 @@ def test_bemviz_help_exits_zero(argv):
 
 def _parse(argv):
     """Parse argv through a parser built like the real CLI."""
-    from bemkit.cli import _check, _init, _pipeline
+    from bemkit.cli import _check_legacy as _check, _init, _pipeline
     parser = argparse.ArgumentParser()
     parser.add_argument("model_dir", nargs="?")
     sub = parser.add_subparsers(dest="command")

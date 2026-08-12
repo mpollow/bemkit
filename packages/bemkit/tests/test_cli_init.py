@@ -4,7 +4,7 @@ import meshio
 import numpy as np
 import pytest
 
-from bemkit.cli import main
+from bemkit.cli._legacy import main
 from bemkit.config import ModelConfig
 
 

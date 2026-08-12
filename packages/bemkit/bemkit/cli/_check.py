@@ -1,9 +1,13 @@
-"""`bem MODEL check` — mesh and setup diagnostics.
+"""`bem check` — mesh and setup diagnostics, over the built Model.
 
 NumCalc validates almost nothing and returns *some* result regardless, so a
-flipped normal or an under-resolved band shows up as a plausible-looking plot
-rather than an error. These are the checks it does not make; see
-``bemkit/meshing/quality.py`` for what each one tests and why.
+flipped normal or an under-resolved band shows up as a plausible-looking
+result rather than an error. These are the checks it does not make; see
+``bemkit/geometry/quality.py`` for what each one tests and why.
+
+Over a Model there is nothing to look up: the mesh, the band and the medium
+are attributes, and there is no mesh file to be missing — ``build()`` either
+produced a Model or raised.
 """
 
 import sys
@@ -22,38 +26,31 @@ def register(sub):
     p.set_defaults(func=cmd_check)
 
 
-def cmd_check(model_dir, args):
-    from bemkit.cli import load_model_config
-    from bemkit.geometry.io import find_mesh_file, read_mesh_triangles
+def cmd_check(study_dir, args):
+    from bemkit.cli._commands import load, select
     from bemkit.geometry.quality import LEVELS, check_mesh, worst_level
+    from bemkit.model.sources import PointSource
 
-    config = load_model_config(model_dir)
-    variants = config.variants(args.variant)
-    if not variants:
-        sys.exit(f"No mesh files in {model_dir / 'mesh'}. Run 'mesh' first.")
+    models = load(study_dir)
+    names = select(models, args.variant)
 
-    # Point sources are in meters, like the mesh once read — Hint 3 compares
-    # them directly against the average edge length.
-    sources = [row[1:4] for row in
-               (config.raw.get("POINT SOURCES") or {}).values()
-               if isinstance(row, list) and len(row) == 8]
-
-    max_freq = float(config.freq_array()[-1])
     overall = "ok"
-    for variant in variants:
-        stem = config.mesh_map().get(variant, variant)
-        try:
-            mesh_file = find_mesh_file(model_dir / "mesh", stem)
-        except FileNotFoundError:
-            print(f"\n{variant}: no mesh yet — run 'bem {model_dir} mesh'")
-            continue
+    for variant in names:
+        model = models[variant]
+        mesh = model.mesh
+        # Only point sources: Hint 3 compares a source *position* against the
+        # average edge length, and a plane wave carries a direction of
+        # travel, which as a coordinate is nonsense.
+        sources = [s.position for s in model.sources
+                   if isinstance(s, PointSource)]
 
-        vertices, triangles = read_mesh_triangles(mesh_file)
-        findings = check_mesh(vertices, triangles, max_frequency=max_freq,
-                              speed_of_sound=config.speed_of_sound,
-                              sources=sources)
-        print(f"\n{variant}  ({mesh_file.name}: {len(vertices)} nodes, "
-              f"{len(triangles)} elements)")
+        findings = check_mesh(
+            mesh.vertices, mesh.triangles,
+            max_frequency=float(model.frequencies[-1]),
+            speed_of_sound=model.medium.c,
+            sources=sources)
+        print(f"\n{variant}  ({mesh.n_nodes} nodes, {mesh.n_elements} elements, "
+              f"up to {model.frequencies[-1]:.0f} Hz)")
         for f in findings:
             print(f"  {_SYMBOL[f.level]} {f.check}: {f.message}")
         overall = max(overall, worst_level(findings), key=LEVELS.index)
