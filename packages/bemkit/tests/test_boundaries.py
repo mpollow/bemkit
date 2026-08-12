@@ -1,27 +1,40 @@
-"""Enforce the layer dependency rules from the design spec.
+"""Enforce the layer dependency rules of the spine.
 
-config/geometry/sim never import analysis — not even lazily — and never touch
-matplotlib or pyvista. __init__, pipeline and cli may use analysis only inside
-functions (lazily), never at module top level.
+The spine runs bottom-up and imports one way only::
 
-Two boundaries are now enforced by packaging as well as by these tests:
-`pynumcalc` (packages/pynumcalc) imports nothing from bemkit and needs only
-numpy, and `bemviz` (packages/bemviz) owns everything that needs a display
+    model/  ->  geometry/  ->  solvers/  ->  results/  ->  cli/   (-> bemviz)
+
+* ``model/`` is pure data: numpy, and nothing of ours. That is what lets a
+  Model be built, compared and unit-tested with no solver, mesher or display
+  stack installed. Its one scipy user, ``analytic.py``, is reached through a
+  lazy ``__getattr__`` and is exempted by name below.
+* ``geometry/`` and ``solvers/`` and ``results/`` never touch pyvista or
+  matplotlib — producing and reading results must never drag in a display.
+* ``cli/`` may use heavy layers, but only inside functions, so ``bem --help``
+  does not pay for pyvista.
+
+Two boundaries are enforced by packaging as well as by these tests:
+``pynumcalc`` (packages/pynumcalc) imports nothing from bemkit and needs only
+numpy, and ``bemviz`` (packages/bemviz) owns everything that needs a display
 stack. bemkit depends on pynumcalc and never on bemviz.
-
-(Geometry authoring moved to the external `bemgeo` package, so `cad/` is no
-longer part of bemkit — see CLAUDE.md.)
 """
 
 import ast
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parents[1] / "bemkit"
-UPPER = ("bemkit.analysis", "bemviz.viz")
+#: packages/bemkit/tests -> packages/bemkit -> packages -> repo root
+REPO = Path(__file__).resolve().parents[3]
+PYNUMCALC = REPO / "packages" / "pynumcalc" / "pynumcalc"
+
 VIZ_LIBS = ("pyvista", "matplotlib")
-CORE = ["config.py", "geometry", "sim"]
-PYNUMCALC = Path(__file__).resolve().parents[1] / "packages" / "pynumcalc" / "pynumcalc"
-GLUE = ["__init__.py", "pipeline.py", "cli"]
+#: bemkit layers that must stay free of a display stack. Everything that
+#: produces or reads results lives here.
+CORE = ["model", "geometry", "solvers", "results"]
+#: May reach into any layer, but only lazily (inside a function body).
+GLUE = ["__init__.py", "cli"]
+#: bemviz is the display layer; bemkit must never import it.
+UPPER = ("bemviz",)
 
 
 def _py_files(entry):
@@ -58,46 +71,55 @@ def _violations(entries, getter, prefixes=UPPER):
 
 
 def test_layout_exists():
+    """A renamed or deleted layer must fail loudly here rather than silently
+    turning every rule below into a scan over zero files."""
     for entry in CORE + GLUE:
         assert (PKG / entry).exists(), f"missing {entry} — layout changed?"
+    assert PYNUMCALC.is_dir(), f"missing {PYNUMCALC} — layout changed?"
+    assert list(PYNUMCALC.rglob("*.py")), f"no modules under {PYNUMCALC}"
 
 
-def test_core_never_imports_upper_layers():
+def test_core_never_imports_bemviz():
     assert _violations(CORE, _all_imports) == []
-
-
-def test_analysis_never_imports_viz():
-    """analysis/ is the results API — numpy only, no matplotlib, no pyvista.
-    It is what `SimulationData` lives in, so it must stay usable without a
-    display; viz depends on it, never the other way round."""
-    assert _violations(["analysis"], _all_imports, ("bemviz.viz",)) == []
-    assert _violations(["analysis"], _all_imports, VIZ_LIBS) == []
 
 
 def test_core_never_uses_viz_libraries():
     assert _violations(CORE, _all_imports, VIZ_LIBS) == []
 
 
-def test_glue_imports_upper_layers_only_lazily():
-    assert _violations(GLUE, _top_level_imports) == []
+def test_glue_imports_heavy_layers_only_lazily():
+    """__init__ and cli may use bemviz/pyvista, but never at module level."""
+    assert _violations(GLUE, _top_level_imports, UPPER + VIZ_LIBS) == []
 
 
 def test_numcalc_never_imports_bemkit():
     """pynumcalc is the NumCalc format and process layer: it knows the NC.inp
-    grammar, be.out and the solver binary, and nothing about config.toml,
-    meshes or variants. It is now a separate distribution, and this keeps it
-    one — bemkit may import pynumcalc, never the reverse.
+    grammar, be.out and the solver binary, and nothing about models, meshes or
+    variants. It is a separate distribution, and this keeps it one — bemkit
+    may import pynumcalc, never the reverse.
     """
     bad = []
     for f in sorted(PYNUMCALC.rglob("*.py")):
         for mod, lineno in _all_imports(ast.parse(f.read_text())):
             if mod == "bemkit" or mod.startswith("bemkit."):
-                # Self-imports within the layer are fine.
-                if mod.startswith("pynumcalc"):
-                    continue
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], (
         "pynumcalc must not import from bemkit:\n  " + "\n  ".join(bad))
+
+
+def test_numcalc_tests_never_import_bemkit():
+    """The rule covers the suite too. A pynumcalc test that reaches for a
+    bemkit reader is testing the wrong layer, and it silently makes the
+    distribution un-installable on its own."""
+    tests = PYNUMCALC.parent / "tests"
+    bad = []
+    for f in sorted(tests.rglob("*.py")):
+        for mod, lineno in _all_imports(ast.parse(f.read_text())):
+            if mod == "bemkit" or mod.startswith("bemkit."):
+                bad.append(f"{f.name}:{lineno} imports {mod}")
+    assert bad == [], (
+        "the pynumcalc suite must not import from bemkit:\n  "
+        + "\n  ".join(bad))
 
 
 def test_numcalc_uses_only_stdlib_and_numpy():
@@ -130,13 +152,36 @@ def test_model_layer_imports_nothing_of_ours():
 
 
 def test_model_layer_needs_only_numpy():
-    """No meshio, no gmsh, no scipy, no solver — a Model must be constructible
-    with nothing installed but numpy."""
+    """No meshio, no gmsh, no solver — a Model must be constructible with
+    nothing installed but numpy.
+
+    ``analytic.py`` is the one exemption: the exact spherical-cap solution
+    genuinely needs scipy's spherical harmonics. It is kept off
+    ``bemkit/model/__init__.py``'s eager imports (see the lazy ``_LAZY``
+    table there) so importing the layer still costs nothing, which
+    ``tests/test_public_api.py`` pins from the other side by asserting
+    ``import bemkit.model`` leaves scipy out of ``sys.modules``.
+    """
     banned = ("meshio", "gmsh", "scipy", "matplotlib", "pyvista", "pynumcalc")
     bad = []
     for f in sorted((PKG / "model").rglob("*.py")):
+        allowed = ("scipy",) if f.name == "analytic.py" else ()
         for mod, lineno in _all_imports(ast.parse(f.read_text())):
-            if mod.split(".")[0] in banned:
+            head = mod.split(".")[0]
+            if head in banned and head not in allowed:
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], ("bemkit/model may only use stdlib and numpy:\n  "
+                       + "\n  ".join(bad))
+
+
+def test_solver_layer_never_imports_the_cli():
+    """A solver is a library object. If it reaches for the CLI, `bem` has
+    stopped being a thin driver over the spine and become the spine."""
+    bad = []
+    for entry in ("model", "geometry", "solvers", "results"):
+        for f in _py_files(entry):
+            for mod, lineno in _all_imports(ast.parse(f.read_text())):
+                if mod.startswith("bemkit.cli"):
+                    bad.append(f"{f.relative_to(PKG.parent)}:{lineno} imports {mod}")
+    assert bad == [], ("the spine must not import bemkit.cli:\n  "
                        + "\n  ".join(bad))

@@ -4,7 +4,7 @@ A *deck* is the complete NumCalc input file: one field per thing the solver
 actually reads, in the solver's own terms. It is deliberately literal — it holds
 an explicit array of frequencies in Hz, not ``sr``/``nbins``; it holds
 ``ELEM 100 TO 100 VELO 1.0``, not the ``near=`` anchor that produced it. Those
-are bemkit's opinions and live in :mod:`bemkit.sim.builder`.
+are bemkit's opinions and live in :mod:`bemkit.solvers.numcalc`.
 
 Two properties are the point of the abstraction:
 

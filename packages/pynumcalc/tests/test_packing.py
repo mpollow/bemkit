@@ -1,8 +1,5 @@
 """Tests for pynumcalc.packing — be.out -> be.npz."""
 
-import json
-import shutil
-
 import numpy as np
 import pytest
 
@@ -13,7 +10,8 @@ from pynumcalc.packing import (
     pack_variant,
     unpack_variant,
 )
-from bemkit.analysis.simulation import SimulationData
+from pynumcalc.readers import load_bins
+from pynumcalc.status import available_bins
 
 
 @pytest.fixture()
@@ -135,67 +133,69 @@ class TestPackVariant:
                                np.complex64, verbose=False)
 
 
-class TestSimulationDataPacked:
-    """SimulationData should produce identical results in ASCII vs packed mode."""
+class TestPackedReadsMatchAscii:
+    """``load_bins`` must return the same numbers before and after a pack.
 
-    def _config(self):
-        return {"sr": 48000, "nbins": 3, "air_density": 1.2, "speed_of_sound": 340.0}
+    This is the contract the whole packing feature rests on: be.npz shadows
+    be.out/ everywhere, so a reader that disagrees between the two silently
+    changes results the moment someone runs ``bem pack``. The parity used to
+    be asserted through bemkit's ``SimulationData``, which made a pynumcalc
+    test depend on bemkit — the one direction the split forbids. ``load_bins``
+    *is* the reader ``SimulationData`` was calling, so asserting on it tests
+    the same behaviour one layer closer, and with no upward import.
+    """
+
+    NF = 2  # the numcalc_dir fixture writes be.1 and be.2
 
     def test_available_bins_match(self, numcalc_dir):
-        ascii_sim = SimulationData(numcalc_dir, self._config())
+        assert available_bins(numcalc_dir) == [1, 2]
         pack_variant(numcalc_dir, verbose=False)
-        packed_sim = SimulationData(numcalc_dir, self._config())
-        assert ascii_sim.available_bins == packed_sim.available_bins == [1, 2]
+        assert available_bins(numcalc_dir) == [1, 2]
 
-    def test_pressure_parity(self, numcalc_dir):
-        cfg = self._config()
-        ascii_sim = SimulationData(numcalc_dir, cfg)
-        p_ascii = ascii_sim.pressure("all", norm="raw").copy()
+    @pytest.mark.parametrize("quantity",
+                             ["pEvalGrid", "pBoundary", "vBoundary"])
+    def test_scalar_quantity_parity(self, numcalc_dir, quantity):
+        ascii_arr = load_bins(numcalc_dir, quantity, self.NF).copy()
 
         pack_variant(numcalc_dir, delete_original=True, verbose=False)
-        packed_sim = SimulationData(numcalc_dir, cfg)
-        p_packed = packed_sim.pressure("all", norm="raw")
+        packed = load_bins(numcalc_dir, quantity, self.NF)
 
-        np.testing.assert_allclose(p_ascii, p_packed, rtol=1e-5)
-        assert p_packed.dtype == np.complex128
+        np.testing.assert_allclose(ascii_arr, packed, rtol=1e-5)
+        assert packed.shape == ascii_arr.shape
+        # complex64 on disk, widened on read: consumers do float64 maths and
+        # a silently narrower dtype would propagate through every result.
+        assert packed.dtype == np.complex128
 
     def test_velocity_parity(self, numcalc_dir):
-        cfg = self._config()
-        ascii_sim = SimulationData(numcalc_dir, cfg)
-        v_ascii = ascii_sim.velocity("all", norm="raw").copy()
+        """vEvalGrid is the (N, nf, 3) vector case, packed and unpacked."""
+        ascii_arr = load_bins(numcalc_dir, "vEvalGrid", self.NF).copy()
 
         pack_variant(numcalc_dir, delete_original=True, verbose=False)
-        packed_sim = SimulationData(numcalc_dir, cfg)
-        v_packed = packed_sim.velocity("all", norm="raw")
+        packed = load_bins(numcalc_dir, "vEvalGrid", self.NF)
 
-        np.testing.assert_allclose(v_ascii, v_packed, rtol=1e-5)
-        assert v_packed.shape == v_ascii.shape
+        np.testing.assert_allclose(ascii_arr, packed, rtol=1e-5)
+        assert packed.shape == ascii_arr.shape == (3, self.NF, 3)
+        assert packed.dtype == np.complex128
 
-    def test_pressure_at_packed(self, numcalc_dir):
-        cfg = self._config()
-        ascii_sim = SimulationData(numcalc_dir, cfg)
-        p1_ascii = ascii_sim.pressure_at(1, domain="boundary", norm="raw").copy()
-
-        pack_variant(numcalc_dir, delete_original=True, verbose=False)
-        packed_sim = SimulationData(numcalc_dir, cfg)
-        p1_packed = packed_sim.pressure_at(1, domain="boundary", norm="raw")
-        np.testing.assert_allclose(p1_ascii, p1_packed, rtol=1e-5)
-
-    def test_velocity_at_packed(self, numcalc_dir):
-        cfg = self._config()
-        ascii_sim = SimulationData(numcalc_dir, cfg)
-        v1_ascii = ascii_sim.velocity_at(2, domain="eval", norm="raw").copy()
+    def test_single_bin_slices_match(self, numcalc_dir):
+        """One frequency at a time — what an interactive viewer reads."""
+        p_ascii = load_bins(numcalc_dir, "pBoundary", self.NF)[:, 0].copy()
+        v_ascii = load_bins(numcalc_dir, "vEvalGrid", self.NF)[:, 1, :].copy()
 
         pack_variant(numcalc_dir, delete_original=True, verbose=False)
-        packed_sim = SimulationData(numcalc_dir, cfg)
-        v1_packed = packed_sim.velocity_at(2, domain="eval", norm="raw")
-        np.testing.assert_allclose(v1_ascii, v1_packed, rtol=1e-5)
-        assert v1_packed.shape == (3, 3)
 
-    def test_boundary_pressure_acc_dtype_preserved(self, packed_dir):
-        sim = SimulationData(packed_dir, self._config())
-        b_p = sim.boundary_pressure_acc
-        assert b_p.dtype == np.complex128
+        np.testing.assert_allclose(
+            load_bins(numcalc_dir, "pBoundary", self.NF)[:, 0], p_ascii,
+            rtol=1e-5)
+        v_packed = load_bins(numcalc_dir, "vEvalGrid", self.NF)[:, 1, :]
+        np.testing.assert_allclose(v_packed, v_ascii, rtol=1e-5)
+        assert v_packed.shape == (3, 3)
+
+    def test_a_quantity_missing_from_the_pack_raises(self, packed_dir):
+        """be.npz is a complete pack, so a missing quantity is an error rather
+        than a silent fall-back scan of a be.out/ that would not have it."""
+        with pytest.raises(FileNotFoundError, match="be.npz"):
+            load_bins(packed_dir, "pNoSuchThing", self.NF)
 
 
 class TestHasResults:
@@ -231,28 +231,27 @@ class TestClearPack:
         assert not (numcalc_dir / "be.npz.bak").exists()  # stale backup cleaned
 
     def test_restore_recreates_be_out(self, numcalc_dir):
-        cfg = {"sr": 48000, "nbins": 3, "air_density": 1.2, "speed_of_sound": 340.0}
-        original = SimulationData(numcalc_dir, cfg).pressure("all", norm="raw").copy()
+        original = load_bins(numcalc_dir, "pEvalGrid", 2).copy()
 
         pack_variant(numcalc_dir, delete_original=True, verbose=False)
         assert clear_pack(numcalc_dir, restore=True, verbose=False) is True
         assert not (numcalc_dir / "be.npz").exists()
 
-        recovered = SimulationData(numcalc_dir, cfg).pressure("all", norm="raw")
+        # No be.npz left, so this is necessarily an ASCII read of the
+        # be.out/ that restore rebuilt.
+        recovered = load_bins(numcalc_dir, "pEvalGrid", 2)
         np.testing.assert_allclose(original, recovered, rtol=1e-5)
 
 
 class TestUnpack:
     def test_round_trip_through_unpack(self, numcalc_dir):
-        cfg = {"sr": 48000, "nbins": 3, "air_density": 1.2, "speed_of_sound": 340.0}
-        original = SimulationData(numcalc_dir, cfg).pressure("all", norm="raw").copy()
+        original = load_bins(numcalc_dir, "pEvalGrid", 2).copy()
 
         pack_variant(numcalc_dir, delete_original=True, verbose=False)
         unpack_variant(numcalc_dir, verbose=False)
         assert (numcalc_dir / "be.out").is_dir()
 
-        # be.npz removed for the test? No — unpack leaves it in place.
-        # Force ASCII read by deleting npz.
+        # unpack leaves be.npz in place; delete it to force the ASCII path.
         (numcalc_dir / "be.npz").unlink()
-        recovered = SimulationData(numcalc_dir, cfg).pressure("all", norm="raw")
+        recovered = load_bins(numcalc_dir, "pEvalGrid", 2)
         np.testing.assert_allclose(original, recovered, rtol=1e-5)

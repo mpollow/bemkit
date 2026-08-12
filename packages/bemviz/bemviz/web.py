@@ -7,15 +7,18 @@ real `bem export-web` output. All signal processing (normalization, EQ
 derivation, iFFT to 48 kHz, quantization) happens here — the browser only
 dequantizes and plays.
 
-Pure numeric helpers first (unit-tested), then the export_web orchestrator
-that reads a model via SimulationData and writes manifest.json + .bin files.
-All binary payloads are little-endian and headerless; manifest.json carries
-exact byte lengths (the web loader rejects any mismatch).
+Pure numeric helpers first (unit-tested), then the per-variant writers and
+the export_web orchestrator. All binary payloads are little-endian and
+headerless; manifest.json carries exact byte lengths (the web loader rejects
+any mismatch).
+
+``export_web`` itself currently refuses: it was written against the
+config.toml stack and has not been ported to the model.py spine (see its
+docstring). Everything else in this module is intact and still tested — the
+signal processing was never the config-coupled part.
 """
 
-import json
 import warnings
-from pathlib import Path
 
 import numpy as np
 
@@ -289,118 +292,25 @@ def export_web(model_dir, out_dir, variants=None, directions="g30_1m",
         slightly longer than the radius stay causal.
     check : bool
         Print quantization/aliasing diagnostics per variant.
+
+    Raises
+    ------
+    NotImplementedError
+        Always, for now — see the guard below. The parameters above are the
+        contract the port has to honour, so they are documented rather than
+        removed.
     """
-    from bemkit.config import ModelConfig
-    from bemkit.sim.discovery import discover_variants, numcalc_dir
-    from bemkit.analysis.simulation import SimulationData
-
-    model_dir = Path(model_dir)
-    out_dir = Path(out_dir)
-    config = ModelConfig.from_dir(model_dir)
-
-    explicit = variants is not None
-    if variants is None:
-        variants = discover_variants(model_dir, need_be_out=True)
-    if not variants:
-        raise FileNotFoundError(f"no solved variants in {model_dir / 'numcalc'}")
-
-    sims = {v: SimulationData(numcalc_dir(model_dir, v), config) for v in variants}
-
-    # Only export fully solved variants (all frequency bins present).
-    nf_expected = config.n_frequencies
-    incomplete = [v for v in variants
-                  if len(sims[v].available_bins) < nf_expected]
-    if incomplete and explicit:
-        raise FileNotFoundError(f"variants without complete results: {incomplete}")
-    if incomplete:
-        if verbose:
-            print(f"skipping incomplete variants: {', '.join(incomplete)}")
-        variants = [v for v in variants if v not in incomplete]
-        if not variants:
-            raise FileNotFoundError("no variant has complete results")
-    first = sims[variants[0]]
-    if directions not in first.set_names:
-        raise ValueError(f"direction set '{directions}' not in {first.set_names}")
-    planes = [p for p in planes if p in first.set_names]
-
-    # Shared direction unit vectors (same fieldpoints for all variants).
-    nodes = first.nodes(directions)
-    radii = np.linalg.norm(nodes, axis=1)
-    radius = float(np.median(radii))
-    if np.abs(radii - radius).max() > radius * 1e-3:
-        raise ValueError(f"'{directions}' is not a constant-radius sphere")
-    dirs_unit = (nodes / radii[:, None]).astype("<f4")
-
-    # Frame: front from --front, else the onaxis set's direction, else +z.
-    if front is None:
-        if "onaxis" in first.set_names:
-            far = first.nodes("onaxis")[-1]
-            front = far / np.linalg.norm(far)
-        else:
-            front = np.array([0.0, 0.0, 1.0])
-            if verbose:
-                print("warning: no 'onaxis' set, assuming front = +z")
-    front = np.asarray(front, dtype=np.float64)
-    front = front / np.linalg.norm(front)
-    up = pick_up_axis(front)
-    ref_index = int(np.argmax(dirs_unit @ front))
-
-    # Plane geometry from the ORIGINAL fieldpoint files (pre-validation).
-    from bemkit.sim.fieldpoints import load_fieldpoint_sets
-    all_sets = load_fieldpoint_sets(config.fieldpoints_cfg, model_dir)
-    plane_geoms = {p: detect_plane(all_sets[p]) for p in planes}
-
-    dirs_file = f"shared/dirs_{directions}.bin"
-    n_dirs_bytes = _write(out_dir / dirs_file, dirs_unit.tobytes())
-
-    margin_s = delay_margin_ms * 1e-3
-    advance_s = radius / config.speed_of_sound - margin_s
-
-    variant_entries = []
-    for vid in variants:
-        if verbose:
-            print(f"exporting {vid} ...")
-        entry, extras = _export_variant(
-            sims[vid], out_dir, vid, dirs_unit, ref_index, directions,
-            planes, plane_geoms, ir_fs, db_range, floor_db, advance_s,
-            margin_s)
-        variant_entries.append(entry)
-        if check:
-            _print_check(vid, extras, ir_fs)
-
-    nf = len(first.frequencies)
-    df_hz = float(first.frequencies[1] - first.frequencies[0])
-    manifest = {
-        "format": FORMAT,
-        "formatVersion": FORMAT_VERSION,
-        "model": config.modelname,
-        "title": config.modelname,
-        "audio": {"channels": 1, "irFs": int(ir_fs),
-                  "nTaps": int(ir_fs // df_hz)},
-        "freq": {"nBins": nf, "dfHz": df_hz, "f0Hz": float(first.frequencies[0])},
-        "constants": {"rho0": config.air_density, "c": config.speed_of_sound},
-        "frame": {"up": [round(x, 9) for x in up],
-                  "front": [round(x, 9) for x in front]},
-        "directions": {"id": directions, "file": dirs_file,
-                       "count": int(len(dirs_unit)), "radiusM": radius,
-                       "referenceIndex": ref_index, "byteLength": n_dirs_bytes},
-        "fieldPlanes": [{"id": p,
-                         "w": g["w"], "h": g["h"],
-                         "origin": [round(float(x), 9) for x in g["origin"]],
-                         "uAxis": [round(float(x), 9) for x in g["u_axis"]],
-                         "vAxis": [round(float(x), 9) for x in g["v_axis"]],
-                         "spacingM": round(float(g["spacing_m"]), 9)}
-                        for p, g in plane_geoms.items()],
-        "variants": variant_entries,
-    }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-
-    _self_validate(out_dir, manifest)
-    if verbose:
-        total = sum(f.stat().st_size for f in out_dir.rglob("*") if f.is_file())
-        print(f"bundle written to {out_dir} "
-              f"({len(variant_entries)} variants, {total / 1e6:.1f} MB)")
-    return manifest
+    raise NotImplementedError(
+        "export_web is not yet ported to Python studies (see Task 15: fold "
+        "bemviz into bemkit/view/).\n"
+        "  It was written against the config.toml stack and still needs, "
+        "from a solved study:\n"
+        "    - the declared field-point sets *before* validation dropped "
+        "any (it exports the full sphere geometry, not the surviving rows)\n"
+        "    - the eval-point coordinates that went with a solve\n"
+        "  The signal processing below (synth_irs / relative_spectra / "
+        "quantize_irs / encode_db_u8 / detect_plane / pick_up_axis) is "
+        "unchanged, still unit-tested, and is what the port reuses.")
 
 
 def _self_validate(out_dir, manifest):

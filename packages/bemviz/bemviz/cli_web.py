@@ -32,21 +32,28 @@ def register(sub):
     p.set_defaults(func=cmd_export_web)
 
 
-def cmd_export_web(model_dir, args):
+def cmd_export_web(study_dir, args):
+    import sys
+
     from bemviz.web import export_web
     front = None
     if args.front:
         front = [float(x) for x in args.front.split(",")]
-    export_web(
-        model_dir, args.out,
-        variants=args.variant,
-        directions=args.directions,
-        planes=[p for p in args.planes.split(",") if p],
-        front=front,
-        ir_fs=args.ir_fs,
-        db_range=args.db_range,
-        floor_db=args.floor_db,
-        delay_margin_ms=args.delay_margin_ms,
-        check=args.check,
-    )
+    try:
+        export_web(
+            study_dir, args.out,
+            variants=args.variant,
+            directions=args.directions,
+            planes=[p for p in args.planes.split(",") if p],
+            front=front,
+            ir_fs=args.ir_fs,
+            db_range=args.db_range,
+            floor_db=args.floor_db,
+            delay_margin_ms=args.delay_margin_ms,
+            check=args.check,
+        )
+    except NotImplementedError as e:
+        # export_web has not been ported to the model.py spine yet; it says
+        # so precisely, and a traceback would add nothing.
+        sys.exit(f"bem STUDY export-web: {e}")
     return 0

@@ -1,4 +1,12 @@
-"""3D viewers: `bem MODEL geometry` and `bem MODEL results SET` (pyvista)."""
+"""3D viewers: `bem STUDY geometry` and `bem STUDY results SET` (pyvista).
+
+``geometry`` runs on the model.py spine: it loads the study, exports any
+variant whose bundle is missing, and draws what NumCalc would be given.
+
+``results`` does not, yet — see :func:`cmd_results`. Its parser is kept whole
+so the flags stay documented and `bem STUDY results --help` still works; only
+the command body refuses.
+"""
 
 import argparse
 
@@ -23,8 +31,9 @@ def register(sub):
                    help="Don't draw mesh edges on the simulated elements")
     p.add_argument("--no-bc", action="store_true", help="Don't color mesh by boundary condition")
     p.add_argument("--no-mirror", action="store_true",
-                   help="Don't draw the [SYMMETRY] ghost copies (show only "
-                        "the meshed elements)")
+                   help="Don't draw the mirror-plane ghost copies (the "
+                        "SYMMETRY block of the deck; show only the meshed "
+                        "elements)")
     p.add_argument("--bc-vibrating-color", default="red",
                    help="Color for vibrating elements (default: red), e.g., 'yellow', 'orange'")
     p.add_argument("--camera", default="iso", choices=["xz", "xy", "yz", "iso"],
@@ -57,8 +66,9 @@ def register(sub):
     p.add_argument("--no-points", action="store_true",
                    help="Skip eval grid points")
     p.add_argument("--no-mirror", action="store_true",
-                   help="Don't draw the [SYMMETRY] ghost copies (show only "
-                        "the meshed elements)")
+                   help="Don't draw the mirror-plane ghost copies (the "
+                        "SYMMETRY block of the deck; show only the meshed "
+                        "elements)")
     p.add_argument("--no-edges", action="store_true",
                    help="Don't draw mesh edges on the simulated elements")
     p.add_argument("--no-phase-fade", action="store_true",
@@ -103,30 +113,66 @@ def register(sub):
     p.set_defaults(func=cmd_results)
 
 
-def _load_bc_elements(nc_dir, model_dir):
-    """Load boundary condition elements from NC.inp or .msh fallback."""
-    from bemkit.geometry.io import read_mesh_physical_groups
+def _load_bc_elements(nc_dir):
+    """Boundary-condition element indices, read from the bundle's NC.inp.
+
+    NC.inp rather than the Model, deliberately: what is drawn should be what
+    the solver was actually given, so a stale bundle looks stale instead of
+    silently showing the model.py you have now.
+    """
     from pynumcalc.readers import read_nc_inp_boundary_conditions
 
     nc_inp_file = nc_dir / "NC.inp"
     if nc_inp_file.exists():
         return read_nc_inp_boundary_conditions(nc_inp_file)
-
-    # Fall back to .msh physical groups
-    mesh_search_dir = model_dir / "mesh"
-    msh_files = list(mesh_search_dir.glob("*.msh")) if mesh_search_dir.exists() else []
-    if not msh_files:
-        msh_files = list(model_dir.glob("*.msh"))
-    if msh_files:
-        return read_mesh_physical_groups(msh_files[0])
     return None
 
 
-def cmd_geometry(model_dir, args):
+def _prepared_bundles(study_dir, prefixes):
+    """``(names, workdir_for)`` for the selected variants of a study.
+
+    Exports any variant whose bundle is missing. There is no separate `bem
+    export` command on the model.py spine — `estimate-ram` already exports
+    what it needs for the same reason — so demanding a prepared bundle here
+    would mean "run the solve you are trying to inspect first". Exporting is
+    cheap, deterministic, and writes nothing a later solve depends on; a
+    variant with a live NumCalc is left exactly as it is.
+    """
+    import sys
+
+    from bemkit.cli._commands import load, select, solver_for, workdir
+    from pynumcalc.status import numcalc_pids
+
+    models = load(study_dir)
+    names = select(models, prefixes)
+    solver = solver_for()
+
+    ready = []
+    for name in names:
+        wd = workdir(study_dir, name, solver.name)
+        if (wd / "ObjectMesh" / "Nodes.txt").exists() and (wd / "NC.inp").exists():
+            ready.append(name)
+            continue
+        if numcalc_pids(wd):
+            print(f"  {name}: skipping (NumCalc still running)")
+            continue
+        try:
+            solver.export(models[name], wd)
+        except ValueError as e:
+            print(f"  {name}: cannot export — {e}")
+            continue
+        ready.append(name)
+
+    if not ready:
+        sys.exit(f"No inspectable variant in {study_dir} "
+                 f"(tried: {', '.join(names)})")
+    return ready, lambda v: workdir(study_dir, v, solver.name)
+
+
+def cmd_geometry(study_dir, args):
     from bemkit.cli import require
     require("pyvista", "viz3d")
 
-    from bemkit.sim.discovery import discover_variants, numcalc_dir
     from pynumcalc.readers import (
         read_object_mesh_nodes, read_object_mesh_elements, read_eval_grid_nodes,
         read_nc_inp_symmetry,
@@ -136,24 +182,11 @@ def cmd_geometry(model_dir, args):
     )
     from bemviz.viz.scene import setup_scene
 
-    if not model_dir.exists():
-        print(f"Error: Model directory not found: {model_dir}")
+    if not study_dir.exists():
+        print(f"Error: Study directory not found: {study_dir}")
         raise SystemExit(1)
 
-    # Discover variants
-    variants = discover_variants(model_dir, args.variant, need_object_mesh=True)
-
-    if not variants:
-        # Fallback: legacy single-variant layout (numcalc/ObjectMesh/ directly)
-        if (model_dir / "numcalc" / "ObjectMesh" / "Nodes.txt").exists():
-            variants = [None]  # None signals legacy layout
-        else:
-            if args.variant:
-                print(f"Error: No prepared variants matching: {', '.join(args.variant)}")
-            else:
-                print(f"Error: No prepared variants found in {model_dir / 'numcalc'}")
-            raise SystemExit(1)
-
+    variants, numcalc_dir = _prepared_bundles(study_dir, args.variant)
     current_variant = variants[0]
 
     def add_actors(scene, variant):
@@ -161,7 +194,7 @@ def cmd_geometry(model_dir, args):
 
         Returns (mesh_actor, ghost_actor, grid_actor).
         """
-        nc_dir = numcalc_dir(model_dir, variant)
+        nc_dir = numcalc_dir(variant)
         mesh_actor = None
         ghost_actor = None
         grid_actor = None
@@ -170,7 +203,7 @@ def cmd_geometry(model_dir, args):
             nodes = read_object_mesh_nodes(nc_dir)
             elements = read_object_mesh_elements(nc_dir)
             show_bc = not args.no_bc
-            bc_elements = _load_bc_elements(nc_dir, model_dir) if show_bc else None
+            bc_elements = _load_bc_elements(nc_dir) if show_bc else None
             bc_colors = ({"rigid": "gray", "vibrating": args.bc_vibrating_color}
                          if show_bc else None)
             edges = not args.no_edges
@@ -221,12 +254,9 @@ def cmd_geometry(model_dir, args):
         return mesh_actor, ghost_actor, grid_actor
 
     # Print info
-    if current_variant is not None:
-        print(f"Visualizing: {model_dir}  variant={current_variant}")
-        if len(variants) > 1:
-            print(f"  Variants: {', '.join(variants)}")
-    else:
-        print(f"Visualizing: {model_dir}")
+    print(f"Visualizing: {study_dir}  variant={current_variant}")
+    if len(variants) > 1:
+        print(f"  Variants: {', '.join(variants)}")
 
     # Create scene
     scene = setup_scene(screenshot=args.screenshot)
@@ -249,14 +279,14 @@ def cmd_geometry(model_dir, args):
         else:
             print(f"  + ObjectMesh (opacity={args.mesh_opacity}, color={args.mesh_color})")
     if state["ghost_actor"] is not None:
-        nc_dir = numcalc_dir(model_dir, current_variant)
+        nc_dir = numcalc_dir(current_variant)
         print(f"  + Symmetry ghosts: "
               f"{describe_symmetry(read_nc_inp_symmetry(nc_dir / 'NC.inp'))}")
     if state["grid_actor"] is not None:
         print(f"  + EvalGrid (color={args.grid_color}, point_size={args.point_size})")
 
     # Variant text slider (interactive mode, >1 variant)
-    if not args.screenshot and len(variants) > 1 and variants[0] is not None:
+    if not args.screenshot and len(variants) > 1:
         def update_variant(v):
             if v == state["variant"]:
                 return
@@ -284,100 +314,38 @@ def cmd_geometry(model_dir, args):
     scene.show_or_screenshot(args.screenshot)
 
 
-def cmd_results(model_dir, args):
-    from bemkit.cli import require
-    require("pyvista", "viz3d")
-    require("matplotlib", "viz3d")
 
-    from bemkit.config import ModelConfig, freq_bin
-    from bemkit.sim.discovery import discover_variants
-    from bemviz.viz.results_viewer import ResultsViewer, PHASE_DB_RANGE
-    from bemviz.viz.scene import setup_scene
 
-    if not model_dir.exists():
-        print(f"Error: Model directory not found: {model_dir}")
-        raise SystemExit(1)
+#: What `results` needs from the results layer that the model.py spine does
+#: not yet provide. Listed rather than summarised so the message names the
+#: actual gap instead of "not supported".
+_RESULTS_GAPS = (
+    "acceleration-normalized pressure (--norm acc, which needs the vibrating "
+    "area A_vib)",
+    "single-bin reads without loading the whole band",
+    "the eval-point/boundary geometry that went with a solve",
+)
 
-    # Load config
-    vars_file = model_dir / "config.toml"
-    if not vars_file.exists():
-        print(f"Error: config.toml not found in {model_dir}")
-        raise SystemExit(1)
-    config = ModelConfig.from_dir(model_dir)
 
-    modelname = config["modelname"]
-    freqs = config.freq_array()
-    bin_idx, _, actual_freq = config.freq_bin(args.freq)
-    print(f"Model: {modelname}")
-    print(f"Requested freq: {args.freq:.1f} Hz → nearest bin: {actual_freq:.1f} Hz")
+def cmd_results(study_dir, args):
+    """Refuse, with the reason.
 
-    # Determine what to show (set_name=None means all fieldpoint sets)
-    show_surface = not args.no_surface
-    show_points = not args.no_points
+    The interactive viewer was built on ``SimulationData``/``BEMResult``,
+    which the model.py spine deliberately dropped: ``Results`` is
+    store-backed and solver-neutral, carries no mesh, no field-point
+    coordinates and no acc normalization. Porting the viewer onto it is the
+    bemkit/view/ task, not something to fake here — a viewer showing
+    plausible-but-unnormalized numbers is worse than one that will not start.
+    """
+    import sys
 
-    if not show_surface and not show_points and not args.impedance:
-        print("Error: Nothing to visualize (surface and points disabled, no --impedance)")
-        raise SystemExit(1)
-
-    # Discover variants
-    variants = discover_variants(
-        model_dir, args.variant,
-        need_be_out=show_surface or args.impedance or show_points,
-    )
-
-    if not variants:
-        # Fallback: legacy single-variant layout
-        legacy_be_out = model_dir / "numcalc" / "be.out"
-        if (show_surface or show_points) and legacy_be_out.is_dir():
-            variants = [None]
-        else:
-            if args.variant:
-                print(f"Error: No variants matching: {', '.join(args.variant)}")
-            else:
-                print(f"Error: No variants with result data found")
-            raise SystemExit(1)
-
-    if show_points and args.set_name is None:
-        offsets_files = sorted((model_dir / "numcalc").glob("*/eval_offsets.json"))
-        if offsets_files:
-            import json as _json
-            sets = list(_json.load(open(offsets_files[0]))["sets"].keys())
-            print(f"  Showing all fieldpoint sets: {', '.join(sets)} "
-                  f"(pass a set name to filter)")
-
-    # Create scene and viewer
-    scene = setup_scene(screenshot=args.screenshot)
-    scene._plotter.set_background(args.background)
-    viewer = ResultsViewer(scene, model_dir, config, freqs, args)
-
-    # Build initial variant
-    viewer.build_variant(variants[0], bin_idx)
-
-    if (viewer.surface_actor is None and viewer.points_actor is None
-            and viewer.impedance_actor is None):
-        print("Error: Nothing to visualize (surface and points both unavailable/disabled)")
-        raise SystemExit(1)
-
-    # Print actor info
-    if viewer.surface_actor is not None:
-        if viewer.surface_rgba:
-            print(f"  + Surface pressure (phase+alpha @ {actual_freq:.1f} Hz, "
-                  f"alpha=top {PHASE_DB_RANGE:.0f} dB, "
-                  f"opacity={args.mesh_opacity})")
-        else:
-            print(f"  + Surface pressure ({viewer.surface_quantity} @ {actual_freq:.1f} Hz, "
-                  f"opacity={args.mesh_opacity})")
-    if viewer.points_actor is not None:
-        set_label = args.set_name if args.set_name is not None else "all"
-        if viewer.points_rgba:
-            print(f"  + Eval points: set={set_label}, "
-                  f"phase+alpha (alpha=top {PHASE_DB_RANGE:.0f} dB), "
-                  f"norm={args.norm}, point_size={args.point_size}")
-        else:
-            print(f"  + Eval points: set={set_label}, "
-                  f"quantity={viewer.points_quantity}, norm={args.norm}, "
-                  f"point_size={args.point_size}")
-
-    # Set up interactivity and show
-    viewer.setup_interactivity(variants)
-    scene.show_or_screenshot(args.screenshot)
+    gaps = "\n".join(f"    - {g}" for g in _RESULTS_GAPS)
+    sys.exit(
+        f"bem STUDY results is not yet ported to Python studies (see Task 15: "
+        f"fold bemviz into bemkit/view/).\n"
+        f"  The 3D results viewer needs, and Results does not yet expose:\n"
+        f"{gaps}\n"
+        f"  Working today: `bem {study_dir} geometry` (mesh, boundary "
+        f"conditions and eval grid),\n"
+        f"  and the numbers themselves via "
+        f"`bemkit.Results.load(\"{study_dir}/runs/numcalc/<variant>\")`.")

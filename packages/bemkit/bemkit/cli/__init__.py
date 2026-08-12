@@ -8,7 +8,6 @@ imported lazily inside command functions only.
 import argparse
 import importlib
 import sys
-import tomllib
 from pathlib import Path
 
 
@@ -35,23 +34,6 @@ class VariantAction(argparse.Action):
         items = list(getattr(namespace, self.dest, None) or [])
         items.extend(values)
         setattr(namespace, self.dest, items)
-
-
-def load_model_config(model_dir):
-    """ModelConfig.from_dir with CLI-friendly errors.
-
-    Only the config.toml stack (``_legacy``/``_pipeline``/``_init``) still
-    calls this; it goes when they do.
-    """
-    from bemkit.config import ModelConfig
-    try:
-        return ModelConfig.from_dir(model_dir)
-    except FileNotFoundError:
-        sys.exit(f"No config.toml in {model_dir}\n"
-                 f"  Bootstrap one from an existing mesh: "
-                 f"bem {model_dir} init [MESH]")
-    except (ValueError, tomllib.TOMLDecodeError) as e:
-        sys.exit(str(e))
 
 
 def _iter_cli_entry_points():

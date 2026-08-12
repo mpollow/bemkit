@@ -1,8 +1,8 @@
 """Field-point validation and offset bookkeeping for the solver layer.
 
-Ported from ``bemkit.sim.fieldpoints`` (the old sim layer this replaces): the
-Möller-Trumbore / Eberly geometry kernels are unchanged, only the entry
-points differ — they take a :class:`~bemkit.model.mesh.Mesh` rather than a
+The Möller-Trumbore / Eberly geometry kernels carried over unchanged from
+the config.toml-era ``sim`` layer this replaces; only the entry points
+differ — they take a :class:`~bemkit.model.mesh.Mesh` rather than a
 mesh-file path, since the model layer already holds vertices/triangles in
 memory and has no file to re-read.
 """

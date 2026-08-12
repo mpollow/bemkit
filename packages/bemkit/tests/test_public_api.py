@@ -1,51 +1,120 @@
 """Pin the curated public API surface of the bemkit package root.
 
 Every name exported from `bemkit` is a compatibility promise; plumbing
-stays importable from its submodule but off the package root.
+(deck translation, field-point validation, mesh generation, stores) stays
+importable from its submodule but off the package root.
 """
+
+import subprocess
+import sys
+
+import pytest
 
 
 def test_public_api_surface():
     import bemkit
     public = {n for n in dir(bemkit) if not n.startswith("_")}
 
-    # The user API.
-    assert {"ModelConfig", "freq_bin", "resolve_bins", "SimulationData",
-            "export_variant", "ExportInfo", "discover_variants",
-            "make_fields_onaxis", "make_fields_polar", "make_fields_plane",
-            "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",
-            "available_bins", "missing_bins", "is_complete",
-            "MeshInfo", "find_mesh_file", "PipelineStage",
-            "normalize_pressure", "sphcap_pressure"} <= public
+    # The user API: describe a problem, load it, solve it, read it back.
+    assert {
+        # the problem
+        "Mesh", "Medium", "Model", "BC", "ResolvedBC",
+        "Selector", "Group", "Elements", "Near", "Where",
+        "Condition", "Velocity", "Pressure", "Admittance", "Impedance",
+        "PlaneWave", "PointSource",
+        "fft_grid", "on_axis", "circle", "plane", "resolve_bins",
+        # getting a mesh off disk
+        "load_mesh", "MeshInfo", "find_mesh_file",
+        # study / solve / results
+        "load_study", "Solver", "Status", "NumCalcSolver",
+        "Results", "Store", "MemoryStore", "NpzStore",
+        # job control, straight through from pynumcalc
+        "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",
+        "available_bins", "missing_bins", "is_complete",
+        # analytic reference (lazy — needs scipy)
+        "sphcap_pressure",
+    } <= public
 
-    # Demoted / plumbing names must be gone from the root.
-    # Plotting and web export live in the separate `bemviz` distribution now;
-    # bemkit must not re-export them, or it would import upward.
-    for gone in ("export_web", "freq_magnitude", "polar_directivity",
-                 "impulse_response", "heatmap", "cmap_for_quantity",
-                 "BEMResult", "load_result", "combine_and_track",
-                 "load_fieldpoint_sets", "load_offsets", "save_offsets",
-                 "split_by_offsets", "validate_points", "load_bins",
-                 "write_nc_inp", "write_eval_grid_nodes",
-                 "write_eval_grid_elements", "write_object_mesh_nodes",
-                 "write_object_mesh_elements", "read_eval_grid_nodes",
-                 "read_nc_inp_boundary_conditions", "read_object_mesh_nodes",
-                 "read_object_mesh_elements", "read_mesh_triangles",
-                 "read_mesh_physical_groups", "element_areas",
-                 "get_mesh_scale", "RIGID", "VIBRATING", "MESH_EXTENSIONS"):
+
+def test_every_advertised_name_actually_resolves():
+    """__all__ is the promise; dir() alone would not catch a lazy name whose
+    target module moved."""
+    import bemkit
+    for name in bemkit.__all__:
+        assert getattr(bemkit, name) is not None, name
+
+
+def test_unknown_attribute_still_raises():
+    import bemkit
+    with pytest.raises(AttributeError):
+        bemkit.no_such_name
+
+
+def test_the_deleted_config_toml_stack_is_gone():
+    """The TOML grammar, the stage machine and the SimulationData results API
+    were deleted with the config.toml stack. They must not come back as
+    aliases on the root — a name that resolves is a name people will use."""
+    import bemkit
+    public = {n for n in dir(bemkit) if not n.startswith("_")}
+    for gone in ("ModelConfig", "freq_bin", "freq_grid", "PipelineStage",
+                 "SimulationData", "BEMResult", "load_result",
+                 "normalize_pressure", "discover_variants", "export_variant",
+                 "ExportInfo", "make_fields_onaxis", "make_fields_polar",
+                 "make_fields_plane"):
+        assert gone not in public, f"{gone} should no longer exist"
+
+    for mod in ("bemkit.config", "bemkit.sim", "bemkit.pipeline",
+                "bemkit.analysis"):
+        with pytest.raises(ImportError):
+            __import__(mod)
+
+
+def test_demoted_plumbing_stays_off_the_root():
+    """Importable from its submodule, not from the package root."""
+    import bemkit
+    public = {n for n in dir(bemkit) if not n.startswith("_")}
+    for gone in ("export_web", "cmap_for_quantity", "BEMScene",
+                 "model_to_deck", "Deck", "load_bins", "write_object_mesh",
+                 "read_mesh_triangles", "read_mesh_physical_groups",
+                 "element_areas", "get_mesh_scale",
+                 "RIGID", "VIBRATING", "MESH_EXTENSIONS"):
         assert gone not in public, f"{gone} should not be exported at top level"
 
 
-def test_core_import_stays_light():
-    """`import bemkit` must not pull in matplotlib/pyvista.
+@pytest.mark.parametrize("heavy", ["matplotlib", "pyvista", "meshio", "gmsh",
+                                   "scipy"])
+def test_core_import_stays_light(heavy):
+    """`import bemkit` must pull in nothing but numpy and pynumcalc.
 
-    Now structural rather than a matter of discipline: bemkit does not depend
-    on bemviz at all.
+    Structural rather than a matter of discipline for the display stack —
+    bemkit does not depend on bemviz at all — but meshio/gmsh/scipy live
+    behind lazy imports inside the one function that needs each, and that is
+    only enforced here.
     """
-    import subprocess
-    import sys
-    code = ("import sys, bemkit; "
-            "bad = {m for m in ('matplotlib', 'pyvista') if m in sys.modules}; "
-            "sys.exit(repr(bad) if bad else 0)")
+    code = (f"import sys, bemkit; "
+            f"sys.exit({heavy!r} if {heavy!r} in sys.modules else 0)")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True)
-    assert r.returncode == 0, r.stderr.decode() or r.stdout.decode()
+    assert r.returncode == 0, (
+        f"import bemkit pulled in {heavy}: "
+        f"{r.stderr.decode() or r.stdout.decode()}")
+
+
+@pytest.mark.parametrize("heavy", ["scipy", "meshio", "gmsh"])
+def test_the_model_layer_alone_is_lighter_still(heavy):
+    """`import bemkit.model` is the bottom of the spine: numpy only, so a
+    Model can be built and compared with nothing else installed. analytic.py
+    needs scipy, which is why it hangs off a lazy __getattr__."""
+    code = (f"import sys, bemkit.model; "
+            f"sys.exit({heavy!r} if {heavy!r} in sys.modules else 0)")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True)
+    assert r.returncode == 0, (
+        f"import bemkit.model pulled in {heavy}: "
+        f"{r.stderr.decode() or r.stdout.decode()}")
+
+
+def test_sphcap_pressure_is_reachable_from_the_root_and_the_model_layer():
+    import bemkit
+    import bemkit.model
+    from bemkit.model.analytic import sphcap_pressure
+    assert bemkit.sphcap_pressure is sphcap_pressure
+    assert bemkit.model.sphcap_pressure is sphcap_pressure
