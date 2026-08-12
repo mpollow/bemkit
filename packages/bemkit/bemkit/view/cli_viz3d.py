@@ -177,10 +177,10 @@ def cmd_geometry(study_dir, args):
         read_object_mesh_nodes, read_object_mesh_elements, read_eval_grid_nodes,
         read_nc_inp_symmetry,
     )
-    from bemviz.viz._symmetry import (
+    from bemkit.view._symmetry import (
         ghost_geometry, describe_symmetry, EDGE_STYLE,
     )
-    from bemviz.viz.scene import setup_scene
+    from bemkit.view.scene import setup_scene
 
     if not study_dir.exists():
         print(f"Error: Study directory not found: {study_dir}")

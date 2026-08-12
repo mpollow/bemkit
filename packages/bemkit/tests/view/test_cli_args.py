@@ -1,17 +1,20 @@
-"""bemviz's `bem` subcommand parsers.
+"""The view layer's `bem` subcommand parsers.
 
-Rescued from the deleted ``packages/bemkit/tests/test_cli.py``: these pin
-bemviz's own flag defaults, which survived the config.toml deletion intact
-even though the commands behind two of them do not run yet. They live here
-rather than in bemkit's suite because they are assertions about bemviz's
-parsers — bemkit only provides the entry-point seam they plug into.
+Rescued from the deleted ``packages/bemkit/tests/test_cli.py``: these pin the
+view verbs' flag defaults, which survived the config.toml deletion intact.
+
+The registration seam these go through changed when ``bemviz`` was folded into
+``bemkit.view``: it is a direct call from ``bemkit.cli.main`` now, not an
+entry point. That is why the `--help` test below is unconditional — it used to
+carry a skipif on the entry point being installed, which after the fold would
+have quietly skipped instead of testing anything.
 """
 
 import argparse
 
 import pytest
 
-import bemviz
+from bemkit import view
 
 
 def _parse(argv):
@@ -19,26 +22,16 @@ def _parse(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("study_dir", nargs="?")
     sub = parser.add_subparsers(dest="command")
-    bemviz.register_cli(sub)
+    view.register_cli(sub)
     return parser.parse_args(argv)
 
 
-def _bemviz_cli_installed():
-    """True when bemviz's entry point is registered, not merely importable —
-    `bem` discovers subcommands through the entry-point group."""
-    from importlib.metadata import entry_points
-    return any(e.value.startswith("bemviz")
-               for e in entry_points(group="bemkit.cli"))
-
-
-@pytest.mark.skipif(not _bemviz_cli_installed(),
-                    reason="bemviz not installed (entry point absent)")
 @pytest.mark.parametrize("argv", [["x", "geometry", "--help"],
                                   ["x", "results", "--help"],
                                   ["x", "export-web", "--help"]])
 def test_help_exits_zero_through_the_real_cli(argv):
-    """--help must work for every bemviz subcommand, including the two whose
-    bodies currently refuse: the flags are still the documented contract."""
+    """--help must work for every view subcommand, including export-web's,
+    whose body still refuses: the flags are still the documented contract."""
     from bemkit.cli import main
     with pytest.raises(SystemExit) as e:
         main(argv)
@@ -69,7 +62,7 @@ def test_geometry_still_accepts_the_superseded_show_edges_flag():
 
 @pytest.mark.parametrize("command", ["geometry", "results", "export-web"])
 def test_variant_flag_accumulates_across_repeats_and_spaces(command):
-    """bemkit's VariantAction, exercised through bemviz's parsers.
+    """bemkit's VariantAction, exercised through the view parsers.
 
     The bug it exists to prevent: `--variant a --variant b` used to keep only
     ['b'] (argparse's last-wins on nargs='+').
@@ -90,7 +83,7 @@ class TestUnportedCommandsRefuseCleanly:
     """
 
     def test_results_exits_with_the_reason(self, tmp_path, capsys):
-        from bemviz.cli_viz3d import cmd_results
+        from bemkit.view.cli_viz3d import cmd_results
         with pytest.raises(SystemExit) as e:
             cmd_results(tmp_path, _parse(["results"]))
         message = str(e.value)
@@ -98,7 +91,7 @@ class TestUnportedCommandsRefuseCleanly:
         assert "geometry" in message          # names what does work
 
     def test_export_web_exits_with_the_reason(self, tmp_path):
-        from bemviz.cli_web import cmd_export_web
+        from bemkit.view.cli_web import cmd_export_web
         args = _parse(["export-web", "--out", str(tmp_path / "bundle")])
         with pytest.raises(SystemExit) as e:
             cmd_export_web(tmp_path, args)
@@ -109,6 +102,6 @@ class TestUnportedCommandsRefuseCleanly:
         """Called from Python (not the CLI) it must raise, so a caller can
         catch it — sys.exit inside a library function is not catchable as an
         error."""
-        from bemviz.web import export_web
+        from bemkit.view.web import export_web
         with pytest.raises(NotImplementedError, match="not yet ported"):
             export_web(tmp_path, tmp_path / "bundle")

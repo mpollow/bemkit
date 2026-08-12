@@ -2,7 +2,7 @@
 
 The spine runs bottom-up and imports one way only::
 
-    model/  ->  geometry/  ->  solvers/  ->  results/  ->  cli/   (-> bemviz)
+    model/  ->  geometry/  ->  solvers/  ->  results/  ->  view/  ->  cli/
 
 * ``model/`` is pure data: numpy, and nothing of ours. That is what lets a
   Model be built, compared and unit-tested with no solver, mesher or display
@@ -13,10 +13,12 @@ The spine runs bottom-up and imports one way only::
 * ``cli/`` may use heavy layers, but only inside functions, so ``bem --help``
   does not pay for pyvista.
 
-Two boundaries are enforced by packaging as well as by these tests:
-``pynumcalc`` (packages/pynumcalc) imports nothing from bemkit and needs only
-numpy, and ``bemviz`` (packages/bemviz) owns everything that needs a display
-stack. bemkit depends on pynumcalc and never on bemviz.
+One boundary is enforced by packaging as well as by these tests: ``pynumcalc``
+(packages/pynumcalc) imports nothing from bemkit and needs only numpy.
+``bemkit/view/`` used to be a third distribution (``bemviz``) and is now a
+layer inside this one, so its isolation is enforced only here — the display
+stack is a ``bemkit[view]`` extra, and the rules below are what keep it
+optional in fact rather than only on paper.
 """
 
 import ast
@@ -33,8 +35,8 @@ VIZ_LIBS = ("pyvista", "matplotlib")
 CORE = ["model", "geometry", "solvers", "results"]
 #: May reach into any layer, but only lazily (inside a function body).
 GLUE = ["__init__.py", "cli"]
-#: bemviz is the display layer; bemkit must never import it.
-UPPER = ("bemviz",)
+#: view/ is the display layer; the core must never import it.
+UPPER = ("bemkit.view",)
 
 
 def _py_files(entry):
@@ -73,13 +75,27 @@ def _violations(entries, getter, prefixes=UPPER):
 def test_layout_exists():
     """A renamed or deleted layer must fail loudly here rather than silently
     turning every rule below into a scan over zero files."""
-    for entry in CORE + GLUE:
+    for entry in CORE + GLUE + ["view"]:
         assert (PKG / entry).exists(), f"missing {entry} — layout changed?"
     assert PYNUMCALC.is_dir(), f"missing {PYNUMCALC} — layout changed?"
     assert list(PYNUMCALC.rglob("*.py")), f"no modules under {PYNUMCALC}"
 
 
-def test_core_never_imports_bemviz():
+def test_the_upper_layer_rule_is_not_vacuous():
+    """UPPER names a prefix that something actually imports.
+
+    When view/ was the separate ``bemviz`` distribution, folding it in
+    renamed every import of it — and the rules below, still spelled
+    ``bemviz``, would have gone on passing over zero matches forever. This
+    fails the moment UPPER stops naming the real display layer.
+    """
+    hits = [f for f in _py_files("view") + _py_files("cli")
+            for mod, _ in _all_imports(ast.parse(f.read_text()))
+            if mod.startswith(UPPER)]
+    assert hits, f"nothing imports {UPPER} — is the prefix still right?"
+
+
+def test_core_never_imports_the_view_layer():
     assert _violations(CORE, _all_imports) == []
 
 
@@ -88,7 +104,7 @@ def test_core_never_uses_viz_libraries():
 
 
 def test_glue_imports_heavy_layers_only_lazily():
-    """__init__ and cli may use bemviz/pyvista, but never at module level."""
+    """__init__ and cli may use view/pyvista, but never at module level."""
     assert _violations(GLUE, _top_level_imports, UPPER + VIZ_LIBS) == []
 
 

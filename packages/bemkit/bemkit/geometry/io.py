@@ -127,7 +127,7 @@ def mirror_mesh(vertices, triangles, planes, coordinates, return_copies=False):
         return_copies: also return, per copy, the tuple of axes reflected to
             produce it (``()`` for the original). Lets a caller map every
             mirrored element back to its source without re-deriving the
-            reflection — see ``bemviz.viz._symmetry``.
+            reflection — see ``bemkit.view._symmetry``.
 
     Returns:
         Tuple of (vertices, triangles) with 2**k copies for k active planes,

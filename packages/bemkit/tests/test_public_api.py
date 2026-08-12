@@ -86,16 +86,33 @@ def test_demoted_plumbing_stays_off_the_root():
 def test_core_import_stays_light(heavy):
     """`import bemkit` must pull in nothing but numpy and pynumcalc.
 
-    Structural rather than a matter of discipline for the display stack —
-    bemkit does not depend on bemviz at all — but meshio/gmsh/scipy live
-    behind lazy imports inside the one function that needs each, and that is
-    only enforced here.
+    Every heavy dependency — meshio, gmsh, scipy, and since the bemviz fold
+    the display stack too — lives behind a lazy import inside the one function
+    that needs it. The display stack used to be a separate distribution, so
+    packaging enforced this on its own; now that ``bemkit.view`` ships inside
+    bemkit, this test is the only thing that does.
     """
     code = (f"import sys, bemkit; "
             f"sys.exit({heavy!r} if {heavy!r} in sys.modules else 0)")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True)
     assert r.returncode == 0, (
         f"import bemkit pulled in {heavy}: "
+        f"{r.stderr.decode() or r.stdout.decode()}")
+
+
+@pytest.mark.parametrize("heavy", ["matplotlib", "pyvista"])
+def test_importing_the_view_layer_is_itself_cheap(heavy):
+    """Even `import bemkit.view` must not start a display stack.
+
+    `bem --help` builds every subparser, which imports this package to
+    register the view verbs. If pyvista were imported at module level there,
+    every `bem` invocation would pay several seconds for it.
+    """
+    code = (f"import sys, bemkit.view; "
+            f"sys.exit({heavy!r} if {heavy!r} in sys.modules else 0)")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True)
+    assert r.returncode == 0, (
+        f"import bemkit.view pulled in {heavy}: "
         f"{r.stderr.decode() or r.stdout.decode()}")
 
 

@@ -1,14 +1,13 @@
 # The monorepo root is not a package. Each of packages/* is its own
-# distribution and installs on its own — pynumcalc without bemkit, bemkit
-# without bemviz. For a full development environment, one command:
+# distribution and installs on its own — pynumcalc without bemkit. For a full
+# development environment, one command:
 #
-#     pip install -e packages/pynumcalc -e packages/bemkit -e packages/bemviz
+#     pip install -e packages/pynumcalc -e packages/bemkit
 #
-# This file exists only so `pytest` from the root runs all three suites.
+# This file exists only so `pytest` from the root runs both suites.
 
 [tool.pytest.ini_options]
 testpaths = [
     "packages/pynumcalc/tests",
     "packages/bemkit/tests",
-    "packages/bemviz/tests",
 ]

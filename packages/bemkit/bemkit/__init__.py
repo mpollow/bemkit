@@ -6,8 +6,9 @@ it to a solver, and read a :class:`~bemkit.results.Results` back::
 
     load_study(dir) -> {variant: Model} -> NumCalcSolver().solve(...) -> Results
 
-Plotting and 3D inspection are the separate `bemviz` distribution, and
-NumCalc's own file formats and job control are `pynumcalc`. Geometry authoring
+3D inspection and web export live in :mod:`bemkit.view` (a `bemkit[view]`
+extra, imported only by the CLI verbs that need it), and NumCalc's own file
+formats and job control are `pynumcalc`. Geometry authoring
 lives in the external `bemgeo` package; bemkit consumes the STEP files it
 produces.
 

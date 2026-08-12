@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from bemviz.web import (
+from bemkit.view.web import (
     detect_plane,
     encode_db_u8,
     pick_up_axis,

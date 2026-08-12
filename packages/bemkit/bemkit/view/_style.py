@@ -1,4 +1,4 @@
-"""Shared style helpers for bemviz.
+"""Shared style helpers for the view layer.
 
 Reduced to the colormap picker when the 2D plotting family was removed
 (2026-08-12). The axis labels, colour cycles and axis formatters that lived

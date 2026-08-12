@@ -16,13 +16,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Plotting is the separate `bemviz` distribution; installing it registers the
-# plot/geometry/results/export-web subcommands through the bemkit.cli group.
-viz = ["bemviz"]
-viz3d = ["bemviz[viz3d]"]
+# bemkit.view (the `geometry`/`results`/`export-web` verbs) is the only part
+# that needs a display stack. It ships inside this distribution but its
+# dependencies do not: `import bemkit` must stay numpy-light.
+view = ["pyvista", "matplotlib"]
 meshing = ["gmsh", "scipy"]
 analytic = ["scipy"]
-all = ["bemviz[viz3d]", "gmsh", "scipy"]
+all = ["pyvista", "matplotlib", "gmsh", "scipy"]
 
 [project.scripts]
 bem = "bemkit.cli:main"

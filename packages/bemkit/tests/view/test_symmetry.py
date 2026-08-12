@@ -1,4 +1,4 @@
-"""Tests for bemviz.viz._symmetry — ghost geometry for mirrored meshes.
+"""Tests for bemkit.view._symmetry — ghost geometry for mirrored meshes.
 
 Data preparation only. Rendering is not tested: screenshot comparison of live
 pyvista windows has proven unreliable in this repo and would add no
@@ -8,7 +8,7 @@ verification value over checking the arrays handed to the scene.
 import numpy as np
 import pytest
 
-from bemviz.viz._symmetry import ghost_geometry, describe_symmetry
+from bemkit.view._symmetry import ghost_geometry, describe_symmetry
 
 
 def _two_triangles():

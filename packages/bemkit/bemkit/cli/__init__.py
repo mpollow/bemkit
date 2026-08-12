@@ -42,7 +42,12 @@ def _iter_cli_entry_points():
 
 
 def _register_plugins(sub):
-    """Let installed packages add `bem` subcommands (group: bemkit.cli)."""
+    """Let installed packages add `bem` subcommands (group: bemkit.cli).
+
+    The seam the private `bemlab` package uses for its own verbs. bemkit's own
+    view commands no longer come through here — they live in `bemkit.view` and
+    are registered directly by :func:`main`.
+    """
     for ep in _iter_cli_entry_points():
         try:
             ep.load()(sub)
@@ -70,8 +75,16 @@ def main(argv=None):
     from bemkit.cli import _check, _commands
     _check.register(sub)
     _commands.register(sub)
-    # geometry / results / export-web come from bemviz, through the same
-    # entry-point group any third-party plugin uses.
+    # geometry / results / export-web live in bemkit.view. Imported here and
+    # not at module level, so `bem --help` never pays for pyvista; an
+    # ImportError means the [view] extra is not installed, and the rest of the
+    # CLI must still work.
+    try:
+        from bemkit.view import register_cli as _register_view
+    except ImportError:
+        pass          # pyvista/matplotlib not installed — view verbs absent
+    else:
+        _register_view(sub)
     _register_plugins(sub)
 
     # argparse can't reliably combine an *optional* study_dir positional with

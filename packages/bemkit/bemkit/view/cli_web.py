@@ -35,7 +35,7 @@ def register(sub):
 def cmd_export_web(study_dir, args):
     import sys
 
-    from bemviz.web import export_web
+    from bemkit.view.web import export_web
     front = None
     if args.front:
         front = [float(x) for x in args.front.split(",")]
