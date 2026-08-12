@@ -717,7 +717,7 @@ class ModelConfig:
         """Physical-group name holding the driven elements, or None.
 
         None means "use the default name", not "there is no driven group" —
-        see bemkit.meshing.io.resolve_vibrating_group.
+        see bemkit.geometry.io.resolve_vibrating_group.
         """
         return self.groups_cfg.get("vibrating")
 

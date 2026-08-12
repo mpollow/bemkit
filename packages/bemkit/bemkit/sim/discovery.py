@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from bemkit.config import ModelConfig
-from bemkit.meshing.io import MESH_EXTENSIONS
+from bemkit.geometry.io import MESH_EXTENSIONS
 from pynumcalc.packing import has_results
 
 

@@ -164,7 +164,7 @@ def test_mixed_boundary_condition_types_solve(tmp_path):
     strongly absorbing surface; an SI value here would be wrong by ~410 and
     NumCalc would accept it without complaint.
     """
-    from bemkit.meshing.io import read_mesh_triangles
+    from bemkit.geometry.io import read_mesh_triangles
 
     model = tmp_path / "model"
     shutil.copytree(GOLDEN_MODEL, model)
@@ -248,7 +248,7 @@ def test_frequency_dependent_admittance_solves(tmp_path):
     NumCalc multiplies each part by its own curve, so a 0.0 imaginary constant
     would silently kill the imaginary curve.
     """
-    from bemkit.meshing.io import read_mesh_triangles
+    from bemkit.geometry.io import read_mesh_triangles
 
     model = tmp_path / "model"
     shutil.copytree(GOLDEN_MODEL, model)

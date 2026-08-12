@@ -232,7 +232,7 @@ class SimulationData:
         spells sound-hard, and PRES/ADMI/IMPE elements are conditions rather
         than sources.
         """
-        from bemkit.meshing.io import element_areas
+        from bemkit.geometry.io import element_areas
         from pynumcalc.readers import read_nc_inp_boundary_conditions
         bc = read_nc_inp_boundary_conditions(self._nc_dir / "NC.inp")
         vib_idx = bc.get("vibrating", np.array([], dtype=int))

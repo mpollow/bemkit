@@ -43,7 +43,7 @@ def _num(x):
 
 def _collect_meshes(model_dir, given):
     """Return the mesh files to bootstrap from, copying them into mesh/."""
-    from bemkit.meshing.io import MESH_EXTENSIONS
+    from bemkit.geometry.io import MESH_EXTENSIONS
 
     mesh_dir = model_dir / "mesh"
     if given:
@@ -94,7 +94,7 @@ def _inspect(mesh_file):
     """Measure the numbers the template is built from. Coordinates in metres."""
     import numpy as np
 
-    from bemkit.meshing.io import (
+    from bemkit.geometry.io import (
         element_areas, read_mesh_physical_groups, read_mesh_triangles,
         resolve_vibrating_group,
     )

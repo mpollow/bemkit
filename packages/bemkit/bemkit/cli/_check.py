@@ -24,8 +24,8 @@ def register(sub):
 
 def cmd_check(model_dir, args):
     from bemkit.cli import load_model_config
-    from bemkit.meshing.io import find_mesh_file, read_mesh_triangles
-    from bemkit.meshing.quality import LEVELS, check_mesh, worst_level
+    from bemkit.geometry.io import find_mesh_file, read_mesh_triangles
+    from bemkit.geometry.quality import LEVELS, check_mesh, worst_level
 
     config = load_model_config(model_dir)
     variants = config.variants(args.variant)

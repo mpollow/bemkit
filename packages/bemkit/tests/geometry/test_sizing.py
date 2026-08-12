@@ -1,8 +1,8 @@
-"""Tests for bemkit.meshing.sizing — the config→builder mapping (pure, no gmsh)."""
+"""Tests for bemkit.geometry.sizing — the config→builder mapping (pure, no gmsh)."""
 
 import pytest
 
-from bemkit.meshing.sizing import (
+from bemkit.geometry.sizing import (
     uniform_field, distance_field, geodesic_field, sizing_from_config,
 )
 

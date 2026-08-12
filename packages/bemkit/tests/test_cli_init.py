@@ -177,7 +177,7 @@ def test_foreign_group_names_export_to_the_right_elements(tmp_path, foreign_msh)
 
 def test_explicit_group_name_that_is_absent_raises(tmp_path, foreign_msh):
     """A typo'd group name must fail, not fall back to a rigid surface."""
-    from bemkit.meshing.io import (
+    from bemkit.geometry.io import (
         read_mesh_physical_groups, resolve_vibrating_group,
     )
     groups = read_mesh_physical_groups(foreign_msh)
@@ -186,7 +186,7 @@ def test_explicit_group_name_that_is_absent_raises(tmp_path, foreign_msh):
 
 
 def test_vibrating_group_lookup_is_case_insensitive(tmp_path, tiny_mesh_data):
-    from bemkit.meshing.io import (
+    from bemkit.geometry.io import (
         read_mesh_physical_groups, resolve_vibrating_group,
     )
     vertices, triangles = tiny_mesh_data

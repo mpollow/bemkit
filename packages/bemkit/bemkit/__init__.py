@@ -16,7 +16,7 @@ import importlib
 
 # -- Core (eager) --
 from bemkit.config import ModelConfig, freq_bin, resolve_bins
-from bemkit.meshing.io import MeshInfo, find_mesh_file
+from bemkit.geometry.io import MeshInfo, find_mesh_file
 from bemkit.pipeline import PipelineStage
 from bemkit.sim.discovery import discover_variants
 from bemkit.sim.export import ExportInfo, export_variant

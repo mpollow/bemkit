@@ -5,7 +5,7 @@ installs a background size field on the live gmsh model. `sources` is the list
 of surface tags to measure distance from (the vibrating faces); `uniform_field`
 ignores it. Callables carry `.kind` and `.params` for config mapping and tests.
 
-The geodesic builder delegates the distance math to `bemkit.meshing.geodesic`
+The geodesic builder delegates the distance math to `bemkit.geometry.geodesic`
 (pure numpy/scipy) and owns only the gmsh two-pass orchestration.
 """
 
@@ -45,12 +45,12 @@ def distance_field(lc_min, lc_max, dist_min, dist_max):
 def geodesic_field(lc_min, lc_max, dist_min, dist_max):
     """Over-the-surface distance from `sources` via a two-pass pilot mesh.
 
-    Pilot mesh → multi-source Dijkstra (bemkit.meshing.geodesic) → size ramp →
+    Pilot mesh → multi-source Dijkstra (bemkit.geometry.geodesic) → size ramp →
     PostView background view (survives mesh.clear()) → the real graded mesh.
     """
     def apply(gmsh, sources):
         import numpy as np
-        from bemkit.meshing.geodesic import (
+        from bemkit.geometry.geodesic import (
             geodesic_distance, size_from_distance, pack_scalar_triangles)
 
         pilot_lc = max(lc_min, min(lc_max, dist_max / 20.0))
@@ -67,7 +67,7 @@ def geodesic_field(lc_min, lc_max, dist_min, dist_max):
         _, elem_nodes = gmsh.model.mesh.getElementsByType(2)   # ALL entities: paths cross rigid faces
         triangles = lut[elem_nodes.astype(np.int64)].reshape(-1, 3)
 
-        from bemkit.meshing.io import VIBRATING
+        from bemkit.geometry.io import VIBRATING
         vib_tags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(2, VIBRATING)
         source = lut[np.asarray(vib_tags, dtype=np.int64)]
         if source.size == 0:

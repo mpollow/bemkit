@@ -1,10 +1,10 @@
-"""Tests for bemkit.meshing.io — get_mesh_scale, find_mesh_file, MeshInfo."""
+"""Tests for bemkit.geometry.io — get_mesh_scale, find_mesh_file, MeshInfo."""
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from bemkit.meshing.io import (
+from bemkit.geometry.io import (
     get_mesh_scale, find_mesh_file, MeshInfo, MESH_EXTENSIONS, mirror_mesh,
 )
 

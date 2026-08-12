@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bemkit.meshing.io import (
+from bemkit.geometry.io import (
     DEFAULT_VIBRATING_GROUP, MeshInfo, find_mesh_file,
     read_mesh_physical_groups, read_mesh_triangles, resolve_vibrating_group,
 )

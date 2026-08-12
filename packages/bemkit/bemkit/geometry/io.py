@@ -1,6 +1,6 @@
 """Mesh file I/O: reading, metadata, and geometry helpers.
 
-For mesh generation (GMSH), see bemkit.meshing.generate.
+For mesh generation (GMSH), see bemkit.geometry.generate.
 """
 
 from dataclasses import dataclass

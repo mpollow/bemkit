@@ -449,7 +449,7 @@ def show_status(model_dir):
     config = load_model_config(model_dir)
     variants = config.variants(None)
     if not variants:
-        from bemkit.meshing.generate import SURFACE_EXTENSIONS
+        from bemkit.geometry.generate import SURFACE_EXTENSIONS
         geom_dir = model_dir / "geometry"
         has_sources = geom_dir.is_dir() and any(
             f.suffix in ['.step'] + SURFACE_EXTENSIONS for f in geom_dir.iterdir())
@@ -497,7 +497,7 @@ def show_status(model_dir):
                 needs[name].append(v)
         print()
 
-    from bemkit.meshing.io import MESH_EXTENSIONS
+    from bemkit.geometry.io import MESH_EXTENSIONS
 
     geom_dir = model_dir / "geometry"
     mesh_dir = model_dir / "mesh"
@@ -506,7 +506,7 @@ def show_status(model_dir):
     if geom_dir.is_dir() and mesh_dir.is_dir() and not config.raw.get("variants"):
         mesh_files = sorted(f for f in mesh_dir.iterdir()
                             if f.suffix in MESH_EXTENSIONS)
-        from bemkit.meshing.generate import SURFACE_EXTENSIONS
+        from bemkit.geometry.generate import SURFACE_EXTENSIONS
         unmeshed = sorted(g.stem for g in geom_dir.iterdir()
                           if g.suffix in ['.step'] + SURFACE_EXTENSIONS
                           and not any(f.stem == g.stem for f in mesh_files))

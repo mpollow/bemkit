@@ -9,7 +9,7 @@ distance over-refines the entire outer shell for no accuracy gain.
 This module computes distance *along* a triangulated surface instead, and maps
 it to element sizes with the same linear ramp GMSH's ``Threshold`` field uses.
 The result is fed back to GMSH as a background mesh view (see
-``bemkit.meshing.generate``).
+``bemkit.geometry.generate``).
 
 Distances come from multi-source Dijkstra on the mesh edge graph. Paths are
 constrained to follow edges, so they overestimate the true geodesic by a few

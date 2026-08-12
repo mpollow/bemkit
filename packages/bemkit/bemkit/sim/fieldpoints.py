@@ -220,7 +220,7 @@ def validate_points(points, mesh_file, is_internal=0, min_surface_distance=None,
     Returns:
         Boolean mask (N,) — True where point is valid
     """
-    from bemkit.meshing.io import read_mesh_triangles, mirror_mesh
+    from bemkit.geometry.io import read_mesh_triangles, mirror_mesh
     vertices, triangles = read_mesh_triangles(mesh_file)
 
     if symmetry:

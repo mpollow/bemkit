@@ -1,6 +1,6 @@
 """Enforce the layer dependency rules from the design spec.
 
-config/meshing/sim never import analysis — not even lazily — and never touch
+config/geometry/sim never import analysis — not even lazily — and never touch
 matplotlib or pyvista. __init__, pipeline and cli may use analysis only inside
 functions (lazily), never at module top level.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parents[1] / "bemkit"
 UPPER = ("bemkit.analysis", "bemviz.viz")
 VIZ_LIBS = ("pyvista", "matplotlib")
-CORE = ["config.py", "meshing", "sim"]
+CORE = ["config.py", "geometry", "sim"]
 PYNUMCALC = Path(__file__).resolve().parents[1] / "packages" / "pynumcalc" / "pynumcalc"
 GLUE = ["__init__.py", "pipeline.py", "cli"]
 

@@ -2,7 +2,7 @@
 
 These take **arrays**, never mesh-file paths: reading a ``.msh``/``.stl`` needs
 meshio and bemkit's millimetre/metre convention, both of which are bemkit
-concerns. Callers convert first (``bemkit.meshing.io.read_mesh_triangles``) and
+concerns. Callers convert first (``bemkit.geometry.io.read_mesh_triangles``) and
 pass coordinates in metres, which is what keeps this module free of any bemkit
 import.
 """

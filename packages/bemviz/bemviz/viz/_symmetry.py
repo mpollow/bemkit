@@ -7,7 +7,7 @@ full space and never mirrored — span the whole domain. Both 3D viewers use
 this module to add the missing copies as a second "ghost" actor, so the picture
 matches the problem that was actually solved.
 
-The reflection itself lives in ``bemkit.meshing.io.mirror_mesh``, which
+The reflection itself lives in ``bemkit.geometry.io.mirror_mesh``, which
 evaluation-point validation also uses; deriving the ghosts from the same call
 keeps the drawn geometry and the validated geometry from drifting apart.
 """
@@ -76,7 +76,7 @@ def ghost_geometry(nodes, elements, symmetry):
         A ``GhostGeometry``, or None when there is nothing to mirror — the
         single branch each viewer has to check.
     """
-    from bemkit.meshing.io import mirror_mesh
+    from bemkit.geometry.io import mirror_mesh
 
     active = _active(symmetry)
     if active is None:

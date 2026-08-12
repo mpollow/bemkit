@@ -1,4 +1,4 @@
-"""Tests for bemkit.meshing.quality — the checks NumCalc does not make.
+"""Tests for bemkit.geometry.quality — the checks NumCalc does not make.
 
 Each case builds the *defect* explicitly, because a checker that cannot fail is
 worth nothing: NumCalc accepts all of these meshes and returns plausible-looking
@@ -8,7 +8,7 @@ numbers for every one of them.
 import numpy as np
 import pytest
 
-from bemkit.meshing.quality import (
+from bemkit.geometry.quality import (
     check_element_regularity, check_elements_per_wavelength, check_mesh,
     check_orientation, check_size_uniformity, check_source_clearance,
     check_watertight, worst_level,
@@ -123,7 +123,7 @@ class TestSourceClearance:
 
 
 def test_worst_level_ranks_severity():
-    from bemkit.meshing.quality import Finding
+    from bemkit.geometry.quality import Finding
     assert worst_level([Finding("a", "ok", ""), Finding("b", "warning", "")]) \
         == "warning"
     assert worst_level([Finding("a", "warning", ""),

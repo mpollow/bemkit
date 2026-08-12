@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from bemkit.config import ModelConfig
-from bemkit.meshing.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
+from bemkit.geometry.io import MESH_EXTENSIONS, MeshInfo, find_mesh_file
 from bemkit.sim.export import export_variant
 from pynumcalc.packing import clear_pack, has_results, is_packed, pack_variant
 from pynumcalc.runner import plan_jobs, run_jobs, solver_flags
@@ -127,8 +127,8 @@ def _run_exec_scripts(model_dir, exec_spec):
 
 def _generate_mesh(input_file, output_file, mesh_cfg):
     """Generate output_file from one geometry/ source (CAD or scan)."""
-    from bemkit.meshing.generate import mesh_from_step, mesh_from_surface  # lazy gmsh
-    from bemkit.meshing.sizing import sizing_from_config
+    from bemkit.geometry.generate import mesh_from_step, mesh_from_surface  # lazy gmsh
+    from bemkit.geometry.sizing import sizing_from_config
 
     input_file = Path(input_file)
     output_file = Path(output_file)
@@ -186,7 +186,7 @@ class MeshStage(PipelineStage):
             return False
 
     def run(self, config):
-        from bemkit.meshing.generate import SURFACE_EXTENSIONS
+        from bemkit.geometry.generate import SURFACE_EXTENSIONS
 
         model_dir = config.model_dir
         leftovers = sorted(s.name for s in model_dir.glob("pre_*.[ps][yh]")

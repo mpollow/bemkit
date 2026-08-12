@@ -23,7 +23,7 @@ from collections import namedtuple
 import numpy as np
 
 from bemkit.config import _check_bc_entry
-from bemkit.meshing.io import read_mesh_triangles
+from bemkit.geometry.io import read_mesh_triangles
 from pynumcalc.deck import _contiguous_ranges
 
 

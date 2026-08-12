@@ -83,7 +83,7 @@ class TestMeshStage:
             Path(output_file).touch()
             return Path(output_file)
 
-        import bemkit.meshing.generate as generate
+        import bemkit.geometry.generate as generate
         monkeypatch.setattr(generate, "mesh_from_step", fake_gen)
         monkeypatch.setattr(generate, "mesh_from_surface", fake_gen)
         return model, calls

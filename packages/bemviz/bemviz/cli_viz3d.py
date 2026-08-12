@@ -105,7 +105,7 @@ def register(sub):
 
 def _load_bc_elements(nc_dir, model_dir):
     """Load boundary condition elements from NC.inp or .msh fallback."""
-    from bemkit.meshing.io import read_mesh_physical_groups
+    from bemkit.geometry.io import read_mesh_physical_groups
     from pynumcalc.readers import read_nc_inp_boundary_conditions
 
     nc_inp_file = nc_dir / "NC.inp"

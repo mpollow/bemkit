@@ -5,7 +5,7 @@ GMSH is imported lazily -- only needed when generating meshes.
 
 from pathlib import Path
 
-from bemkit.meshing.io import RIGID, VIBRATING
+from bemkit.geometry.io import RIGID, VIBRATING
 
 # STEP surface colors for boundary condition detection
 _RIGID_COLOR = (0, 0, 255, 255)

@@ -1,9 +1,9 @@
-"""Tests for bemkit.meshing.geodesic — over-the-surface distance and size ramp."""
+"""Tests for bemkit.geometry.geodesic — over-the-surface distance and size ramp."""
 
 import numpy as np
 import pytest
 
-from bemkit.meshing.geodesic import (
+from bemkit.geometry.geodesic import (
     geodesic_distance,
     size_from_distance,
     pack_scalar_triangles,
