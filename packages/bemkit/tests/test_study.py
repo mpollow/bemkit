@@ -8,7 +8,7 @@ bemkit.model.
 
 import pytest
 
-from bemkit.cli.study import load_study
+from bemkit.study import load_study
 
 
 def _write(path, name, text):

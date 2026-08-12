@@ -301,13 +301,12 @@ def export_web(model_dir, out_dir, variants=None, directions="g30_1m",
         removed.
     """
     raise NotImplementedError(
-        "export_web is not yet ported to Python studies (see Task 15: fold "
-        "bemviz into bemkit/view/).\n"
+        "export_web is not yet ported to Python studies.\n"
         "  It was written against the config.toml stack and still needs, "
-        "from a solved study:\n"
-        "    - the declared field-point sets *before* validation dropped "
-        "any (it exports the full sphere geometry, not the surviving rows)\n"
-        "    - the eval-point coordinates that went with a solve\n"
+        "from a solved study, the declared field-point sets *before* "
+        "validation dropped any: it exports the full sphere geometry, not "
+        "the surviving rows, and bemkit.view.bundle deliberately hands back "
+        "only what was solved.\n"
         "  The signal processing below (synth_irs / relative_spectra / "
         "quantize_irs / encode_db_u8 / detect_plane / pick_up_axis) is "
         "unchanged, still unit-tested, and is what the port reuses.")

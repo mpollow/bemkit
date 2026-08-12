@@ -479,7 +479,7 @@ def test_force_overrides_the_changed_model_guard(study, monkeypatch):
 
 
 def test_an_unchanged_model_resumes(study, monkeypatch):
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     wd = _commands.workdir(study, "default")
     fake_bins(wd, [1])
     digest = _commands._model_digest(load_study(study)["default"])
@@ -509,7 +509,7 @@ def test_bins_with_no_fingerprint_only_warn(study, monkeypatch, capsys):
 def test_the_fingerprint_is_written_before_the_solve(study, monkeypatch):
     """A crash mid-solve still leaves bins behind, so the fingerprint that
     describes them must already be on disk."""
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     wd = _commands.workdir(study, "default")
     found = {}
 
@@ -778,7 +778,7 @@ def test_solve_one_bin_end_to_end(sphcap, capsys):
     assert "Done." in capsys.readouterr().out
 
     # The fingerprint recorded for the bins that were just computed.
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     assert (wd / "model.sha256").read_text().strip() == \
         _commands._model_digest(load_study(sphcap)["coarse"])
 

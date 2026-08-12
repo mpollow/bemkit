@@ -19,8 +19,11 @@ from pathlib import Path
 
 import numpy as np
 
-#: Everything a run writes lives under this, one level per solver.
-RUNS_DIR = "runs"
+# The runs/ layout lives in bemkit.study, not here: the view layer needs it
+# too, and reaching into a CLI module's privates for it is how `bem STUDY
+# geometry` used to find a bundle. Re-exported under the old names so this
+# module's readers still find them where they expect.
+from bemkit.study import RUNS_DIR, match_variants, workdir  # noqa: F401
 
 
 def register(sub):
@@ -117,11 +120,6 @@ def solver_for(name="numcalc"):
     return NumCalcSolver()
 
 
-def workdir(study_dir, variant, solver="numcalc"):
-    """``STUDY/runs/<solver>/<variant>/`` — the bundle for one variant."""
-    return Path(study_dir) / RUNS_DIR / solver / variant
-
-
 def load(study_dir):
     """``load_study`` with a CLI-friendly error for the missing-study case.
 
@@ -129,7 +127,7 @@ def load(study_dir):
     Python, and a KeyError in ``build()`` is a line number the author needs,
     not a message this layer could improve on.
     """
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     try:
         return load_study(study_dir)
     except FileNotFoundError as e:
@@ -139,15 +137,11 @@ def load(study_dir):
 
 
 def select(models, prefixes):
-    """Variant names matching ``prefixes`` (all of them when None)."""
-    names = list(models)
-    if not prefixes:
-        return names
-    chosen = [n for n in names if any(n.startswith(p) for p in prefixes)]
-    if not chosen:
-        sys.exit(f"No variant matches {', '.join(prefixes)} — this study has: "
-                 f"{', '.join(names)}")
-    return chosen
+    """``match_variants`` with a CLI exit instead of a KeyError."""
+    try:
+        return match_variants(models, prefixes)
+    except KeyError as e:
+        sys.exit(e.args[0])
 
 
 # ── band selection ─────────────────────────────────────────────────────────
@@ -790,7 +784,7 @@ def cmd_ps(study_dir, args):
     that in its working directory (``<study>/runs/<solver>/<variant>/``), so
     this reads the answer straight off a /proc scan.
     """
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     from pynumcalc.status import available_bins, scan_numcalc
 
     jobs = scan_numcalc()

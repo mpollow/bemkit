@@ -53,7 +53,7 @@ from bemkit.geometry.io import MeshInfo, find_mesh_file
 from bemkit.geometry.load import load_mesh
 
 # -- Solving, and what comes back --
-from bemkit.cli.study import load_study
+from bemkit.study import load_study
 from bemkit.results import MemoryStore, NpzStore, Results, Store
 from bemkit.solvers import Solver, Status
 from bemkit.solvers.numcalc import NumCalcSolver

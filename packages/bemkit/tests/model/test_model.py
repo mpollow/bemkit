@@ -168,3 +168,69 @@ class TestTimeConvention:
         """NumCalc would read these as +1.0 without a word."""
         with pytest.raises(ValueError, match="exactly -1.0"):
             Model(MESH, fft_grid(8000, 5), Medium(), time_factor=bad)
+
+
+class TestVibratingArea:
+    """``Model.vibrating_area`` — the A_vib the acc normalization divides by.
+
+    Two traps it exists to avoid, both of which silently distort every
+    acc-normalized number rather than failing: counting an element twice when
+    selectors overlap, and counting ``Velocity(0)`` — which is exactly how
+    NumCalc spells sound-hard — as a source.
+    """
+
+    #: Two unit right triangles in the z=0 plane, area 1/2 each.
+    VERTS = np.array([[0., 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]])
+    TRIS = np.array([[0, 1, 2], [1, 3, 2]])
+
+    def _model(self, bcs, **kw):
+        mesh = Mesh(self.VERTS, self.TRIS,
+                    groups={"vibrating": np.array([0]),
+                            "both": np.array([0, 1])})
+        return Model(mesh, [100.0, 200.0], bcs=bcs, **kw)
+
+    def test_sums_the_driven_element_areas(self):
+        from bemkit.model import Elements
+        m = self._model([BC(Elements([0]), Velocity(1.0))])
+        assert m.vibrating_area == pytest.approx(0.5)
+
+    def test_two_elements_sum(self):
+        from bemkit.model import Group
+        m = self._model([BC(Group("both"), Velocity(1.0))])
+        assert m.vibrating_area == pytest.approx(1.0)
+
+    def test_overlapping_selectors_count_each_element_once(self):
+        """The trap: a [BOUNDARY]-style patch on top of a vibrating group.
+        Summing per-BC would give 1.5 for a surface whose driven area is 1.0.
+        """
+        from bemkit.model import Elements, Group
+        m = self._model([BC(Group("both"), Velocity(1.0)),
+                         BC(Elements([0]), Velocity(2.0))])
+        assert m.vibrating_area == pytest.approx(1.0)
+
+    def test_zero_velocity_is_sound_hard_and_does_not_count(self):
+        from bemkit.model import Elements
+        m = self._model([BC(Elements([0]), Velocity(1.0)),
+                         BC(Elements([1]), Velocity(0.0))])
+        assert m.vibrating_area == pytest.approx(0.5)
+
+    def test_a_model_driven_only_by_zero_velocity_has_no_area(self):
+        from bemkit.model import Elements
+        m = self._model([BC(Elements([0]), Velocity(0.0))])
+        assert m.vibrating_area is None
+
+    def test_pressure_and_admittance_are_conditions_not_sources(self):
+        from bemkit.model import Admittance, Elements, Pressure
+        m = self._model([BC(Elements([0]), Pressure(1.0)),
+                         BC(Elements([1]), Admittance(1.0))])
+        assert m.vibrating_area is None
+
+    def test_a_scattering_model_has_no_vibrating_area(self):
+        m = self._model([], sources=[PlaneWave([0, 0, 1])])
+        assert m.vibrating_area is None
+
+    def test_a_complex_velocity_still_counts(self):
+        """Amplitude, not real part: Velocity(1j) drives just as hard."""
+        from bemkit.model import Elements
+        m = self._model([BC(Elements([0]), Velocity(1j))])
+        assert m.vibrating_area == pytest.approx(0.5)

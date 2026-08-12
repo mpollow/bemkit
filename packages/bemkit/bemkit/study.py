@@ -1,4 +1,4 @@
-"""Load a study directory: model.py, and optionally params.toml.
+"""A study directory: model.py, optionally params.toml, and its runs/ layout.
 
 A study is Python, so variants and sweeps are a loop rather than a config
 table.
@@ -12,12 +12,48 @@ signature accepts a positional argument. It is deliberately **not**
 validated against anything -- a typo in it surfaces as a ``KeyError`` (or
 whatever else ``build`` raises) at build time, which is early enough for
 research code.
+
+The rest of the module is the *layout* half: where a solve puts its bundle,
+and how a ``--variant`` prefix filter resolves. Both used to live in
+``bemkit.cli._commands``, which meant the view layer reached into the CLI's
+privates to find a bundle it wanted to draw. They are neither CLI-specific
+nor solver-specific -- they are the convention a study directory follows.
 """
 
 import importlib.util
 import inspect
 import tomllib
 from pathlib import Path
+
+#: Everything a run writes lives under ``STUDY/runs/``, one level per solver.
+RUNS_DIR = "runs"
+
+
+def workdir(study_dir, variant, solver="numcalc"):
+    """``STUDY/runs/<solver>/<variant>/`` -- the bundle for one variant.
+
+    Self-contained and relocatable: NumCalc runs with it as CWD using only
+    relative paths, and everything read back out of a solve (results.npz,
+    be.out/, the exported ObjectMesh and EvalGrid) lives inside it.
+    """
+    return Path(study_dir) / RUNS_DIR / solver / variant
+
+
+def match_variants(names, prefixes):
+    """Variant names matching ``prefixes`` -- all of them when it is falsy.
+
+    Raises:
+        KeyError: no name matched. The message lists what the study does
+            have, since a prefix typo is the usual cause.
+    """
+    names = list(names)
+    if not prefixes:
+        return names
+    chosen = [n for n in names if any(n.startswith(p) for p in prefixes)]
+    if not chosen:
+        raise KeyError(f"No variant matches {', '.join(prefixes)} — this "
+                       f"study has: {', '.join(names)}")
+    return chosen
 
 
 def load_study(path):

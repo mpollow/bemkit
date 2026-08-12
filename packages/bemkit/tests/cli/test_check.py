@@ -159,7 +159,7 @@ def test_plane_waves_are_not_passed_as_coordinates(tmp_path, monkeypatch):
 def test_mesh_arrays_come_straight_off_the_model(tmp_path, monkeypatch):
     study = write(tmp_path / "mesh")
     seen = _captured(monkeypatch, study)
-    from bemkit.cli.study import load_study
+    from bemkit.study import load_study
     mesh = load_study(study)["default"].mesh
     assert np.array_equal(seen["vertices"], mesh.vertices)
     assert np.array_equal(seen["triangles"], mesh.triangles)

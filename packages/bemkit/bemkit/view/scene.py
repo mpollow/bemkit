@@ -1,6 +1,22 @@
-"""3D visualization with PyVista (lazy import)."""
+"""3D visualization with PyVista (lazy import).
+
+Arrays in, actors out. Nothing here reads a file or knows what a Results, a
+Model or a bundle is — ``bundle.py`` does that and hands over plain arrays,
+which is what lets the arithmetic in ``_quantities.py`` be tested without a
+display.
+
+``add_field_points``/``add_field_surface`` used to take a ``BEMResult`` and
+pull values out of it through a ``_get_values`` helper. That helper was
+deleted with the 2D plotting family in 2026-08 and the two call sites were
+left behind, referencing a name that no longer existed — unreachable from
+`geometry`, and a guaranteed NameError the moment `results` colouring ran
+again. They take the values directly now, so there is nothing left to go
+stale.
+"""
 
 import numpy as np
+
+from bemkit.view._quantities import phase_rgba, quantity_values
 
 
 def _make_polydata(pv, nodes, elements):
@@ -58,25 +74,27 @@ class BEMScene:
         actor.prop.opacity = opacity
         return actor
 
-    def add_field_points(self, result, freq, *, quantity="pressure", norm="auto",
-                         value_func="magnitude_db", cmap="magma", clim=None,
-                         point_size=5.0, alpha_from_db=None, **kwargs):
+    def add_field_points(self, points, values, *, value_func="magnitude_db",
+                         cmap="magma", clim=None, point_size=5.0,
+                         alpha_from_db=None, **kwargs):
         """Add field evaluation points colored by value.
 
         Parameters
         ----------
-        result : BEMResult
-        freq : float
-            Frequency in Hz.
-        quantity, norm : str
-        value_func : str or callable
+        points : (N, 3) array
+            Evaluation point coordinates in meters.
+        values : (N,) complex array
+            The field at those points, at one frequency.
+        value_func : str
+            One of ``bemkit.view._quantities.QUANTITIES``.
         cmap : str
         clim : (vmin, vmax) or None
         point_size : float
-        alpha_from_db : float or None
+        alpha_from_db : float, (db_ref, db_range) tuple, or None
             When set and value_func=="phase", encode phase as hue (hsv) and
-            magnitude_db as alpha, over a dynamic range of ``alpha_from_db`` dB
-            relative to the max in the data (max → opaque, max-db_range → transparent).
+            fade low magnitudes to white over this dynamic range. A bare
+            float uses the data's own max as the reference; a tuple pins the
+            reference, so several actors can share one fade scale.
         **kwargs
             Passed to ``plotter.add_points()``.
 
@@ -87,28 +105,16 @@ class BEMScene:
         pv = self._pv
 
         use_rgba = (value_func == "phase" and alpha_from_db is not None)
-        valid = result.valid_mask
-        pts = result.eval_points[valid]
+        pts = np.asarray(points)
 
         if use_rgba:
-            import matplotlib.pyplot as plt
-            fi = result.at_freq(freq)
-            p = result.data(quantity, norm)[:, fi][valid]
-            mag_db = 20.0 * np.log10(np.maximum(np.abs(p), 1e-12))
             if isinstance(alpha_from_db, tuple):
                 db_ref, db_range = alpha_from_db
-                db_floor = db_ref - db_range
             else:
-                db_range = alpha_from_db
-                db_floor = mag_db.max() - db_range
-            weight = np.clip((mag_db - db_floor) / db_range, 0.0, 1.0)
-            phase_norm = (np.degrees(np.angle(p)) + 180.0) / 360.0
-            phase_rgb = plt.cm.hsv(phase_norm)[:, :3]
-            rgb = weight[:, np.newaxis] * phase_rgb + (1.0 - weight[:, np.newaxis])
-            v = (np.column_stack([rgb, np.ones(len(p))]) * 255).astype(np.uint8)
+                db_ref, db_range = None, alpha_from_db
+            v = phase_rgba(values, db_ref=db_ref, db_range=db_range)
         else:
-            vals = _get_values(result, freq, value_func, quantity, norm)
-            v = vals[valid]
+            v = quantity_values(values, value_func)
 
         cloud = pv.PolyData(pts)
         cloud["values"] = v
@@ -145,18 +151,17 @@ class BEMScene:
 
         return actor
 
-    def add_field_surface(self, result, freq, *, quantity="pressure", norm="auto",
-                          value_func="magnitude_db", cmap="magma", clim=None,
-                          **kwargs):
+    def add_field_surface(self, points, values, *, value_func="magnitude_db",
+                          cmap="magma", clim=None, **kwargs):
         """Add a Delaunay-triangulated surface from field points.
 
-        Works best with structured grids (e.g. planeXZ).
+        Works best with structured grids (e.g. a `plane` field set).
 
         Parameters
         ----------
-        result : BEMResult
-        freq, quantity, norm, value_func, cmap, clim
-            See ``add_field_points``.
+        points, values, value_func, cmap, clim
+            See ``add_field_points``. Phase is drawn as a plain hsv scalar
+            here — a triangulated sheet has no per-point alpha to fade.
         **kwargs
             Passed to ``plotter.add_mesh()``.
 
@@ -166,10 +171,8 @@ class BEMScene:
         """
         pv = self._pv
 
-        vals = _get_values(result, freq, value_func, quantity, norm)
-        valid = result.valid_mask
-        pts = result.eval_points[valid]
-        v = vals[valid]
+        pts = np.asarray(points)
+        v = quantity_values(values, value_func)
 
         cloud = pv.PolyData(pts)
         cloud["values"] = v
@@ -426,8 +429,9 @@ class BEMScene:
         """
         pv = self._pv
 
-        # Active intensity I = ½ Re(p · v*)  [W/m²]
-        I = 0.5 * np.real(pressure[:, None] * np.conj(velocity))  # (N, 3)
+        from bemkit.view._quantities import intensity as _intensity
+
+        I = _intensity(pressure, velocity)   # (N, 3) W/m²
         I_mag = np.linalg.norm(I, axis=1)
         I_db = 10.0 * np.log10(np.maximum(I_mag, 1e-30))
         I_dir = I / np.maximum(I_mag[:, None], 1e-30)
@@ -577,7 +581,16 @@ class BEMScene:
                                    bounds[3] - bounds[2],
                                    bounds[5] - bounds[4]])
             distance = diag if diag > 0 else 1.0
-            position = (tuple(center + direction * distance), tuple(center), up[preset])
+            self._plotter.camera_position = (
+                tuple(center + direction * distance), tuple(center), up[preset])
+            # The direction and up vector are the preset's; the *distance*
+            # is VTK's job. Placing the camera one diagonal away frames a
+            # roughly cubical scene and clips a long thin one -- a sphere at
+            # the origin with eval points 4 m up its axis ends up below the
+            # frame entirely, which is exactly the shape an on-axis field
+            # set has. reset_camera keeps the direction and fits the bounds.
+            self._plotter.reset_camera()
+            return
         self._plotter.camera_position = position
 
     def show(self, **kwargs):

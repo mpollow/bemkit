@@ -74,21 +74,51 @@ def test_variant_flag_accumulates_across_repeats_and_spaces(command):
     assert _parse(base).variant is None
 
 
-class TestUnportedCommandsRefuseCleanly:
-    """`results` and `export-web` exit with a message, never a traceback.
+def test_results_defaults_to_raw_not_acc():
+    """acc is undefined for a scattering model, so it cannot be the default
+    the plain invocation uses — `bem STUDY results` must work on a plane-wave
+    study without a flag."""
+    assert _parse(["results"]).norm == "raw"
+    assert _parse(["results", "--norm", "acc"]).norm == "acc"
 
-    They were built on the config.toml stack's SimulationData/BEMResult. A
-    clean refusal naming the gap is the contract until they are ported; an
-    ImportError or an AttributeError from deep inside is not.
-    """
 
-    def test_results_exits_with_the_reason(self, tmp_path, capsys):
+class TestResultsRefusesBeforeItOpensAWindow:
+    """Everything decidable from the arguments alone is decided up front, so
+    the failure reaches the terminal instead of a blank plotter."""
+
+    def test_a_missing_study_is_a_message_not_a_traceback(self, tmp_path):
         from bemkit.view.cli_viz3d import cmd_results
         with pytest.raises(SystemExit) as e:
+            cmd_results(tmp_path / "nope", _parse(["results"]))
+        assert "not found" in str(e.value)
+
+    def test_hiding_everything_is_refused(self, tmp_path):
+        from bemkit.view.cli_viz3d import cmd_results
+        args = _parse(["results", "--no-surface", "--no-points"])
+        with pytest.raises(SystemExit) as e:
+            cmd_results(tmp_path, args)
+        assert "Nothing to visualize" in str(e.value)
+
+    def test_a_study_with_no_solved_bins_says_so(self, tmp_path):
+        """A run directory holding only an export has nothing to colour."""
+        from bemkit.view.cli_viz3d import cmd_results
+        (tmp_path / "model.py").write_text(
+            "from bemkit.model import Mesh, Model\n"
+            "import numpy as np\n"
+            "def build():\n"
+            "    v = np.array([[0.,0,0],[1,0,0],[0,1,0],[0,0,1]])\n"
+            "    t = np.array([[0,1,2],[0,1,3],[1,2,3],[0,2,3]])\n"
+            "    return Model(Mesh(v, t), [100.0])\n")
+        with pytest.raises(SystemExit) as e:
             cmd_results(tmp_path, _parse(["results"]))
-        message = str(e.value)
-        assert "not yet ported" in message
-        assert "geometry" in message          # names what does work
+        assert "solve" in str(e.value)
+
+
+class TestExportWebStillRefusesCleanly:
+    """It was built on the config.toml stack and has not been ported. A clean
+    refusal naming the gap is the contract; an ImportError or an
+    AttributeError from deep inside is not.
+    """
 
     def test_export_web_exits_with_the_reason(self, tmp_path):
         from bemkit.view.cli_web import cmd_export_web

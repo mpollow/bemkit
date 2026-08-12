@@ -116,6 +116,46 @@ class Model:
         return [ResolvedBC(bc.select.resolve(self.mesh), bc.condition)
                 for bc in self.bcs]
 
+    @property
+    def vibrating_area(self):
+        """Driven surface area in m², or ``None`` when nothing drives it.
+
+        This is the ``A_vib`` the acceleration normalization divides by:
+        ``Results.scaled_by(1 / (1j * rho * omega * A_vib))`` turns NumCalc's
+        raw velocity-BC output into acceleration-normalized pressure.
+
+        Two rules, both of which silently distort every normalized number if
+        broken rather than failing:
+
+        * **Each element counts once.** Selectors may legitimately overlap —
+          a patch on top of a vibrating physical group — and summing per-BC
+          would inflate the area.
+        * **``Velocity(0)`` is sound-hard, not a source.** ``VELO 0.0`` is
+          exactly how NumCalc spells a rigid element, so a zero-amplitude
+          range contributes nothing and must not enter the area.
+
+        Pressure/Admittance/Impedance elements are boundary *conditions*, not
+        velocity sources, and have no place in a velocity-derived
+        normalization either.
+
+        ``None`` rather than ``0.0`` when there is no drive at all: a
+        scattering model (plane wave or point source against a rigid or
+        absorbing surface) has no vibrating area, and the acc normalization is
+        undefined for it rather than infinite. Callers must say so instead of
+        handing back raw numbers under an acc label.
+        """
+        driven = set()
+        for rbc in self.resolved_bcs():
+            cond = rbc.condition
+            if cond.kind != "VELO":
+                continue
+            if not np.any(cond.at(self.frequencies) != 0):
+                continue
+            driven.update(int(e) for e in rbc.elements)
+        if not driven:
+            return None
+        return float(self.mesh.areas[sorted(driven)].sum())
+
     def __repr__(self):
         return (f"Model({self.mesh!r}, {self.n_frequencies} freqs "
                 f"{self.frequencies[0]:.0f}-{self.frequencies[-1]:.0f} Hz, "
