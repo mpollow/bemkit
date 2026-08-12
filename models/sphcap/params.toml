@@ -1,0 +1,5 @@
+sr = 32000
+nbins = 65
+c = 340.0
+rho = 1.2
+mesh = "standard"
