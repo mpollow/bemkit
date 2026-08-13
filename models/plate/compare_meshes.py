@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Compare euclidean vs geodesic element size on the front and back faces.
 
-    python examples/plate/compare_meshes.py
+    python models/plate/compare_meshes.py
 
 The membrane is on the front face (+z). Under euclidean sizing the back face
 directly behind it is refined (5 mm straight-through); under geodesic it stays
-at lc_max because the surface path runs around the plate edge.
+at lc_max because the surface path runs around the plate edge. Run
+mesh_plate.py first if mesh/*.msh does not exist yet.
 """
-import sys
 from pathlib import Path
 import numpy as np
 import meshio
