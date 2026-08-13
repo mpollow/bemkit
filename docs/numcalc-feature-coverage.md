@@ -132,6 +132,22 @@ part, scaling real and imaginary independently — an arbitrary complex `Y(f)`
 cannot be expressed with fewer. Mesh2HRTF's exporter writes the constant as
 `1.0` on the BC line and lets the curves carry the whole value.
 
+**Curves exist for `ADMI` only, and that is physics, not an arbitrary
+limitation.** `ADMI`/`IMPE` enter the boundary *operator* — the system matrix
+genuinely changes per frequency, so there is no way around evaluating it once
+per bin. `VELO`/`PRES` and the incident sources (§1.5) are instead the
+right-hand side of a linear system: the BEM is linear, so a frequency-dependent
+excitation is nothing but a scale factor on the answer, and a solver can get
+the same result by solving once at unit amplitude and multiplying the result
+by the desired spectrum afterwards (no `CURVES`, no re-solve). NumCalc's own
+behaviour is consistent with this: it silently ignores a curve on `VELO`/`PRES`
+and `exit(-1)`s on `IMPE` with a curve, telling you to use `ADMI` instead —
+which is the source's admission that only the boundary-operator quantities
+need per-frequency solver input. (The post-2026-08-12 restructure's
+`bemkit.model` layer makes this the API: `Admittance`/`Impedance` accept a
+spectrum, `Velocity`/`Pressure` and sources do not, and `Results.scaled_by`
+is the excitation path — see §5.)
+
 ### 1.5 Incident sources (`NC_Input.cpp:1002-1069`)
 
 ```
@@ -486,6 +502,19 @@ library:
 ---
 
 ## 5. Roadmap
+
+**Superseded 2026-08-12.** The tier roadmap below describes the config.toml
+era (`ModelConfig`, `bemkit/numcalc/`, `write_nc_inp`/`deck_from_config`) and
+is kept as the historical record of what shipped and why. The restructure
+documented in `docs/superpowers/specs/2026-08-12-fresh-structure-design.md`
+deleted that config grammar entirely and replaced it with a Python
+`model.py` over `bemkit.model.Model`; `bemkit/numcalc/` became
+`bemkit/solvers/numcalc.py` + `pynumcalc`. Every *capability* landed here
+(CURVES, solver knobs, non-uniform frequencies, mesh diagnostics, CLI flags)
+carried forward to the new architecture — see `CLAUDE.md` for where each one
+lives now — except the four solver knobs (§5.3) and mirror-plane symmetry
+(the pre-restructure `[SYMMETRY]` table; see git history before `93b7ab7`),
+neither of which has yet been re-exposed on `Model`.
 
 Re-sequenced around the deck refactor and the corrected sizing.
 

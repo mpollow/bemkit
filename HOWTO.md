@@ -1,584 +1,341 @@
-# How to run a BEM simulation: geometry → results
+# How to run a BEM simulation: model.py → results
 
-A complete, worked walkthrough using the `bem` CLI (`bemkit`), from any input
-geometry to plotted/queryable acoustic results. The running example is a
-vibrating spherical cap (`sphcap`), but the workflow is identical for scanned
-heads, CAD assemblies, or any triangulated surface.
+A complete, worked walkthrough using the `bem` CLI (`bemkit`), from a
+`model.py` you write to queryable acoustic results. The running example is a
+vibrating spherical cap (`models/sphcap`), but the workflow is identical for
+scanned heads, CAD assemblies, or any triangulated surface.
 
-The whole pipeline is five verbs:
+A study is Python:
 
 ```
-mesh  →  export  →  run  →  pack  →  plot / results / export-web
+model.py  →  Model  →  bem check  →  bem solve  →  Results
 ```
 
-`bem MODEL all` chains `mesh → export → run` in one shot.
+There is no config grammar. `model.py` calls plain Python functions from
+`bemkit.model` to build a `Model`, and `bem` drives it through a solver.
 
 ---
 
 ## 0. Prerequisites (one-time)
 
 ```bash
-# Install all three packages + optional deps (gmsh, pyvista, scipy)
-pip install -e .[all]
-#   ...or a subset: .[meshing] for gmsh, .[viz] for 2D plots, .[viz3d] for 3D,
-#   .[analytic] for scipy (sphcap analytic solution)
+# Install both packages + optional deps
+pip install -e packages/pynumcalc -e "packages/bemkit[all]"
+#   ...or a subset: bemkit[meshing] for gmsh, bemkit[view] for the 3D viewers,
+#   bemkit[analytic] for scipy (the sphcap analytic reference)
 #   Without installing: use `python -m bemkit.cli ...` instead of `bem ...`
 
 # NumCalc must be on PATH (the actual solver — not part of bemkit)
 NumCalc -h        # if "command not found", add its bin/ dir to PATH
 ```
 
-`bem <MODEL_DIR>` with no subcommand always prints a status report — run it any
-time to see what stage each variant is at. `MODEL_DIR` defaults to `.`, so
-running `bem <subcommand>` from inside a model directory works too
-(`bem mesh` ≡ `bem . mesh`); a model directory that happens to share a name
-with a subcommand (e.g. `mesh/`) needs the explicit `./` prefix to disambiguate.
+`bem <STUDY_DIR>` with no subcommand always prints a status report — run it
+any time to see what stage each variant is at. `STUDY_DIR` defaults to `.`, so
+running `bem <subcommand>` from inside a study directory works too (`bem
+solve` ≡ `bem . solve`); a study directory that happens to share a name with a
+subcommand (e.g. `check/`) needs the explicit `./` prefix to disambiguate.
 
 ---
 
-## 1. Create the model directory
+## 1. Create the study directory
 
-Everything for one study lives in `examples/<name>/`. The only required file
-is `config.toml`. Subdirectories are created as you go:
+Everything for one study lives in `models/<name>/`. The only required file is
+`model.py`:
 
 ```
-examples/sphcap/
-├── config.toml         # ← the only thing you must write by hand
-├── geometry/           # remesh sources: CAD (*.step) + scans (*.ply, *.stl, *.obj)
-├── mesh/                # trusted meshes, used as-is (*.msh, *.stl, *.ply, *.mesh)
-├── fieldpoints/          # optional pre-made eval points (*.npy, METERS)
-├── *.py|.sh              # optional scripts, referenced explicitly via exec = ... in config.toml
-├── numcalc/<variant>/    # generated: NumCalc job bundles + results
-│                         #   (snapshot.json records the config that produced them)
-└── plots/                # generated: figures
+models/sphcap/
+├── model.py             # ← the only thing you must write by hand
+├── mesh/                 # trusted meshes, however they got there (*.msh, *.stl, ...)
+├── geometry/              # optional: CAD/scan sources, if model.py generates its own mesh
+├── params.toml            # optional: flat scalars build() reads, not validated
+└── runs/<solver>/<variant>/   # generated: NumCalc bundles + results, one tree per solver
 ```
 
-### `config.toml` — minimal but complete
+`model.py` must define one of:
+
+```python
+def build() -> Model: ...
+def build(params: dict) -> Model: ...    # params.toml, if present, passed as a dict
+def variants() -> dict[str, Model]: ...  # wins over build() when both are defined
+```
+
+`bem` loads the module by path (not `sys.modules` — two studies named the same
+thing never collide), calls `variants()` when present, and otherwise
+`{"default": build()}` or `{"default": build(params)}` depending on `build`'s
+signature. Whatever `build()`/`variants()` itself raises propagates with its
+own traceback — a study is Python, and a `KeyError` for a missing params key
+is a line number its author needs, not a message this layer could improve on.
+
+---
+
+## 2. Write `model.py`
+
+The minimal shape — a rigid sphere with a vibrating cap:
+
+```python
+# models/sphcap/model.py
+from pathlib import Path
+
+from bemkit.geometry import load_mesh
+from bemkit.model import BC, Group, Medium, Model, Velocity, circle, fft_grid, on_axis
+
+HERE = Path(__file__).parent
+
+
+def build(params):
+    mesh = load_mesh(HERE / "mesh" / f"{params['mesh']}.msh")
+    return Model(
+        mesh,
+        fft_grid(params["sr"], params["nbins"]),
+        Medium(c=params["c"], rho=params["rho"]),
+        bcs=[BC(Group("vibrating"), Velocity(1.0))],
+        fields={
+            "onaxis": on_axis("z", [0.1, 0.25, 0.5, 1.0, 2.0, 4.0]),
+            "polar": circle("zx", res=5.0, radius=1.0),
+        },
+    )
+
+
+def variants():
+    """One model per mesh resolution — a loop, not a [variants] table."""
+    base = dict(sr=32000, nbins=65, c=340.0, rho=1.2)
+    return {name: build({**base, "mesh": name})
+            for name in ("coarse", "standard", "fine")}
+```
 
 ```toml
-[bem]
-sr = 32000            # sample rate (Hz) → sets the frequency grid
-nbins = 65            # n_frequencies = nbins - 1  (DC bin excluded)
-                      # freqs = linspace(0, sr/2, nbins)[1:]
-
-air_density   = 1.2   # rho0
-speed_of_sound = 340.0
-bem_type = 4          # 4 = DMLFMBEM, O(N log N)  [recommended default]
-time_factor = -1.0    # e^{-iωt} convention
-is_internal = 0       # 0 = exterior (radiation) problem
-
-# Solver knobs — every default below is NumCalc's own, so omitting them all
-# changes nothing. Reach for them when a run misbehaves, not before. See
-# "Tuning the solver" further down.
-cluster_edge_length = 0.0   # ClusEdgL0 (m); 0 = NumCalc default. Shrink when a
-                            #   large mesh exhausts RAM.
-preconditioner = 0          # IPRECOND in [-3, 2]; negative = incomplete-LU depth
-min_expansion_terms = 0     # 0 = NumCalc default (8); otherwise 5..10
-solver = 0                  # ISOLVER: 0 iterative (CGS), 4 direct (needs bem_type = 0)
-
-# Mesh sizing (mm). Aim for ~6 elements per wavelength at the highest frequency.
-[mesh]
-lc_min = 5.0          # finest element edge
-lc_max = 25.0         # coarsest element edge (far from the source)
-dist_min = 50.0       # size ramps from lc_min→lc_max between these distances
-dist_max = 100.0
-distance = "euclidean"   # or "geodesic" — see below (STEP/CAD sources only)
-
-# Where to evaluate the field: declarative generator sets (see step 3).
-[fieldpoints.onaxis]
-type = "onaxis"
-dim = "z"
-radii = [0.1, 0.25, 0.5, 1.0, 2.0]   # meters
+# models/sphcap/params.toml — a flat dict, read with tomllib, not validated
+sr = 32000
+nbins = 65
+c = 340.0
+rho = 1.2
+mesh = "standard"
 ```
 
-#### A band that isn't an FFT grid — `[frequencies]`
+`Model(mesh, frequencies, medium=None, *, bcs=(), sources=(), fields=None,
+exterior=True, time_factor=-1.0)` is the whole contract — every argument below
+is just a Python object you construct and pass in.
 
-`sr`/`nbins` gives the uniform grid an impulse response needs, and stays the
-default. When you only want a frequency response, NumCalc will solve any
-ascending list — replace `sr`/`nbins` with:
+### Frequencies
 
-```toml
-[frequencies]
-log = { start = 100.0, stop = 16000.0, count = 30 }   # log sweep
-# or
-list = [125, 250, 500, 1000, 2000, 4000]              # exactly these, in Hz
+`fft_grid(sr, nbins)` gives the uniform grid an impulse response needs
+(`n_frequencies = nbins - 1`, DC excluded) — pass any other **strictly
+ascending** Hz array for a frequency-response-only band:
+
+```python
+import numpy as np
+frequencies = np.geomspace(100.0, 16000.0, 30)   # 30-point log sweep
 ```
 
 A 30-point log sweep costs 30 solves instead of 64 and covers the bottom
-octaves properly. Partial-band selection still works (`--freq`, `--bins`,
-`--preview` index the same array), and `snapshot.json` records the resolved
-frequencies so results stay labelled correctly.
+octaves properly. Partial-band selection (`bem solve --freq/--bins/--preview`,
+below) works the same either way — it indexes the array `Model.frequencies`
+actually holds. **No time domain on a non-uniform band**: anything that needs
+one (an inverse FFT of the whole spectrum) raises `IncompleteBand` — keep
+`fft_grid` if you need impulse responses (`Model.is_uniform_band` tells you
+which you have).
 
-**No time domain.** `BEMResult.impulse_response` is an inverse FFT of the band
-and has no meaning on a non-uniform one; it refuses with `IncompleteBand` rather
-than transforming nonsense. Keep `sr`/`nbins` if you need impulse responses.
+> **Units matter.** `Mesh` is always metres once loaded — `load_mesh` does the
+> conversion (`.msh` is millimetres, GMSH's convention; `.stl`/`.ply`/`.obj`
+> are already metres). Field points, selector anchors and source positions are
+> all metres too.
 
-> **Units matter.** Fieldpoint `.npy` files are in **meters**. `.msh` meshes are
-> **millimeters** (GMSH convention); `.stl`/`.ply`/`.mesh` are **meters**. The
-> pipeline converts automatically based on file extension.
+### Getting a mesh
+
+Three ways to end up with a `Mesh`:
+
+**(A) You already trust a mesh file.** Just load it:
+
+```python
+mesh = load_mesh(HERE / "mesh" / "standard.msh")
+```
+
+**(B) Generate from CAD (`.step`).** GMSH reads STEP face colours — **blue
+(0,0,255) → rigid, red (255,0,0) → vibrating** — and grades the mesh by
+distance from the vibrating faces. There is no CLI verb for this: run it once,
+by hand or from a small script, and commit the resulting `.msh`:
+
+```python
+from bemkit.geometry.generate import mesh_from_step
+from bemkit.geometry.sizing import distance_field
+
+mesh_from_step(
+    HERE / "geometry" / "driver.step",
+    HERE / "mesh" / "driver.msh",
+    distance_field(lc_min=5.0, lc_max=25.0, dist_min=50.0, dist_max=100.0),
+)
+```
+
+`lc_min`/`lc_max` are the finest/coarsest element edge (mm); the ramp between
+them runs over `dist_min`–`dist_max` (mm) from the vibrating surface. Aim for
+~6 elements per wavelength at the highest frequency you plan to solve
+(`bem check`, below, tells you if you fell short).
+
+**(C) Generate from a scan (`.ply`/`.stl`/`.obj`).** Same idea, no colour
+information — the whole surface is graded as one group:
+
+```python
+from bemkit.geometry.generate import mesh_from_surface
+
+mesh_from_surface(HERE / "geometry" / "head_scan.ply",
+                   HERE / "mesh" / "head_scan.msh",
+                   distance_field(5.0, 25.0, 50.0, 100.0))
+```
+
+**Geodesic sizing** — `bemkit.geometry.sizing.geodesic_field(lc_min, lc_max,
+dist_min, dist_max)` — measures distance *along* the surface instead of
+straight through space. Matters wherever the geometry folds back on itself:
+on a horn loudspeaker, a point on the *outer* wall sits a few mm from the
+piston through the air, but the surface path runs all the way around the horn
+mouth, so `distance_field` refines the whole outer shell for no accuracy gain.
+STEP/CAD sources only (a scan has no vibrating group to measure from — this
+raises rather than silently falling back to Euclidean); needs scipy; costs an
+extra coarse meshing pass to carry the distance computation. A non-watertight
+model leaves some nodes unreachable — they are sized at `lc_max` with a loud
+warning; a large fraction means the STEP is actually broken, not that the mesh
+is coarse.
+
+**Multiple resolutions or geometries** are just a Python loop —
+`variants()` above is the pattern; there is no `[variants]` table to learn.
 
 ---
 
-## 2. Provide geometry — pick ONE of three entry points
+## 3. Drive the surface — boundary conditions
 
-`bem MODEL mesh` first runs the `[geometry]` exec script if one is configured
-(e.g. a `bemgeo` script that writes STEP files), then meshes every source it
-finds in `geometry/` into a surface `.msh` in `mesh/`. The split is strict:
-`geometry/` holds things that still need meshing; anything in `mesh/` is
-trusted and used as-is, never remeshed. A source is skipped when its mesh
-already exists.
+A `BC` pairs a **selector** (*where*) with a **condition** (*what*):
 
-```toml
-[geometry]
-exec = "./geometry_box_speaker.py"   # runs with cwd = model dir; writes geometry/*.step
+```python
+from bemkit.model import BC, Group, Near, Where, Velocity, Pressure, Admittance, Impedance
+
+BC(Group("vibrating"),              Velocity(1.0))              # a mesh physical group
+BC(Near((0, 0, 0.05), radius=0.02), Velocity(1.0 + 0.5j))        # complex, geometric anchor
+BC(Group("wall"),                   Admittance(felt))            # array over frequencies
+BC(Where(lambda c: c[:, 2] < 0),    Pressure(0))                  # predicate on centroids
 ```
 
-### (A) CAD solid — `geometry/*.step`
-Drop a STEP file in `geometry/`. GMSH generates a size-graded triangle mesh.
-Physical groups come from **STEP face colors**:
-- **Blue (0,0,255)** → `RIGID` (zero velocity, sound-hard) — the default
-- **Red (255,0,0)** → `VIBRATING` (the driven surface)
+**Selectors:**
 
-```bash
-cp my_driver.step examples/sphcap/geometry/
-bem examples/sphcap mesh          # → mesh/my_driver.msh
+- `Group(name)` — a mesh physical group, matched **case-insensitively** by
+  name. Foreign meshers rarely call the driven surface `"vibrating"` — Akabak
+  writes `SourceDisc` — so just name it: `Group("SourceDisc")`. Raises,
+  listing what the mesh does have, on a miss.
+- `Near(point, radius=None)` — nearest element to a point (metres), or every
+  element within `radius`. Anchors survive a remesh (they resolve at solve
+  time, not export time), and are the friendliest form for a driven patch that
+  should track the geometry across mesh resolutions. Raises if the anchor
+  lands implausibly far from the surface, or a `radius` selects nothing
+  (almost always a units/frame mistake).
+- `Elements(indices)` — literal 0-based indices; use only when you actually
+  mean one specific triangulation, since it goes stale on a remesh.
+- `Where(predicate)` — `(M, 3) centroids -> (M,) bool`; for anything the other
+  three cannot express.
+
+**Conditions**, and what `v0=0` means for each:
+
+| Condition | NumCalc keyword | `0` means | Frequency-dependent? |
+|---|---|---|---|
+| `Velocity(v=1.0)` | `VELO` | sound-hard (also the default for any unselected element) | no — see below |
+| `Pressure(p=0.0)` | `PRES` | sound-soft | no |
+| `Admittance(y=1.0)` | `ADMI` | — | **yes** |
+| `Impedance(z=1.0)` | `IMPE` | — | **yes** |
+
+`Admittance`/`Impedance` are **ρ₀·c-normalised** — `1.0` is a matched,
+anechoic termination, not `1 m/(Pa·s)`. A magnitude above 100 is rejected
+outright as almost certainly SI (divide an SI admittance by ~1/408, or an SI
+impedance by ~408). An element may carry both `Admittance` and `Velocity` — a
+vibrating source on an absorbing surface — by giving both `BC`s the same
+selector. `TRAD`/`TRIM` (transfer admittance/impedance) are not offered:
+NumCalc parses them and then hard-errors "not supported".
+
+### Why only `Admittance`/`Impedance` take a spectrum
+
+The BEM is linear, so a frequency-dependent **excitation** — `Velocity`,
+`Pressure`, or an incident source's amplitude — is a scale factor on the
+answer:
+
+```python
+res = solver.solve(model)              # unit-amplitude velocity
+speaker = res.scaled_by(driver_response)   # (nf,) complex — no re-solve
 ```
 
-### (B) Scanned / tessellated surface to be re-meshed — `geometry/*.{ply,stl,obj}`
-A tessellated surface in `geometry/` is re-classified and re-meshed by GMSH
-with the same size fields. Scan input is treated as meters and scaled to mm.
+Passing an array to `Velocity`/`Pressure` raises, naming `Results.scaled_by`.
+`Admittance`/`Impedance` are different in kind — they sit in the boundary
+*operator*, so the system matrix genuinely changes per frequency — and take
+either an `(nf,)` array or a callable:
 
-```bash
-cp head_scan.ply examples/head/geometry/
-bem examples/head mesh            # → mesh/head_scan.msh
+```python
+felt = lambda f_hz: 0.05 + 0.0002j * f_hz          # or a plain array over model.frequencies
+BC(Group("wall"), Admittance(felt))
 ```
 
-### (C) A mesh you already trust — `mesh/*.{msh,stl,ply,mesh}`
-If a usable surface mesh already exists, drop it in `mesh/` — anything there is
-used as-is and never remeshed (put a scan in `geometry/` instead if you *do*
-want remeshing). The mesh file stem becomes the *variant name*.
+Under the hood this becomes NumCalc `CURVES`: interpolated linearly in Hz and
+clamped flat outside the given range, fully decoupled from the frequency
+grid (so it is unaffected by a `--preview`/`--freq`/`--bins` partial solve).
 
-```bash
-cp left.stl right.stl examples/hutubs/mesh/     # meters
-bem examples/hutubs export                       # uses them as-is
+### Incident sources (scattering)
+
+Instead of, or in addition to, a vibrating surface:
+
+```python
+from bemkit.model import PlaneWave, PointSource
+
+Model(mesh, frequencies, sources=[
+    PlaneWave((0, 1, 0), amplitude=1.0),        # travelling towards +y; need not be unit length
+    PointSource((0, -1, 0), amplitude=1.0),     # metres position
+])
 ```
 
-**Starting from nothing but a mesh?** `bem init` writes the `config.toml` for
-you, measured against the mesh itself:
-
-```bash
-bem mymodel init path/to/model.msh   # copies into mesh/, writes config.toml
-bem mymodel export
-bem mymodel run
-```
-
-It picks fieldpoint radii that clear the mesh bounding box (fixed radii would
-land *inside* a large or off-centre mesh and be dropped by validation), and it
-works out what drives the model:
-
-- **A `vibrating` physical group** (what bemkit's own mesher writes) — used
-  directly, nothing to configure.
-- **Groups with other names** — the common case for a mesh from another tool.
-  bemkit matches the group by name, so `SourceDisc` or `Piston` is invisible to
-  it by default. `init` picks the *smallest* group (a source patch is a small
-  fraction of the radiating body) and writes it down explicitly:
-
-  ```toml
-  [groups]
-  vibrating = "SourceDisc"   # every element outside this is rigid
-  ```
-
-  Check that line — if the guess is wrong, edit it rather than re-running init.
-- **No usable groups at all** — a **placeholder** `[BOUNDARY]` anchor on the
-  topmost element, flagged loudly. **Edit it before running**; see step 4.
-
-The reason for the noise: a surface with nothing driving it is a perfectly
-valid NumCalc job that returns silence. Export therefore *raises* if a
-configured `[groups] vibrating` name is not in the mesh, and warns if the mesh
-has groups but none of them resolved.
-
-> **Variants = mesh files.** Every mesh file under `mesh/` becomes a variant with
-> its own `numcalc/<stem>/` bundle. One file → one variant; many files → many
-> variants meshed/exported/run/packed independently. (You can also define
-> BC-only variants that share a mesh via a `[variants]` table — see CLAUDE.md.)
-
-### Geodesic sizing — `distance = "geodesic"`
-
-By default the size ramp measures straight-line distance from the vibrating
-surface. That is wrong wherever the geometry folds back on itself. On a horn
-loudspeaker, a point on the *outer* wall sits a few mm from the piston through
-the air, but the surface path runs all the way around the horn mouth — so the
-whole outer shell gets refined as if it were radiating, inflating element count
-and solve time for no accuracy gain.
-
-```toml
-[mesh]
-lc_min = 5.0
-lc_max = 25.0
-dist_min = 50.0
-dist_max = 100.0
-distance = "geodesic"   # measure over the surface, not through the air
-```
-
-Two worked examples ship with the repo, both built as two variants that differ
-only in this key:
-
-| example | geometry | effect |
-|---|---|---|
-| `examples/horn` | free-standing horn | 6600 → 4472 elements (−32%) |
-| `examples/hornbox` | horn recessed in a cabinet | 17180 → 8370 elements (−51%), with BEM results for both |
-
-`examples/hornbox` is the one to read: it shows *why* the metric matters rather
-than just that it does. Resolving a 280 mm flare needs `dist_max ≈ 350`, and a
-euclidean 350 mm reaches straight through the cabinet wall to the back face
-70 mm behind the diaphragm — so you cannot ask for a well-resolved horn without
-also refining the entire box.
-
-The four size knobs keep their exact meaning; only the metric changes. Notes:
-
-- **STEP/CAD sources only.** Scan surfaces (`.ply`/`.stl`/`.obj`) carry no
-  vibrating region to measure from, so `bem mesh` raises rather than silently
-  meshing as euclidean.
-- **Costs an extra meshing pass.** A coarse pilot mesh is generated first to
-  carry the distance computation, then discarded. On a model where the
-  euclidean and geodesic distances agree (anything convex — a sphere, a flat
-  baffle) it buys nothing; the gain is entirely in folded, occluded, or
-  re-entrant geometry.
-- **Needs a watertight model.** Distances travel over the surface, so a region
-  on a disconnected shell can't be reached at all. Those regions are sized at
-  `lc_max` and `bem mesh` prints how many nodes were affected — a large
-  percentage means the STEP is broken, not that the mesh is coarse.
-- Requires scipy (`pip install -e ".[meshing]"`).
-
-### Multi-variant meshing — per-variant `[mesh]` overrides
-To run the same geometry at several mesh resolutions, name the variants in a
-`[variants]` table; each entry may override `[mesh]` parameters. The mesh is
-generated as `mesh/<variant>.msh` from the `geometry/` source (the sole source
-by default; pick one with `source = "<stem>"` when there are several):
-
-```toml
-[mesh]              # shared defaults
-lc_min = 5.0
-lc_max = 25.0
-
-[variants.fine]
-mesh = { lc_min = 2.5, lc_max = 12.0 }
-
-[variants.coarse]
-mesh = { lc_min = 10.0, lc_max = 50.0 }
-```
-
-Geometry sweeps work the other way around: have the `[geometry]` exec script
-write several `.step` files — every source becomes its own variant.
+A plane wave has no location — it is defined by the *direction* it travels
+in; a point source has no direction — it is defined by its *position*. Same
+three numbers, different meaning, which is why they are two Python types
+rather than one row shape you could transpose by mistake. Keep a point source
+at least one average element edge length away from the surface
+(arXiv:2312.00005, Hint 3): the free-field Green's function is singular at
+zero distance, and `bem check` (below) verifies this. Source amplitudes are
+frequency-independent for the same reason `Velocity`/`Pressure` are —
+post-scale the `Results` instead of re-solving. Results default to NumCalc's
+raw output, the natural reading for scattering; the acceleration
+normalisation (`acceleration_scale`, needs a velocity drive) does not apply.
 
 ---
 
-## 3. Define where to measure — fieldpoints
+## 4. Define where to measure — field points
 
-Fieldpoints are the coordinates (in **meters**) where you want the radiated
-pressure. The common shapes are declared directly in `config.toml` — each
-`[fieldpoints.<name>]` table is one named set, and the keys after `type` are
-the generator's arguments (`make_fields_onaxis` / `polar` / `plane`):
+`Model.fields` is a plain `{name: (N, 3) array}` dict, metres:
 
-```toml
-[fieldpoints.onaxis]
-type = "onaxis"
-dim = "z"
-radii = [0.1, 0.25, 0.5, 1.0, 2.0]   # meters
+```python
+from bemkit.model import on_axis, circle, plane
+import numpy as np
 
-[fieldpoints.polar]
-type = "polar"
-dims = "zx"
-res = 5                              # degrees
-
-[fieldpoints.planeXZ]
-type = "plane"
-dims = "xz"
-limits = [-500, 500, -500, 500]      # mm
-res = 10                             # mm
+fields = {
+    "onaxis":  on_axis("z", [0.1, 0.25, 0.5, 1.0, 2.0]),        # points along one axis
+    "polar":   circle("zx", res=5.0, radius=1.0),                # circle in a plane, degrees step
+    "planeXZ": plane("xz", res=0.05, limits=(-0.5, 0.5, -0.5, 0.5)),  # grid, metres
+    "custom":  np.load(HERE / "fieldpoints" / "scan.npy"),        # anything you already have
+}
 ```
 
-Pre-made point clouds work too — either name them
-(`[fieldpoints.custom]` with `file = "fieldpoints/custom.npy"`), or define no
-sets at all and every `fieldpoints/*.npy` is loaded as one set per file. For
-anything custom, an escape hatch script can generate the files at export time:
-
-```toml
-[fieldpoints]
-exec = "./make_fieldpoints.py"   # runs before export; writes fieldpoints/*.npy
-```
-
-Points inside the mesh (for exterior problems) or too close to the surface are
-dropped automatically during export (ray-cast validation).
+No schema, no file discovery, no `exec` hook — composing, slicing, or writing
+your own generator is ordinary numpy. Points on the wrong side of the surface
+(inside it, for an exterior problem) or too close to it are dropped
+automatically at solve time (ray-cast validation, unchanged from before).
 
 ---
 
-## 4. Drive the surface — boundary conditions
-
-Which elements vibrate is set by STEP color (entry A) or, for entries B/C, by a
-`[BOUNDARY]` table in `config.toml`. Element indices are **0-based**; the `TO`
-range is inclusive.
-
-The friendliest form is a **geometric anchor**: give a physical point (meters,
-like fieldpoints) and the driven elements are found on the mesh at export time.
-Anchors survive remeshing — one definition serves every resolution/variant of
-the same geometry:
-
-```toml
-[BOUNDARY]
-earopening = { near = [0.06, 0.0, 0.10] }                # nearest element
-cap = { near = [0.0, 0.0, 0.05], radius = 0.01 }         # all elements within 10 mm
-spots = { near = [[0.06, 0, 0.1], [-0.06, 0, 0.1]], velocity = 0.5 }  # one per anchor
-```
-
-Export fails loudly if an anchor lands implausibly far from the surface or a
-`radius` selects nothing (usually a units/frame mistake).
-
-Raw element indices also work — 0-based, inclusive `TO` ranges — but they go
-stale on every remesh:
-
-```toml
-[BOUNDARY]
-earopening = [100, 100, 1.0]        # element 100 driven at v = 1.0 m/s
-
-# Per-variant (different element per mesh):
-[BOUNDARY.left]
-earopening = [17379, 17379, 1.0]
-
-# A non-contiguous driven patch:
-[BOUNDARY.sphcap]
-cap = [[0, 24, 1.0], [80, 95, 1.0]]
-```
-
-Elements with no BC are implicitly sound-hard (`VELO = 0`). NumCalc also supports
-`PRES` (sound-soft) and `ADMI` (absorbing/impedance) — see CLAUDE.md.
-
-A top-level `velocity = 0.5` in `config.toml` sets the default velocity for
-geometric entries that don't carry their own `velocity`/`v` (it defaults
-to 1.0).
-
-`[BOUNDARY]`, `[SYMMETRY]`, `["PLANE WAVES"]` and `["POINT SOURCES"]` are
-validated when the config loads, exactly like `[bem]`/`[mesh]`: a malformed
-entry (`cap = [100, 100]` missing its velocity) or a typo'd key
-(`radios = 0.01`) fails immediately, naming the offending entry — it can
-never again silently export a rigid surface that solves to silence.
-
-### Non-rigid surfaces — `type` and `value`
-
-By default every element is sound-hard and a `[BOUNDARY]` entry drives it with a
-velocity. A geometric entry can carry any of NumCalc's four condition types
-instead:
-
-```toml
-[BOUNDARY]
-piston   = { near = [0, 0, 0.05], velocity = 1.0 }              # VELO (shorthand)
-driver   = { near = [0, 0, 0.05], type = "velo", value = [1.0, 0.5] }  # complex
-soft     = { near = [0, 0.1, 0], type = "pres" }                # sound-soft (0 Pa)
-absorber = { near = [0, 0, -0.1], radius = 0.05,
-             type = "admi", value = [0.4, -0.2] }               # absorbing
-wall     = { near = [0.2, 0, 0], type = "impe", value = [12.0, -3.0] }
-```
-
-| `type` | Meaning | Default `value` |
-|---|---|---|
-| `velo` | normal velocity (the default) | `1.0` |
-| `pres` | sound pressure — `0` is sound-soft | `0.0` |
-| `admi` | **normalized** admittance | `1.0` |
-| `impe` | **normalized** impedance | `1.0` |
-
-`value` is one number or `[real, imag]`. Give `velocity`/`v` *or* `type`/`value`,
-not both. Element selection is unchanged — anchors and radii work exactly as they
-do for a velocity condition, so an absorbing patch survives a remesh too.
-
-**`admi` and `impe` are normalized by ρ₀·c**, not SI. `admi = 1.0` is a matched,
-anechoic termination; an SI admittance is wrong by a factor of ~410 and looks
-entirely plausible on a plot, so values above 100 are rejected outright. Divide an
-SI admittance by ~1/408, or an SI impedance by ~408.
-
-An element may carry both `admi` and `velo` — a vibrating source on an absorbing
-surface. Write two entries with the same anchor.
-
-`TRAD`/`TRIM` (transfer admittance/impedance) are not offered: NumCalc parses them
-and then exits with "not supported".
-
-#### Frequency-dependent absorption — `[curves]`
-
-A real material is not one number. Point an `admi` entry at a named curve:
-
-```toml
-[BOUNDARY]
-absorber = { near = [0, 0, -0.1], radius = 0.05, type = "admi", curve = "felt" }
-
-[curves.felt]
-frequencies = [125, 250, 500, 1000, 2000, 4000]   # Hz, ascending
-real        = [0.05, 0.12, 0.30, 0.52, 0.61, 0.66]
-imag        = [-0.02, -0.06, -0.14, -0.21, -0.24, -0.25]   # optional
-```
-
-Values are interpolated linearly in Hz and held flat outside the range, so the
-curve need not match `sr`/`nbins` — it is decoupled from the frequency grid
-entirely. `imag` defaults to zero.
-
-**Curves are `admi`-only.** NumCalc ignores them for `velo`/`pres`, and `impe`
-plus a curve is a hard `exit(-1)` that tells you to use `admi` — so bemkit
-refuses all three at config load.
-
-### Incident sources (scattering) — plane waves / point sources
-Instead of (or in addition to) a vibrating surface, incident fields pass
-straight through to `NC.inp` as 8-value rows:
-
-**The middle three values mean different things in the two sections.** A plane
-wave has no location — it is defined by the *direction* it travels in. A point
-source has no direction — it is defined by its *position*. The row layout is
-identical, so a row copied from one section to the other is accepted and wrong.
-
-```toml
-["PLANE WAVES"]
-#     nr, dx, dy, dz, ampl_real, -1, ampl_imag, -1
-1 = [  1,  0,  1,  0,     1,     -1,     0,     -1]   # travelling towards +y
-
-["POINT SOURCES"]
-#     nr, x0, y0, z0, ampl_real, -1, ampl_imag, -1
-1 = [  1,  0, -1,  0,     1,     -1,     0,     -1]   # source at y = -1 m
-```
-
-The plane-wave direction need not be a unit vector — NumCalc normalizes it —
-but it must not be all zeros. Point-source positions are in meters, like
-fieldpoints.
-
-Keep a point source at least one average element edge length away from the
-surface (arXiv:2312.00005, Hint 3): the free-field Green's function has a
-singularity at zero distance, so a source on or near the surface causes the
-element-subdivision loop to fail or return nonsense. To drive the surface
-itself, use a velocity boundary condition instead.
-
-Amplitudes are frequency-independent (`CURVES` are not supported; the curve-ref
-slots are always written as `-1`). Results default to NumCalc's raw output,
-which is the natural reading for scattering setups; the acceleration-BC
-normalization (`norm="acc"`, which assumes a velocity BC) is opt-in.
-
-Sanity-check the setup in 3D **before** running:
+## 5. Check the mesh before you spend hours on it
 
 ```bash
-bem examples/sphcap geometry          # mesh + driven (red) elements + eval grid
-```
-
-### Mirror planes — `[SYMMETRY]`
-
-NumCalc can reflect the boundary elements about coordinate-aligned planes.
-That buys you two different things depending on what your mesh represents:
-
-- **Symmetry** — the object *and* its excitation are mirror-symmetric, so you
-  mesh only the symmetric fraction and the images complete the object. Half
-  the surface means a quarter of the system matrix.
-- **A reflecting plane** — an infinite rigid or pressure-release plane (a
-  baffle, a floor). Here you mesh the *whole* object beside the plane and the
-  images are fictitious: this is the method of images building a half-space.
-  The object need not be symmetric about the plane at all.
-
-```toml
-[SYMMETRY]
-planes = [1, 1, 0]              # per axis, one plane each — see table below
-coordinates = [0.0, 0.0, 0.0]   # metres — where each plane cuts its axis
-```
-
-| code | meaning | you mesh | the images are | field about the plane |
-|------|---------|----------|----------------|-----------------------|
-| 0 | no plane on this axis | — | — | — |
-| 1 | symmetric plane | half the object | its other half | even (sound-hard) |
-| 2 | antisymmetric plane | half the object | its other half | odd (sound-soft) |
-| 3 | hard reflecting plane | the whole object | fictitious | even (sound-hard) |
-| 4 | soft reflecting plane | the whole object | fictitious | odd (sound-soft) |
-
-`num_symmetric_planes` in `NC.inp` is derived from the nonzero entries; you
-never set it yourself.
-
-**The magnitude says what the images mean, not whether they exist.** The
-boundary elements are mirrored in all four cases, identically: NumCalc builds
-`2**k` reflected clusters from the same element list regardless of the code
-(`NC_Addresses.cpp:558`). What the magnitude records is whether the reflected
-copy is *real surface* — the other half of a symmetric object (1/2) — or a
-*virtual image* standing in for an infinite plane (3/4). In the second case the
-object you meshed is the entire physical object; nothing of it lies beyond the
-plane.
-
-**So codes 3/4 compute exactly what 1/2 do.** Only the sign reaches the solver:
-every read of the plane code tests `== 0`, `!= 0` or `< 0`, never the magnitude
-(`NC_3dFunctions.cpp:239`, `NC_Addresses.cpp:581`). That is correct rather than
-sloppy — mirror symmetry and the method of images are the same operation, so
-the solver can forget which one you meant once it has the sign. Pick the code
-that documents your intent. (Code 5, an impedance ground plane, is described in
-`NC_Arrays.h` but rejected by the parser — it does not exist.)
-
-**At most three planes, one per coordinate axis.** `planes` is indexed by axis,
-so `[1, 1, 0]` is an x-plane and a y-plane and there is no way to express a
-second plane normal to the same axis. Two parallel planes would anyway need an
-infinite image series; NumCalc builds exactly `2**k` copies for `k` planes
-(`numReflectionsOfElements_ = pow(2, numSymmetricPlanes_)`, capped at 8), which
-cannot represent a periodic array. For a line array, use planes *perpendicular*
-to each other — one through the array axis, one across its midpoint — for the
-usual 4x reduction.
-
-The mesh must sit entirely on one side of every active plane and must have
-**no elements lying in a plane** — a cut face that got capped would be
-reflected onto itself.
-
-Evaluation points may go anywhere, including into the mirrored region:
-NumCalc reflects the *elements*, so the field is evaluated correctly
-throughout space. `export` validates them against the mirrored geometry, so
-a point that lands inside or on a mirrored surface is dropped exactly like
-one that hits the meshed surface. Without that, NumCalc dies mid-run with
-`nsbe must be < MSBE` while subdividing the element under the point.
-
-With a **reflecting** plane, though, only one side is physical. The solver
-evaluates the mirror-symmetric field everywhere and validation will accept a
-point behind the baffle, because it is outside the geometry — but the value
-there describes the fictitious image, not your model. Keep evaluation points on
-the object's side of a reflecting plane.
-
-**Both 3D viewers draw the images.** `bem MODEL geometry` and
-`bem MODEL results` render the reflected copies as a second surface, so a
-symmetry-reduced model shows the whole object rather than a lone quadrant
-sitting next to a full-space eval grid. The ghosts carry mirrored data, not a
-neutral shell: boundary-condition colours in `geometry`, surface pressure in
-`results` — sign-flipped once per antisymmetric plane crossed, which is a pi
-shift you can see in `--quantity phase` but not in a magnitude. The symmetry is
-read from the variant's `NC.inp`, so the picture shows what was actually
-exported. Pass `--no-mirror` to either command to see only the elements you
-meshed. A model without `[SYMMETRY]` is unaffected.
-
-**What marks the simulated elements is the wireframe, not transparency.** Both
-viewers draw black mesh edges on the elements NumCalc actually solved and leave
-the ghosts smooth — so a full model is covered in edges, a quarter model carries
-them on one quadrant. The lines are wide but nearly transparent (`line_width` 3
-at 10 % opacity), which shades each element boundary rather than drawing a hard
-outline on it: the mesh density stays readable at a glance without the
-wireframe competing with the colour it sits on, and it does not turn into a
-solid black mat where a fine mesh is viewed at a distance. `--no-edges` turns
-them off in either viewer.
-
-Ghosts are *not* faded, and both viewers default to an opaque surface, because
-a see-through surface superimposes the far side onto the near side. That is
-harmless for a bare mesh but actively misleading for surface pressure: on a
-horn the throat and the outside of the mouth differ by tens of dB, and blending
-them produces a picture of neither. `--mesh-opacity` still lowers it if you
-want to see eval points inside the object; just do not read pressure off a
-transparent surface.
-
----
-
-## 4b. Check the mesh before you spend hours on it
-
-```bash
-bem examples/sphcap check
+bem models/sphcap check
 ```
 
 NumCalc validates almost nothing: it will happily solve a mesh with inverted
 normals, a hole, or a band its elements cannot resolve, and hand back
-plausible-looking numbers. `check` runs the tests it doesn't:
+plausible-looking numbers. `check` runs the tests it doesn't, over the `Model`
+you built — there is no file to be missing here, since `build()` either
+produced a `Model` or raised:
 
 ```
-standard  (standard.msh: 863 nodes, 1722 elements)
+standard  (863 nodes, 1722 elements, up to 16000 Hz)
   ✓ watertight: closed surface, 1722 triangles
   ✓ orientation: consistent and outward (enclosed volume 0.0005161 m³)
   ✓ element_regularity: aspect ratio median 1.06, 99th pct 1.44, max 1.64
@@ -595,7 +352,8 @@ standard  (standard.msh: 863 nodes, 1722 elements)
 | `size_uniformity` | abrupt size jumps between neighbours — what a graded mesh risks (Hint 6) |
 | `source_clearance` | a point source sitting on the surface (Hint 3) |
 
-`--strict` exits non-zero on warnings too, for CI. Errors always exit non-zero.
+`--strict` exits non-zero on warnings too, for CI. Errors always exit
+non-zero. `--variant NAME` restricts to variants whose name starts with it.
 
 > **Orientation is the one to take seriously.** NumCalc's own `-check_normals`
 > only verifies that normals are *consistent* with each other — a uniformly
@@ -603,56 +361,44 @@ standard  (standard.msh: 863 nodes, 1722 elements)
 > *outward*, which is the error the paper calls most common and which never
 > announces itself in a plot.
 
----
-
-## 5. Export the NumCalc job bundle(s)
+Sanity-check visually too, before running (needs the `view` extra):
 
 ```bash
-bem examples/sphcap export
-# For each variant, writes a self-contained numcalc/<variant>/ containing:
-#   ObjectMesh/  EvalGrid/  NC.inp  eval_offsets.json  snapshot.json
+bem models/sphcap geometry          # mesh + BC colour + eval grid, in 3D
 ```
-
-`export` = fieldpoints + mesh + `NC.inp`, for every variant. Restrict with
-`--variant <prefix>` (repeatable, prefix match), e.g.
-`bem examples/sphcap export --variant sphcap-50-10`.
-
-`NC.inp`'s header records the variant name, sample rate/frequency count, mesh/eval-grid
-sizes, and fieldpoint set counts, so a bundle is readable without cross-referencing
-`config.toml`. `snapshot.json` freezes the effective config used to produce the bundle;
-result loaders prefer it over the live `config.toml`, and warn if you've since edited
-`sr`/`nbins`/etc. so old results wouldn't line up with the new frequency grid.
 
 ---
 
-## 6. Run the solver
-
-Each `numcalc/<variant>/` is a relocatable bundle: NumCalc runs with it as CWD
-and writes results into `be.out/`. Frequency bins are independent, so runs
-parallelize and resume trivially.
+## 6. Solve
 
 ```bash
-bem examples/sphcap run                       # all variants, one NumCalc at a time, in the background
-bem examples/sphcap run -j 4                  # at most 4 concurrent NumCalc procs
-bem examples/sphcap run --force               # recompute all bins from scratch
-bem examples/sphcap run --foreground          # wait for it instead of detaching
-bem examples/sphcap run --restart             # kill a running NumCalc first
+bem models/sphcap solve                  # all variants, one NumCalc at a time, in the background
+bem models/sphcap solve -j 4             # at most 4 concurrent NumCalc processes
+bem models/sphcap solve --force          # recompute all bins from scratch
+bem models/sphcap solve --foreground     # wait for it instead of detaching
+bem models/sphcap solve --restart        # kill a running NumCalc first
 ```
 
-`run` **starts in the background and returns.** NumCalc runs for hours, so the
-terminal is not held for it: the command detaches a supervisor in its own
-session — immune to the terminal closing and to Ctrl-C — and prints its pid, the
-job count and the log path. bemkit's own progress goes to `numcalc/run.log`;
-NumCalc's per-variant `NC*.out` logs are unchanged. Nothing is written to track
-the run, because nothing needs to be: `bem status` finds live jobs with a `/proc`
-scan and reads completion out of `be.out/` itself.
+There is no separate `export` step: `solve` writes `runs/numcalc/<variant>/`
+(a self-contained, relocatable bundle — NumCalc runs with it as CWD, writes
+`be.out/` into it, and frequency bins are independent so runs parallelise and
+resume trivially) as its own first move.
+
+`solve` **starts in the background and returns.** NumCalc runs for hours, so
+the terminal is not held for it: the command detaches a supervisor in its own
+session — immune to the terminal closing and to Ctrl-C — and prints its pid,
+the job count, and the log path. bemkit's own progress goes to
+`runs/run.log`; NumCalc's per-variant `NC*.out` logs are unchanged. Nothing
+extra is written to track the run, because nothing needs to be: `bem status`
+finds live jobs with a `/proc` scan and reads completion out of `be.out/`
+itself.
 
 Anything decidable up front — NumCalc missing from PATH, a run already in
-flight, no bins left to compute — is reported on the terminal before the detach,
-so you never have to open the log to find out the run never started. Use
-`--foreground` to wait instead (`bem all` always does).
+flight, no bins left to compute — is reported on the terminal before the
+detach, so you never have to open the log to find out the run never started.
+Use `--foreground` to wait instead.
 
-With runs detached, `bem MODEL` status only tells you about the one model you
+With runs detached, `bem STUDY` status only tells you about the one study you
 name. To see which project is computing across everything at once:
 
 ```bash
@@ -660,172 +406,179 @@ bem ps
 ```
 
 ```
-NumCalc running (2 model(s), 4 process(es)):
+NumCalc running (2 study/studies, 4 process(es)):
   hornstudio          horn_iwata_fc640_akabak_bem   22/64 bins   1 proc  pid 22881
   hornstudio          horn_os_fc400_akabak_bem      19/64 bins   1 proc  pid 22882
   hornstudio-quarter  hires_jmlcell_QUARTER_xy       4/64 bins   2 proc  pid 26817, 26818
 ```
 
-`bem ps` ignores `MODEL_DIR` — it scans every NumCalc process on the machine and
-reads model, variant and progress out of each one's working directory, so it
-works the same from any directory.
+`bem ps` ignores `STUDY_DIR` — it scans every NumCalc process on the machine
+and reads study, variant and progress out of each one's working directory.
 
 `-j N` is the only load knob: N is the number of NumCalc processes allowed to
-run at once, whatever the model contains — **default 1**, because BEM peak
+run at once, whatever the study contains — **default 1**, because BEM peak
 memory, not CPU, is the binding constraint: several concurrent DMLFMBEM solves
 on a large mesh exhaust RAM. With fewer variants than slots, the planner fans
 variants out over frequency ranges (`-istart`/`-iend`) until the slots are
 full — the busiest variant gets the most, and because cost grows with
 frequency the top-octave slices come out narrower than the bottom ones. Job
-order alternates big and small so that a heavyweight and a lightweight run side
-by side rather than two memory hogs at once.
+order alternates big and small so that a heavyweight and a lightweight run
+side by side rather than two memory hogs at once.
 
-`run` computes only the bins missing from `be.out/`/`be.npz`, so a killed run
-continues where it stopped — no bookkeeping file needed — and running against
-complete results is a no-op. The fan-out follows suit: ranges are cut from the
-*missing* bins and never span one that already has results. Use `--force` to
-recompute everything, e.g. after re-exporting a changed mesh or config.
+`solve` computes only the bins missing from `be.out/`/`be.npz`, so a killed
+run continues where it stopped — no bookkeeping file needed — and running
+against complete results is a no-op. Use `--force` to recompute everything,
+e.g. after `model.py` changes the mesh or the band.
 
-> **Convergence ≠ completion.** A bin can finish but not converge. `bem run` and
-> `bem status` scan `NC*.out` and surface warnings
-> ("Maximum number of iterations is reached", "CGS failed"). These usually mean a
+**A resume also refuses if `model.py` changed underneath it.** Every existing
+bin directory carries a fingerprint (`runs/.../model.sha256`) of the mesh,
+band, medium, resolved boundary conditions and sources, and field-point sets
+that produced it; a resume checks the current model against it and stops
+rather than mixing two models' results in one `be.out/`. `--force` bypasses
+this the same way it bypasses everything else — by discarding the bins first.
+
+> **Convergence ≠ completion.** A bin can finish but not converge. `bem
+> solve` and `bem status` scan `NC*.out` and surface warnings ("Maximum
+> number of iterations is reached", "CGS failed"). These usually mean a
 > defective mesh — **re-mesh** rather than raising iteration limits.
 
 Check progress any time:
 
 ```bash
-bem examples/sphcap                   # status: per-variant bins done / missing / warnings,
-                                      #   plus live NumCalc jobs (⟳ running, current bin)
+bem models/sphcap                   # status: per-variant bins done / missing / warnings,
+                                    #   plus live NumCalc jobs (⟳ running, current bin)
 ```
 
-`bem run` **stops** if NumCalc is already working on one of the selected
+`solve` **stops** if NumCalc is already working on one of the selected
 variants — two processes in one directory would race each other's `be.out/`
-writes and corrupt bins. It names the pids and does nothing else:
+writes and corrupt bins:
 
 ```
 NumCalc already running for: fine (pid 26276, 26277)
   Wait for it, or re-run with --restart to kill and start over.
 ```
 
-`--force` is not a way around that check. It deletes `be.out/` before
-recomputing, so pairing it with a live solver is the one combination that has to
-stay impossible. `--restart` is the explicit escape hatch: it terminates the
-processes (SIGTERM, then SIGKILL) and then runs. On its own it *resumes* — a bin
-killed mid-write fails the completeness check and is recomputed anyway — so add
-`--force` only if you actually want everything redone.
+`--force` is not a way around that check — it deletes `be.out/` before
+recomputing, so pairing it with a live solver is the one combination that has
+to stay impossible. `--restart` is the explicit escape hatch: it terminates
+the processes (SIGTERM, then SIGKILL) and then runs; on its own it *resumes*
+(a bin killed mid-write fails the completeness check and is recomputed
+anyway), so add `--force` only if you actually want everything redone.
 
 You can also run NumCalc entirely outside bemkit:
-`cd numcalc/<variant> && NumCalc` (outputs `NC.out`, `be.out/`).
+`cd runs/numcalc/<variant> && NumCalc` (outputs `NC.out`, `be.out/`).
 
 ### Fast look first: partial-band runs
 
-A full run solves every bin. To see whether a model behaves sensibly, solve a
-handful instead:
+A full solve computes every bin. To see whether a model behaves sensibly,
+solve a handful instead:
 
 ```bash
-bem examples/sphcap run --preview 8      # 8 bins spread over the band
-bem examples/sphcap run --freq 1000 4000 # just these frequencies
+bem models/sphcap solve --preview 8       # 8 bins spread over the band
+bem models/sphcap solve --freq 1000 4000  # just these frequencies (snapped to the grid)
+bem models/sphcap solve --bins 4 16 64    # literal 1-based bin indices
 ```
 
-The bins land on the model's normal frequency grid, so nothing is wasted: a
-later `bem examples/sphcap run` computes only what is still missing and the
-results merge into one set.
+The bins land on the model's own frequency grid, so nothing is wasted: a
+later `bem models/sphcap solve` computes only what is still missing and the
+results merge into one set. `bem status` shows a partial run as `◐  (8/64
+bins)`. Frequency-domain results are usable straight away; anything crossing
+the whole band (an impulse response) needs every bin and raises
+`IncompleteBand` until you fill it in.
 
-`bem status` shows a partial run as `◐  (8/64 bins)`. Frequency-domain results
-are usable straight away; anything crossing the whole band
-(`BEMResult.impulse_response`) needs every bin and raises `IncompleteBand`
-until you fill it in.
-
-`--force` cannot be combined with a selection — it discards every bin, so the
-bins you did not name would still come from the previous export. To restart a
-partial run from scratch, delete `numcalc/<variant>/be.out/` first.
+`--force` cannot be combined with a band selector — it discards every bin, so
+the bins you did not name would still come from the previous model. To
+restart a partial run from scratch, delete `runs/numcalc/<variant>/be.out/`
+first.
 
 ### Will it fit in RAM?
 
 ```bash
-bem examples/sphcap estimate-ram      # clustering only, no solve — seconds
+bem models/sphcap estimate-ram        # clustering only, no solve — seconds
 ```
 
 Reports NumCalc's own estimate at the **highest** frequency, where FMM memory
-peaks. It under-estimates slightly (FMM matrices only, not the mesh and result
-arrays), but it is the number to compare against free RAM before committing to
-`-j 4`. `--all-bins` sweeps the whole band instead.
-
-If the answer is too big, shrink `cluster_edge_length` (below) before reaching
-for a coarser mesh.
+peaks. It under-estimates slightly (FMM matrices only, not the mesh and
+result arrays), but it is the number to compare against free RAM before
+committing to `-j 4`. `--all-bins` sweeps the whole band instead.
 
 ### Extra solver flags
 
 ```bash
-bem MODEL run --nitermax 5000     # max CGS iterations (NumCalc default 1000)
-bem MODEL run --check-normals     # verify normal-vector consistency
-bem MODEL run --adapt-fmmlength   # adapt multipole truncation to cluster radii
+bem models/sphcap solve --nitermax 5000     # max CGS iterations (NumCalc default 1000)
+bem models/sphcap solve --check-normals     # verify normal-vector consistency
+bem models/sphcap solve --adapt-fmmlength   # adapt multipole truncation to cluster radii
 ```
 
 `--check-normals` verifies that every element normal points into the **same**
 domain. It does *not* check they point outward, so a uniformly inverted mesh
-passes — that check is still on you (Hint 1).
+passes — that check is `bem check`'s `orientation` (Hint 1), and it is still
+on you before the first solve.
 
-### Tuning the solver
+### Tuning the solver knobs — not yet wired up
 
-The four `[bem]` solver knobs all default to NumCalc's own values, so leaving
-them out is the same as before they existed. Change one when a run misbehaves:
+NumCalc's own solver knobs — `bem_type` (TBEM/SLFMBEM/DMLFMBEM),
+`isolver` (iterative vs. direct), `cluster_edge_length` (FMM bounding box),
+`preconditioner` (incomplete-LU depth), `min_expansion_terms` — live on
+`pynumcalc.deck.Deck` with NumCalc's own defaults, and `Deck.validate` still
+rejects the two combinations NumCalc accepts and silently downgrades
+(`isolver=4` with an FMM `bem_type`; `preconditioner` alongside `isolver=4`).
+But nothing on the `Model` → `NumCalcSolver` path sets them yet — there is no
+successor to the old `[nc]` escape hatch. Until one exists, changing a knob
+means calling the translation yourself instead of `NumCalcSolver.solve`:
+
+```python
+from bemkit.solvers.numcalc import model_to_deck
+from bemkit.solvers import fieldpoints
+from pynumcalc.meshfiles import (
+    write_object_mesh, write_eval_grid_nodes, write_eval_grid_elements,
+)
+
+raw_points, _ = fieldpoints.combine(model.fields)
+mask = fieldpoints.validate(raw_points, model.mesh, exterior=model.exterior)
+points, offsets = fieldpoints.combine(model.fields, mask)
+
+write_object_mesh(model.mesh.vertices, model.mesh.triangles, workdir)
+write_eval_grid_nodes(points, workdir)
+n_eval_elements = write_eval_grid_elements(len(points), workdir)
+
+deck = model_to_deck(model, n_eval_nodes=len(points), n_eval_elements=n_eval_elements)
+deck.cluster_edge_length = 0.05      # any Deck field
+deck.write(workdir / "NC.inp")
+# then run NumCalc yourself, e.g. `pynumcalc.run_jobs`, or `cd workdir && NumCalc`
+```
+
+Reach for this only when a run actually misbehaves:
 
 | Symptom | Knob |
 |---|---|
-| A large mesh exhausts RAM, or `bem status` reports expansion order `L > 30` | `cluster_edge_length` — shrink the FMM bounding box (try `0.05`). The documented remedy in arXiv:2312.00005 §3.3.2. |
+| A large mesh exhausts RAM, or `NC.out` reports expansion order `L > 30` | `cluster_edge_length` — shrink the FMM bounding box (try `0.05`) |
 | The iterative solver converges slowly or not at all | `preconditioner` — negative values select incomplete-LU depth (`-1`, `-2`, `-3`) |
-| Same, or you want a reference answer on a small mesh | `solver = 4` with `bem_type = 0` — the direct Gauss solver, O(N³) |
+| Same, or you want a reference answer on a small mesh | `isolver = 4` with `bem_type = 0` — the direct Gauss solver, O(N³) |
 | Accuracy at high frequency | `min_expansion_terms` — 5..10, default 8 |
 
-Two combinations are rejected at config load, because NumCalc accepts them and
-then quietly does something else: `solver = 4` with any FMM `bem_type` (it
-falls back to iterative), and `preconditioner` alongside `solver = 4` (it is
-forced to 2). Non-convergence usually means a defective mesh — re-mesh before
-reaching for these.
-
-**Anything not listed above** can still be set, via the raw `[nc]` table, which
-names fields on the NumCalc input deck directly:
-
-```toml
-[nc]
-min_expansion_terms = 9
-isolver = 0
-```
-
-`[nc]` is applied last and wins over `[bem]`. It only accepts scalar deck
-fields: values that are *derived* (frequencies, boundary conditions, sources,
-symmetry, mesh counts) must be set in the section they come from, so
-`config.toml` keeps describing what was actually exported. From Python, the
-same escape hatch is just an attribute:
-
-```python
-from bemkit.sim.builder import deck_from_config
-deck = deck_from_config(config, "myvariant", counts)
-deck.cluster_edge_length = 0.05
-deck.write(nc_dir / "NC.inp")
-```
+Non-convergence usually means a defective mesh — re-mesh before reaching for
+these.
 
 ---
 
 ## 7. Pack results (optional but recommended)
 
 ```bash
-bem examples/sphcap pack                  # be.out/ → be.npz (~4× smaller), be.out/ removed
-bem examples/sphcap pack --keep-original  # pack, but leave be.out/ in place
+bem models/sphcap pack                  # be.out/ → be.npz (~4× smaller), be.out/ removed
+bem models/sphcap pack --keep-original  # pack, but leave be.out/ in place
 ```
 
-`be.npz` shadows `be.out/` everywhere downstream. (A subsequent full `run`
-removes a stale `be.npz` so it can't hide fresh output — re-`pack` afterwards.)
+`be.npz` shadows `be.out/` everywhere downstream. (A subsequent full `solve`
+removes a stale `be.npz` so it can't hide fresh output — re-`pack`
+afterwards.)
 
-**`pack` removes `be.out/` by default.** It is >99 % of a variant directory and
-pure redundancy once packed, and the removal is not taken on trust: every bin and
-quantity is re-read from the ASCII tree and compared against the packed arrays
-first, and any mismatch keeps `be.out/` and raises. `complex64` is lossless
-relative to NumCalc's 6-digit text output, and `unpack_variant` regenerates the
-ASCII tree from `be.npz` if you ever need it back. Pass `--keep-original` to skip
-the removal. A variant with a live NumCalc is skipped rather than packed — the
-other variants of the same model still pack.
+**`pack` removes `be.out/` by default.** It is >99% of a variant directory
+and pure redundancy once packed, and the removal is not taken on trust: every
+bin and quantity is re-read from the ASCII tree and compared against the
+packed arrays first, and any mismatch keeps `be.out/` and raises. A variant
+with a live NumCalc is skipped rather than packed — the other variants of the
+same study still pack.
 
 ---
 
@@ -833,69 +586,77 @@ other variants of the same model still pack.
 
 > **2D plots were removed on 2026-08-12.** `bem MODEL plot` and the
 > freq/ir/polar/isobaric/plane/... family are gone; they were not useful in
-> practice. Use `SimulationData` (below) to get the arrays and plot whatever you
-> actually want, or recover the old module from git history.
+> practice. Use the `Results` API (below) to get the arrays and plot whatever
+> you actually want, or recover the old module from git history.
 
-### Interactive 3D field/surface inspection
+### Interactive 3D field/surface inspection (needs the `view` extra)
+
 ```bash
-bem examples/sphcap results --freq 1000                        # surface + all fieldpoint sets
-bem examples/sphcap results onaxis --freq 1000                 # restrict to one set
-bem examples/sphcap results onaxis --freq 1000 --variant sphcap-50-10
+bem models/sphcap results --freq 1000                 # surface + all field-point sets
+bem models/sphcap results onaxis --freq 1000          # restrict to one set
+bem models/sphcap results onaxis --freq 1000 --variant fine
 #   --quantity magnitude_db|magnitude|phase|real|imag
+#   --norm raw|acc   (acc needs a velocity-driven model; refused otherwise, not silently shown as raw)
 #   --intensity  (acoustic intensity arrows)   --impedance   --plane   --screenshot out.png
 ```
 
-### Export a web auralizer bundle
-```bash
-bem examples/sphcap export-web --out bundle/            # solved variants → auralizer bundle
-bem examples/sphcap export-web --out bundle/ --directions g30_1m --planes planeXZ
-```
-Consumed by the separate `bemkit-auralizer` framework (format contract lives in that
-repo's `docs/bundle-format.md`).
+`results`/`geometry` export any variant whose bundle is missing before
+drawing it — there is no separate export step to run first.
 
-### Programmatic access — `SimulationData`
-Numpy-like, lazily-loaded access to every array in a variant directory:
+### Export a web auralizer bundle
+
+```bash
+bem models/sphcap export-web --out bundle/
+```
+
+**Currently refuses**: `export_web` was written against the config.toml stack
+and has not been ported to the `model.py` spine yet — it names the missing
+piece rather than failing partway through. The signal-processing half of the
+module (resampling, EQ derivation, quantisation) is intact and still tested;
+only the model.py-driven entry point is missing.
+
+### Programmatic access — `Results`
 
 ```python
-from bemkit import SimulationData
+from bemkit.study import load_study, workdir
+from bemkit.results import Results, acceleration_scale
 
-sim = SimulationData.from_model("examples/sphcap")                    # auto-pick variant
-sim = SimulationData.from_model("examples/sphcap", variant="sphcap-50-10")
+models = load_study("models/sphcap")
+wd = workdir("models/sphcap", "standard")     # runs/numcalc/standard/
+res = Results.load(wd / "results.npz")        # what a finished `bem solve` leaves behind
 
-sim.set_names            # ['onaxis', 'polar', 'planeXZ', ...]
-sim.frequencies          # (nf,) Hz
-sim.available_bins       # [1, 2, ..., 64]
+res.frequencies           # (nf,) Hz
+res.set_names             # ['onaxis', 'polar']
+res.pressure("onaxis")    # (N, nf) complex — raw pressure (NumCalc's own output)
+res.velocity("onaxis")    # (N, nf, 3) complex
+res.boundary_pressure()   # (M, nf) complex — surface pressure
+res.boundary_velocity()   # (M, nf) complex — surface normal velocity
 
-sim.p_onaxis             # (N, nf) complex — raw pressure (NumCalc output, the default)
-sim.p_acc_onaxis         # (N, nf) complex — normalized ÷ (j·rho0·ω·A_vib), opt-in
-sim.nodes_onaxis         # (N, 3) meters
-sim.boundary_pressure()  # (M, nf) surface pressure (raw; norm="acc" opt-in)
-result = sim.result("onaxis")   # adapter for the viz functions
+acc = res.scaled_by(acceleration_scale(models["standard"]))  # ÷ (j·rho0·ω·A_vib)
+acc.pressure("onaxis")    # same shape, acc-normalized — raises NoVelocityDrive if
+                          #   the model has no velocity drive (a scattering model)
 ```
 
-The base data is always what NumCalc computed (raw, velocity-BC output).
-The `acc` normalization — which assumes a velocity BC and a vibrating
-area — is requested explicitly via `norm="acc"` or the `p_acc_<set>` /
-`v_acc_<set>` attributes. `SimulationData` is the public results API;
-the `BEMResult` class it hands to viz functions is internal.
+`res.materialise()` applies any pending scale eagerly and turns every further
+read into a plain dict lookup. `res.save(path)` / `Results.load(path)`
+round-trip through `.npz` (`path` may be a directory, in which case
+`results.npz` is used). In practice, `bem solve` already leaves
+`runs/numcalc/<variant>/results.npz` behind — `Results.load` on that path is
+usually all you need.
 
 ---
 
 ## The whole thing, end to end
 
 ```bash
-# 1. author examples/sphcap/config.toml (fieldpoint sets + BC or STEP colors),
-#    drop geometry in geometry/ or mesh/ — or point [geometry].exec at a script
+# 1. write models/sphcap/model.py (mesh + BCs/sources + field points),
+#    and models/sphcap/params.toml if build() takes params
 
-bem examples/sphcap check             # 2. mesh diagnostics before spending hours
-bem examples/sphcap geometry          # 3. eyeball mesh + BCs + eval grid (3D)
-bem examples/sphcap all               # 4. mesh → export → run
-#    ...or step through:
-#    bem examples/sphcap mesh
-#    bem examples/sphcap export
-#    bem examples/sphcap run -j 4
-#    bem examples/sphcap pack
+bem models/sphcap check                        # 2. mesh diagnostics before spending hours
+bem models/sphcap geometry                      # 3. eyeball mesh + BCs + eval grid (3D)
+bem models/sphcap solve -j 4                     # 4. solve (detaches; -j bounds concurrent NumCalc)
+bem models/sphcap pack                           # 5. shrink be.out/ -> be.npz
 
-bem examples/sphcap                   # 5. status: everything complete, no warnings?
-bem examples/sphcap results onaxis --freq 1000   # 6. inspect the field in 3D
+bem models/sphcap                                # 6. status: everything complete, no warnings?
+bem models/sphcap results onaxis --freq 1000     # 7. inspect the field in 3D
 ```
