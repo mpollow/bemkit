@@ -13,7 +13,7 @@ VERT = np.array([[0., 0, 0], [1000., 0, 0], [0, 1000., 0], [0, 0, 1000.]])
 TRI = np.array([[0, 1, 2], [0, 1, 3], [1, 2, 3], [0, 2, 3]])
 
 FIXTURE_MSH = (Path(__file__).resolve().parents[4]
-               / "examples" / "sphcap" / "mesh" / "coarse.msh")
+               / "models" / "sphcap" / "mesh" / "coarse.msh")
 
 
 def test_msh_is_millimetres_and_becomes_metres(tmp_path):

@@ -95,7 +95,7 @@ def geodesic_field(lc_min, lc_max, dist_min, dist_max):
         gmsh.option.setNumber("Mesh.MeshSizeMin", 0)
         gmsh.option.setNumber("Mesh.MeshSizeMax", 1e22)
         # Do NOT suppress MeshSizeExtendFromBoundary/FromPoints: measured on
-        # examples/sphcap, suppressing them overshoots lc_max by ~50%.
+        # models/sphcap, suppressing them overshoots lc_max by ~50%.
         f = gmsh.model.mesh.field.add("PostView")
         gmsh.model.mesh.field.setNumber(f, "ViewTag", view)   # ViewTag, not ViewIndex
         gmsh.model.mesh.field.setAsBackgroundMesh(f)

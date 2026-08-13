@@ -4,13 +4,6 @@ __pycache__/
 be.out/
 be.npz
 NC*.out
-examples/*/numcalc/
-examples/*/plots/
 models/*/runs/
-
-# Local-only example models and generated meshes. Nothing already tracked is
-# affected — examples/sphcap/mesh/*.msh stays versioned.
-examples/hutubs21/
-examples/plate/mesh/
 
 build/
