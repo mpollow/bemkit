@@ -36,6 +36,14 @@ def load_mesh(path, scale=None):
                 f"file unit). Known: "
                 f"{', '.join(f'{k}={v}' for k, v in SCALE_BY_SUFFIX.items())}")
 
+    if path.suffix.lower() == ".mesh":
+        # Medit goes through our own reader: meshio's sys.exit(1)s on the
+        # Required* blocks mmgs writes. See bemkit.geometry.mmg.read_mesh.
+        from bemkit.geometry.mmg import read_mesh
+
+        mesh = read_mesh(path)
+        return Mesh(mesh.vertices * scale, mesh.triangles, mesh.groups)
+
     m = meshio.read(path)
     tri_blocks = [b.data for b in m.cells if b.type == "triangle"]
     if not tri_blocks:

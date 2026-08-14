@@ -21,8 +21,12 @@ dependencies = [
 # dependencies do not: `import bemkit` must stay numpy-light.
 view = ["pyvista", "matplotlib"]
 meshing = ["gmsh", "scipy"]
+# Boolean fusing of overlapping bodies (bemkit.geometry.boolean).
+# Apache-2.0, so it does not encumber this GPL-3.0 distribution —
+# unlike the CGAL/libigl alternatives.
+csg = ["manifold3d"]
 analytic = ["scipy"]
-all = ["pyvista", "matplotlib", "gmsh", "scipy"]
+all = ["pyvista", "matplotlib", "gmsh", "scipy", "manifold3d"]
 
 [project.scripts]
 bem = "bemkit.cli:main"

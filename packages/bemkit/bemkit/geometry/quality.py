@@ -236,6 +236,134 @@ def check_source_clearance(vertices, triangles, sources, label="point source"):
     return Finding("source_clearance", "ok", msg, detail)
 
 
+def check_shells(vertices, triangles, *, weld_tol=1e-9):
+    """How many separate closed bodies the mesh actually contains.
+
+    Exterior BEM is perfectly happy with several disjoint closed surfaces, so
+    more than one shell is not an error — a head and a pair of glasses is two
+    bodies by design. It is reported because the *count* is the cheapest way to
+    tell a real boolean union from a mere join, and the two are otherwise
+    indistinguishable: both are edge-manifold, both enclose a positive volume,
+    and both pass every other check here. ``models/glassesonme_v2`` shipped a
+    join believed to be a union for exactly that reason.
+
+    Vertices are welded first, since an STL shares no corners and would
+    otherwise report one shell per facet.
+    """
+    from bemkit.geometry.combine import shells
+    from bemkit.model import Mesh
+
+    mesh = Mesh(vertices, triangles)
+    try:
+        # shells() reaches for scipy at call time, and scipy is an extra.
+        # A base install must still get a usable `bem check`.
+        found = shells(mesh, tol=weld_tol)
+    except ImportError:                               # pragma: no cover
+        return Finding("shells", "ok",
+                       "not checked — needs scipy (bemkit[meshing])", None)
+
+    v = mesh.vertices[mesh.triangles]
+    signed = np.einsum("ij,ij->i", v[:, 0], np.cross(v[:, 1], v[:, 2])) / 6.0
+    volumes = [float(signed[s].sum()) for s in found]
+
+    detail = {"n_shells": len(found),
+              "elements": [int(len(s)) for s in found],
+              "volumes_m3": volumes}
+
+    if len(found) <= 1:
+        return Finding("shells", "ok", "one connected closed body", detail)
+
+    parts = ", ".join(f"{len(s)} tris / {vol * 1e3:.3g} L"
+                      for s, vol in zip(found, volumes))
+    return Finding(
+        "shells", "ok",
+        f"{len(found)} separate bodies ({parts}) — fine for an exterior "
+        f"problem, but check this is a deliberate assembly and not a union "
+        f"that silently failed to fuse",
+        detail)
+
+
+def check_interpenetration(vertices_a, triangles_a, vertices_b, triangles_b,
+                           label="bodies"):
+    """Whether body B pokes through body A's surface.
+
+    Two overlapping closed surfaces are not a valid exterior scattering
+    problem: the buried caps enclose cavities whose boundary data means
+    nothing, and they contribute spurious interior resonances. The result still
+    converges and still looks plausible, which is what makes this worth an
+    explicit check rather than an assumption.
+    """
+    from bemkit.solvers.fieldpoints import (min_distance_to_mesh,
+                                            points_inside_mesh)
+
+    vertices_b = np.asarray(vertices_b, dtype=float)
+    inside = points_inside_mesh(vertices_b, vertices_a, triangles_a)
+    n = int(inside.sum())
+    detail = {"n_inside": n, "n_vertices": len(vertices_b)}
+
+    if not n:
+        return Finding("interpenetration", "ok",
+                       f"{label} do not overlap", detail)
+
+    depth = min_distance_to_mesh(vertices_b[inside], vertices_a, triangles_a)
+    detail["max_depth_m"] = float(depth.max())
+    detail["median_depth_m"] = float(np.median(depth))
+    return Finding(
+        "interpenetration", "error",
+        f"{n} of {len(vertices_b)} vertices of one body lie inside the other, "
+        f"up to {depth.max() * 1e3:.2f} mm deep — the overlapping region "
+        f"encloses a cavity with meaningless boundary conditions; fuse the "
+        f"bodies or hold them apart",
+        detail)
+
+
+def check_clearance(vertices_a, triangles_a, vertices_b, triangles_b,
+                    min_gap=None, gap_factor=1.0):
+    """Whether two bodies come closer than their own elements are wide.
+
+    Two panels separated by much less than their own width see each other
+    almost singularly, and the system matrix pays for it. The rule of thumb is
+    a gap of at least one local element size; below that, expect a rising
+    iteration count and locally unreliable pressures.
+
+    Args:
+        min_gap: required clearance in metres. Defaults to ``gap_factor`` times
+            the mean edge length of the two meshes, so the threshold scales
+            with the discretisation rather than being an absolute guess.
+        gap_factor: multiplier on the mean edge length when ``min_gap`` is None.
+    """
+    from bemkit.geometry.combine import distance_to_mesh
+    from bemkit.model import Mesh
+
+    mesh_a = Mesh(vertices_a, triangles_a)
+    mesh_b = Mesh(vertices_b, triangles_b)
+
+    if min_gap is None:
+        mean_edge = np.mean(np.concatenate([
+            edge_lengths(vertices_a, triangles_a),
+            edge_lengths(vertices_b, triangles_b)]))
+        min_gap = gap_factor * mean_edge
+
+    d = np.concatenate([distance_to_mesh(mesh_a.vertices, mesh_b),
+                        distance_to_mesh(mesh_b.vertices, mesh_a)])
+    tight = int((d < min_gap).sum())
+    detail = {"min_gap_m": float(min_gap), "closest_m": float(d.min()),
+              "n_below": tight}
+
+    if not tight:
+        return Finding("clearance", "ok",
+                       f"closest approach {d.min() * 1e3:.2f} mm, above the "
+                       f"{min_gap * 1e3:.2f} mm threshold", detail)
+
+    return Finding(
+        "clearance", "warning",
+        f"{tight} point(s) closer than {min_gap * 1e3:.2f} mm (closest "
+        f"{d.min() * 1e3:.2f} mm) — panels nearer than their own width "
+        f"condition the system badly; expect more solver iterations and "
+        f"unreliable pressure in the gap",
+        detail)
+
+
 def check_mesh(vertices, triangles, *, max_frequency=None,
                speed_of_sound=340.0, sources=()):
     """Run every applicable check. Returns a list of :class:`Finding`."""
@@ -244,6 +372,7 @@ def check_mesh(vertices, triangles, *, max_frequency=None,
     # argument assumes one, so don't report a bogus verdict on an open mesh.
     if findings[0].level == "ok":
         findings.append(check_orientation(vertices, triangles))
+        findings.append(check_shells(vertices, triangles))
     findings.append(check_element_regularity(vertices, triangles))
     findings.append(check_size_uniformity(vertices, triangles))
     if max_frequency:

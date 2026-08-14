@@ -135,6 +135,117 @@ def test_check_mesh_runs_everything_applicable(octahedron):
     v, t = octahedron
     checks = {f.check for f in check_mesh(v, t, max_frequency=34.0,
                                           sources=[[0, 0, 10.0]])}
-    assert checks == {"watertight", "orientation", "element_regularity",
-                      "size_uniformity", "elements_per_wavelength",
-                      "source_clearance"}
+    assert checks == {"watertight", "orientation", "shells",
+                      "element_regularity", "size_uniformity",
+                      "elements_per_wavelength", "source_clearance"}
+
+
+# -- assembly checks: several bodies in one problem ---------------------------
+
+from .meshes import sphere as _sphere_arrays          # noqa: E402
+
+
+def _ball(center=(0.0, 0.0, 0.0), radius=1.0, subdiv=2):
+    return _sphere_arrays(center, radius, subdiv)
+
+
+def test_check_shells_reports_one_body_for_a_single_surface():
+    from bemkit.geometry.quality import check_shells
+
+    f = check_shells(*_ball())
+    assert f.level == "ok"
+    assert f.detail["n_shells"] == 1
+
+
+def test_check_shells_counts_a_join_of_two_bodies():
+    """The check that would have caught glassesonme_v2: a Blender Join and a
+    real Boolean Union are both edge-manifold and both enclose a positive
+    volume, so the shell count is what tells them apart."""
+    from bemkit.geometry.combine import concat_meshes
+    from bemkit.geometry.quality import check_shells
+    from bemkit.model import Mesh
+
+    both = concat_meshes(a=Mesh(*_ball()),
+                         b=Mesh(*_ball(center=(5, 0, 0), radius=0.5)))
+    f = check_shells(both.vertices, both.triangles)
+
+    assert f.detail["n_shells"] == 2
+    assert "2 separate bodies" in f.message
+    #: largest first, and the volumes are the two spheres'
+    assert f.detail["volumes_m3"][0] > f.detail["volumes_m3"][1] > 0
+
+
+def test_check_shells_welds_before_counting():
+    """An STL shares no corners; without welding every facet is its own body."""
+    from bemkit.geometry.quality import check_shells
+
+    from .meshes import unweld
+    v, t = unweld(*_ball())
+    assert check_shells(v, t).detail["n_shells"] == 1
+
+
+def test_check_interpenetration_is_clean_for_separated_bodies():
+    from bemkit.geometry.quality import check_interpenetration
+
+    va, ta = _ball(radius=1.0, subdiv=3)
+    vb, tb = _ball(center=(3.0, 0, 0), radius=1.0, subdiv=2)
+    f = check_interpenetration(va, ta, vb, tb)
+    assert f.level == "ok"
+    assert f.detail["n_inside"] == 0
+
+
+def test_check_interpenetration_is_an_error_with_depth_reported():
+    from bemkit.geometry.quality import check_interpenetration
+
+    va, ta = _ball(radius=1.0, subdiv=4)
+    vb, tb = _ball(center=(1.9, 0, 0), radius=1.0, subdiv=3)
+    f = check_interpenetration(va, ta, vb, tb)
+
+    assert f.level == "error"
+    assert f.detail["n_inside"] > 0
+    #: centres 1.9 apart with unit radii — 0.1 m of overlap
+    assert f.detail["max_depth_m"] == pytest.approx(0.1, abs=0.02)
+
+
+def test_check_clearance_passes_when_bodies_are_well_separated():
+    from bemkit.geometry.quality import check_clearance
+
+    va, ta = _ball(radius=1.0, subdiv=2)
+    vb, tb = _ball(center=(5.0, 0, 0), radius=1.0, subdiv=2)
+    f = check_clearance(va, ta, vb, tb)
+    assert f.level == "ok"
+
+
+def test_check_clearance_warns_on_panels_closer_than_their_own_width():
+    from bemkit.geometry.quality import check_clearance
+
+    va, ta = _ball(radius=1.0, subdiv=3)
+    vb, tb = _ball(center=(2.002, 0, 0), radius=1.0, subdiv=3)
+    f = check_clearance(va, ta, vb, tb)
+
+    assert f.level == "warning"
+    assert f.detail["n_below"] > 0
+    assert f.detail["closest_m"] < f.detail["min_gap_m"]
+
+
+def test_check_clearance_threshold_scales_with_the_discretisation():
+    """The threshold is a multiple of the mean edge, not an absolute distance —
+    a 1 mm gap is fine for a 0.2 mm mesh and bad for a 5 mm one."""
+    from bemkit.geometry.quality import check_clearance
+
+    va, ta = _ball(radius=1.0, subdiv=2)
+    vb, tb = _ball(center=(3.0, 0, 0), radius=1.0, subdiv=2)
+    coarse = check_clearance(va, ta, vb, tb)
+
+    va2, ta2 = _ball(radius=1.0, subdiv=4)
+    vb2, tb2 = _ball(center=(3.0, 0, 0), radius=1.0, subdiv=4)
+    fine = check_clearance(va2, ta2, vb2, tb2)
+
+    assert fine.detail["min_gap_m"] < coarse.detail["min_gap_m"]
+
+
+def test_check_mesh_includes_the_shell_count_for_a_closed_surface():
+    from bemkit.geometry.quality import check_mesh
+
+    findings = check_mesh(*_ball())
+    assert "shells" in {f.check for f in findings}
