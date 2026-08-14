@@ -7,7 +7,29 @@ mesh-file path, since the model layer already holds vertices/triangles in
 memory and has no file to re-read.
 """
 
+import hashlib
+from collections import OrderedDict
+
 import numpy as np
+
+#: Memoised :func:`validate` results, newest last.
+#:
+#: Validation is the expensive part of writing a solver bundle — ray-casting
+#: and closest-point over every field point against every triangle — and it is
+#: routinely asked the same question many times in one process. A study with
+#: one mesh and a dozen drivers exports a dozen bundles whose *geometry* is
+#: identical; only the boundary conditions differ, and validation does not
+#: depend on those. Measured on models/glassesonme_v2: 331 s per export, 8645
+#: points against 36262 triangles, thirteen times over for one configuration.
+#:
+#: The key is a digest of the actual arrays, so a hit is only possible when the
+#: inputs are bit-identical. There is nothing to invalidate and no way for a
+#: stale entry to be returned for changed geometry.
+_VALIDATE_CACHE = OrderedDict()
+
+#: Entries kept. Each is one boolean array per field point, so the memory is
+#: trivial; the bound only stops a long-lived process growing without limit.
+_VALIDATE_CACHE_MAX = 32
 
 # ─── Geometry kernels (pure numpy) ────────────────────────────────────────
 
@@ -15,10 +37,20 @@ import numpy as np
 def points_inside_mesh(points, vertices, triangles):
     """Ray-cast each point in multiple directions. Majority vote = inside.
 
-    Uses 3 orthogonal ray directions (+x, +y, +z) to handle open surfaces
-    and edge cases: a point is inside if at least 2/3 rays report an odd
-    intersection count. Chunked Möller-Trumbore, vectorized over triangle
-    batches instead of looping per-triangle.
+    Casts 3 rays and calls a point inside when at least 2 report an odd
+    intersection count, which absorbs an open surface or a single unlucky ray.
+    Chunked Möller-Trumbore, vectorized over triangle batches instead of
+    looping per-triangle.
+
+    The directions are deliberately irrational and asymmetric. A ray that hits
+    a vertex or an edge exactly is counted by both adjacent triangles or by
+    neither, flipping the parity — and with axis-aligned directions that is not
+    a rare accident but the normal case for the axis-aligned geometry we
+    actually mesh (a box, a plate, a CAD part modelled on axes, a sphere built
+    from an octahedron). All three votes then go degenerate together and the
+    majority cannot save it. Directions built from √2/√3/√5 cannot land on a
+    lattice vertex from a lattice point, so the degeneracy goes back to being
+    the measure-zero event the algorithm assumes.
 
     Args:
         points: (N, 3) query points
@@ -38,11 +70,11 @@ def points_inside_mesh(points, vertices, triangles):
     e1s = v1s - v0s  # (T, 3)
     e2s = v2s - v0s  # (T, 3)
 
-    test_directions = [
-        np.array([0.0, 0.0, 1.0]),  # +z
-        np.array([1.0, 0.0, 0.0]),  # +x
-        np.array([0.0, 1.0, 0.0]),  # +y
-    ]
+    test_directions = [d / np.linalg.norm(d) for d in (
+        np.array([1.0, np.sqrt(2.0), np.sqrt(3.0)]),
+        np.array([-np.sqrt(5.0), 1.0, np.sqrt(2.0)]),
+        np.array([np.sqrt(3.0), -np.sqrt(7.0), 1.0]),
+    )]
 
     inside_votes = np.zeros(N, dtype=int)
 
@@ -203,14 +235,43 @@ def min_distance_to_mesh(points, vertices, triangles):
 # ─── Public API ─────────────────────────────────────────────────────────
 
 
+def _validate_key(points, vertices, triangles, exterior, min_surface_distance,
+                  edge_length_factor):
+    """Digest of everything :func:`validate` looks at.
+
+    Dtype and shape go in alongside the bytes: two arrays can share a byte
+    pattern while meaning different things, and an (N, 3) float64 buffer read
+    as (3N,) would collide.
+    """
+    h = hashlib.blake2b(digest_size=32)
+    for arr in (points, vertices, triangles):
+        arr = np.ascontiguousarray(arr)
+        h.update(f"{arr.dtype}|{arr.shape}|".encode())
+        h.update(arr.tobytes())
+    h.update(repr((bool(exterior), min_surface_distance,
+                   edge_length_factor)).encode())
+    return h.digest()
+
+
+def clear_validation_cache():
+    """Empty the :func:`validate` memo. Only needed in tests."""
+    _VALIDATE_CACHE.clear()
+
+
 def validate(points, mesh, *, exterior=True, min_surface_distance=None,
-             edge_length_factor=0.1):
+             edge_length_factor=0.1, cache=True):
     """Which of ``points`` are usable evaluation points for ``mesh``.
 
     A point is dropped when it is on the wrong side of the surface (inside
     for an exterior problem, outside for an interior one — NumCalc's own BEM
     formulation breaks down otherwise) or too close to it (the free-field
     Green's function is singular at zero distance).
+
+    Results are memoised on a digest of the inputs (see
+    :data:`_VALIDATE_CACHE`), because exporting several bundles that share one
+    mesh and one field-point set asks this identical question once per bundle.
+    A hit requires bit-identical arrays, so the cache cannot answer for
+    geometry it has not seen.
 
     Args:
         points: (N, 3) evaluation points, metres.
@@ -221,12 +282,24 @@ def validate(points, mesh, *, exterior=True, min_surface_distance=None,
             metres. If None, auto-computed as
             ``edge_length_factor * average mesh edge length``.
         edge_length_factor: see above.
+        cache: consult and populate the memo. False forces a fresh computation
+            and leaves the memo untouched.
 
     Returns:
-        Boolean array (N,) — True where the point is usable.
+        Boolean array (N,) — True where the point is usable. Always a fresh
+        array, so a caller may modify it without corrupting the memo.
     """
     points = np.asarray(points, dtype=float)
     vertices, triangles = mesh.vertices, mesh.triangles
+
+    key = None
+    if cache:
+        key = _validate_key(points, vertices, triangles, exterior,
+                            min_surface_distance, edge_length_factor)
+        hit = _VALIDATE_CACHE.get(key)
+        if hit is not None:
+            _VALIDATE_CACHE.move_to_end(key)
+            return hit.copy()
 
     if min_surface_distance is None:
         edges = np.concatenate([
@@ -243,6 +316,11 @@ def validate(points, mesh, *, exterior=True, min_surface_distance=None,
     dist = min_distance_to_mesh(points, vertices, triangles)
     valid &= dist >= min_surface_distance
 
+    if key is not None:
+        _VALIDATE_CACHE[key] = valid
+        while len(_VALIDATE_CACHE) > _VALIDATE_CACHE_MAX:
+            _VALIDATE_CACHE.popitem(last=False)
+        return valid.copy()
     return valid
 
 
