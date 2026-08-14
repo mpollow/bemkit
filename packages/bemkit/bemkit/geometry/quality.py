@@ -244,7 +244,8 @@ def check_shells(vertices, triangles, *, weld_tol=1e-9):
     bodies by design. It is reported because the *count* is the cheapest way to
     tell a real boolean union from a mere join, and the two are otherwise
     indistinguishable: both are edge-manifold, both enclose a positive volume,
-    and both pass every other check here. ``models/glassesonme_v2`` shipped a
+    and both pass every other check here. ``models/hutubs21_glassesearbuds``
+    shipped a
     join believed to be a union for exactly that reason.
 
     Vertices are welded first, since an STL shares no corners and would

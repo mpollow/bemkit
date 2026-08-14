@@ -171,7 +171,8 @@ def remesh(mesh, sizes=None, *, hgrad=1.1, hmin=None, hmax=None, hausd=None,
             **A command-line ``hmin`` overrides the metric's own floor**, so
             passing one lets mmgs go finer than the size field asked for
             anywhere on the mesh — the trap in
-            ``glassesonme_v2/pre_2_make_metric.sh``, which pairs a 5 mm metric
+            ``hutubs21_glassesearbuds/__pre_2_make_metric.sh``, which pairs a
+            5 mm metric
             floor with ``-hmin 0.0005``.
         refs, required_triangles, required_vertices: see :func:`write_mesh`.
         binary: mmgs executable name or path.

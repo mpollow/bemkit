@@ -19,7 +19,8 @@ import numpy as np
 #: routinely asked the same question many times in one process. A study with
 #: one mesh and a dozen drivers exports a dozen bundles whose *geometry* is
 #: identical; only the boundary conditions differ, and validation does not
-#: depend on those. Measured on models/glassesonme_v2: 331 s per export, 8645
+#: depend on those. Measured on models/hutubs21_glassesearbuds: 331 s per
+#: export, 8645
 #: points against 36262 triangles, thirteen times over for one configuration.
 #:
 #: The key is a digest of the actual arrays, so a hit is only possible when the

@@ -5,7 +5,8 @@ resolve the shortest wavelength in the band. It must resolve geometric detail,
 which has nothing to do with frequency. It must be fine where two bodies nearly
 touch, and it may as well be coarse on the back of the head where the field is
 smooth. Writing that as one closed-form rule produces a function with eight
-arguments that nobody can reason about; ``models/glassesonme_v2`` instead wrote
+arguments that nobody can reason about; ``models/hutubs21_glassesearbuds``
+instead wrote
 it as thirteen hand-placed spheres with hardcoded radii.
 
 So each demand is a separate function of the same shape --- ``(mesh, ...) ->

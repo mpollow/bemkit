@@ -198,7 +198,8 @@ def test_validate_repeated_call_gives_the_same_answer():
 def test_repeat_is_served_from_the_memo_without_recomputing(monkeypatch):
     """The point of the cache. Exporting a dozen bundles that share one mesh
     and one field-point set asks this identical question a dozen times; on
-    models/glassesonme_v2 that was 331 s each, 8645 points against 36262
+    models/hutubs21_glassesearbuds that was 331 s each, 8645 points against
+    36262
     triangles."""
     import bemkit.solvers.fieldpoints as fp
 

@@ -158,7 +158,8 @@ def test_check_shells_reports_one_body_for_a_single_surface():
 
 
 def test_check_shells_counts_a_join_of_two_bodies():
-    """The check that would have caught glassesonme_v2: a Blender Join and a
+    """The check that would have caught hutubs21_glassesearbuds: a Blender
+    Join and a
     real Boolean Union are both edge-manifold and both enclose a positive
     volume, so the shell count is what tells them apart."""
     from bemkit.geometry.combine import concat_meshes

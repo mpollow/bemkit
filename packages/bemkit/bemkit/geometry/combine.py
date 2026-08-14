@@ -9,7 +9,8 @@ perfectly good scatterer — so the cheap assembly is concatenation, and fusing
 What concatenation must not do is lose track of which elements came from
 which body. That is why :func:`concat_meshes` takes bodies **by name** and has
 no positional form: an unnamed merge produces a mesh whose parts can only be
-addressed by raw integer index, which is precisely how ``models/glassesonme_v2``
+addressed by raw integer index, which is precisely how
+``models/hutubs21_glassesearbuds``
 ended up driving ``Elements(15293)`` for a group its name claims is on the
 glasses when it actually landed on the head.
 

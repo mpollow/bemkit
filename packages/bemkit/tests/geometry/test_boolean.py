@@ -96,7 +96,8 @@ def test_union_needs_at_least_two_bodies():
 def test_union_rejects_a_surface_with_holes():
     """An open surface is not an oriented 2-manifold, and manifold3d silently
     returns empty rather than raising — so we turn that into a real error
-    naming the checks that diagnose it. models/glassesonme_v2's openbuds.stl
+    naming the checks that diagnose it.
+    models/hutubs21_glassesearbuds's openbuds_parts.stl
     is exactly this case."""
     v, t = sphere(subdiv=2)
     holed = Mesh(v, t[:-4])                        # remove four faces
