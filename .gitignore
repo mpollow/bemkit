@@ -19,3 +19,5 @@ models/*/look_*.png
 models/*/look_*.vtp
 models/*/compare*.png
 models/*/reciprocity_*.png
+models/*/field_*.png
+models/*/field_*.vtp
