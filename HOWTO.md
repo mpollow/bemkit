@@ -104,13 +104,18 @@ def variants():
 ```
 
 ```toml
-# models/sphcap/params.toml — a flat dict, read with tomllib, not validated
+# params.toml — a flat dict, read with tomllib, not validated
 sr = 32000
 nbins = 65
 c = 340.0
 rho = 1.2
 mesh = "standard"
 ```
+
+Note that the study above does *not* ship one: `variants()` wins over `build()`,
+and it supplies its own `base` dict, so nothing ever reads a `params.toml` next
+to it. The file earns its place when `build()` is the entry point and you want
+those scalars editable without touching Python.
 
 `Model(mesh, frequencies, medium=None, *, bcs=(), sources=(), fields=None,
 exterior=True, time_factor=-1.0)` is the whole contract — every argument below
@@ -650,7 +655,7 @@ usually all you need.
 
 ```bash
 # 1. write models/sphcap/model.py (mesh + BCs/sources + field points),
-#    and models/sphcap/params.toml if build() takes params
+#    and params.toml if build() is the entry point and takes params
 
 bem models/sphcap check                        # 2. mesh diagnostics before spending hours
 bem models/sphcap geometry                      # 3. eyeball mesh + BCs + eval grid (3D)
