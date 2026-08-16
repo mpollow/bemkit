@@ -19,7 +19,7 @@ def register(sub):
                    help="Print the summary table only — needs no matplotlib")
     p.add_argument("--nitermax", type=int, default=None,
                    help="Iteration ceiling the run used, if -nitermax was "
-                        "passed to NumCalc (default: NumCalc's own 1500)")
+                        "passed to NumCalc (default: NumCalc's own 250)")
     p.set_defaults(func=cmd_convergence)
 
 

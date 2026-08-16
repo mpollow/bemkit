@@ -198,18 +198,27 @@ def solver_warnings(nc_dir, logs=None):
 
 
 #: Residual the CGS iteration stops at (``ErroIterSols``,
-#: NC_CommonFunctions.cpp:83). A bin that ends *above* this did not converge —
+#: NC_CommonFunctions.cpp:39). A bin that ends *above* this did not converge —
 #: which is why it is the reference line on a convergence plot and not a
 #: cosmetic annotation.
 CGS_TOLERANCE = 1.0e-9
 
-#: Iteration ceiling when ``-nitermax`` is not passed (``niter_max``,
-#: NC_CommonFunctions.cpp:84). Reaching it is the first of the two
-#: ``_SOLVER_WARNINGS``.
-NITER_MAX_DEFAULT = 1500
+#: Iteration ceiling when ``-nitermax`` is not passed (``niter_max_``,
+#: NC_Main.cpp:83). Reaching it is the first of the two ``_SOLVER_WARNINGS``.
+#:
+#: 250 is low enough to matter: on models/hutubs21_glassesearbuds the glasses
+#: variant needs ~420 iterations around 1-3 kHz, and at the default it stopped
+#: eight bins at residuals of 3.8e-6 to 9.4e-4 against a 1e-9 tolerance — bins
+#: that look solved and are not. That study therefore passes ``--nitermax 4000``
+#: as a correctness requirement, not as tuning.
+#:
+#: Do not read this out of a stray Mesh2HRTF checkout: older trees carry a
+#: now-commented ``int niter_max = 1500`` in NC_CommonFunctions.cpp, and taking
+#: that number overstates the headroom by 6x.
+NITER_MAX_DEFAULT = 250
 
 # "CGS solver: number of iterations = 44, relative error = 4.85659e-10"
-# (NC_CommonFunctions.cpp:1222), written once per step whether or not the
+# (NC_CommonFunctions.cpp:1178), written once per step whether or not the
 # iteration converged.
 _CGS_LINE = re.compile(
     r"^CGS solver: number of iterations = (\d+), relative error = (\S+)")
@@ -294,8 +303,8 @@ def _parse_log(log):
                 pass
         elif any(pat in line for pat in _SOLVER_WARNINGS):
             # Both warnings live in the step they belong to, one printed
-            # before the summary line (max iterations) and one after it
-            # (CGS failed), so a step-scoped accumulator catches both.
+            # before the summary line (max iterations, :1167) and one after it
+            # (CGS failed, :1184), so a step-scoped accumulator catches both.
             fields["warnings"] = fields["warnings"] + (line.strip(),)
         elif timing and ":" in line:
             label, _, value = line.partition(":")

@@ -162,9 +162,12 @@ def plot_convergence(records_by_variant, *, title=None,
             dropped — a run whose logs were deleted has nothing to say here,
             and an empty row would read as a solve that took zero iterations.
         title: figure suptitle.
-        niter_max: the iteration ceiling in force (``-nitermax``, or NumCalc's
-            own default). Drawn only when the data comes close enough to it to
-            be worth seeing.
+        niter_max: the iteration ceiling in force — whatever ``-nitermax`` the
+            run passed, or NumCalc's own default of 250. Pass the real value:
+            a study that raised it and one that did not are a factor of 16
+            apart, and the panel is answering "how close did this come to
+            being silently truncated?". Drawn only when it is within 4x of
+            the peak, stated in text otherwise.
 
     Returns:
         The matplotlib ``Figure``.
@@ -193,11 +196,13 @@ def plot_convergence(records_by_variant, *, title=None,
     worst_iter = _label_extreme(ax, names, x, iters, fmt=lambda v: f"{v:.0f}")
     _mark_warnings(ax, data, lambda r: r.iterations)
     ax.set_ylabel("CGS iterations")
-    # The ceiling is 1500 by default and the data is typically under 120;
-    # drawing it to scale would flatten every curve into the axis. Show it
-    # only once it is close enough to matter, and say the headroom otherwise.
+    # Draw the ceiling only when it is within 4x of the peak. A study that
+    # raised it (models/hutubs21_glassesearbuds runs --nitermax 4000) would
+    # otherwise get a line so far above the data that every curve flattens
+    # into the axis; a study on NumCalc's own default of 250 is genuinely
+    # close to it and needs to see how close.
     peak = np.nanmax(iters) if np.isfinite(iters).any() else 0.0
-    if niter_max and peak > 0.5 * niter_max:
+    if niter_max and niter_max < 4.0 * peak:
         ax.axhline(niter_max, lw=1.0, ls="--", color=CRITICAL, zorder=3,
                    label=f"ceiling ({niter_max})")
     elif niter_max:

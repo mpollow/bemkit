@@ -467,15 +467,25 @@ raising `--nitermax`.
 
 `convergence` is the quantity behind that bit. `numcalckit.status.convergence`
 reads the summary line NumCalc writes once per step (`CGS solver: number of
-iterations = N, relative error = E`, `NC_CommonFunctions.cpp:1222`) into
+iterations = N, relative error = E`, `NC_CommonFunctions.cpp:1178`) into
 `BinRecord`s — iterations, final residual, the per-step assemble/solve/post
 seconds, and any warning, per bin. Two constants come from the same source and
 are what `.converged` and the plot's reference lines are measured against:
-`CGS_TOLERANCE = 1e-9` (`ErroIterSols`, `:83`) and `NITER_MAX_DEFAULT = 1500`
-(`niter_max`, `:84`) — note the solver stops at **1e-9**, not the 1e-6 the
-comment at `deck.py:243` implies. There is **no per-iteration residual trace**
-in NumCalc's logs, so a residual-vs-iteration curve is not available; frequency
-is the only x-axis these plots can have.
+`CGS_TOLERANCE = 1e-9` (`ErroIterSols`, `:39`) and `NITER_MAX_DEFAULT = 250`
+(`niter_max_`, `NC_Main.cpp:83`) — note the solver stops at **1e-9**, not the
+1e-6 the comment at `deck.py:243` implies. There is **no per-iteration residual
+trace** in NumCalc's logs, so a residual-vs-iteration curve is not available;
+frequency is the only x-axis these plots can have.
+
+**Read those constants only from the tree the binary was built from**
+(`projects_EXT/Mesh2HRTF/mesh2hrtf/NumCalc/src/`, per `solve_chain.sh`'s PATH).
+A second checkout on this machine, `projects_EXT/mesh2hrtf-git-sf/…/Source/`,
+still carries an older `int niter_max = 1500` — a line that is *commented out*
+in the real tree and superseded by `niter_max_ = 250`. Taking the 1500
+overstates the headroom by 6x and makes a run that nearly truncated look safe.
+250 is low enough to bite: `models/hutubs21_glassesearbuds` passes
+`--nitermax 4000` as a correctness requirement, because at the default eight
+glasses bins stopped at residuals of 3.8e-6 to 9.4e-4.
 
 Resumes leave overlapping logs in one variant directory (bins 1-45, then 34-45,
 then 47-64…), so records are merged newest-first, and **a newer record without

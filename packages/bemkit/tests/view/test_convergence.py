@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 
 import pytest
 
-from numcalckit.status import BinRecord
+from numcalckit.status import NITER_MAX_DEFAULT, BinRecord
 from bemkit.view.convergence import CRITICAL, plot_convergence
 
 
@@ -102,17 +102,23 @@ class TestNonConvergenceIsNeverColourAlone:
 
 
 class TestTheIterationCeiling:
-    """1500 by default against data under 120: drawn to scale it would flatten
-    every curve into the axis, so it is only drawn once it is close."""
+    """A study that raised -nitermax and one on NumCalc's default of 250 are a
+    factor of 16 apart. Drawn to scale the raised one would flatten every curve
+    into the axis, so the line appears only when it is within 4x of the peak."""
 
-    def test_far_below_the_ceiling_it_is_stated_in_text(self):
-        fig = plot_convergence({"a": _records(iters=50)}, niter_max=1500)
+    def test_a_raised_ceiling_is_stated_in_text_not_drawn(self):
+        # models/hutubs21_glassesearbuds runs --nitermax 4000, peaks at 118.
+        fig = plot_convergence({"a": _records(iters=110)}, niter_max=4000)
         assert any("ceiling" in t.get_text() for t in fig.axes[0].texts)
-        assert not _has_hline(fig.axes[0], 1500)
+        assert not _has_hline(fig.axes[0], 4000)
 
-    def test_close_to_the_ceiling_it_is_drawn(self):
-        fig = plot_convergence({"a": _records(iters=1400)}, niter_max=1500)
-        assert _has_hline(fig.axes[0], 1500)
+    def test_numcalcs_own_default_is_drawn_because_it_is_close(self):
+        """250 against a peak of ~118 is under 2x — the reader needs to see
+        that the default would nearly have truncated this run."""
+        fig = plot_convergence({"a": _records(iters=110)},
+                               niter_max=NITER_MAX_DEFAULT)
+        assert NITER_MAX_DEFAULT == 250
+        assert _has_hline(fig.axes[0], 250)
 
 
 def _has_hline(ax, y):
