@@ -2,7 +2,7 @@
 
 This is the single place NumCalc-isms are allowed to live. The model layer
 above (:mod:`bemkit.model`) knows nothing of decks, element ranges or CURVES;
-:mod:`pynumcalc` below knows nothing of models. Everything opinionated about
+:mod:`numcalckit` below knows nothing of models. Everything opinionated about
 *how* a solver-neutral :class:`~bemkit.model.Model` becomes an ``NC.inp`` deck
 belongs here — ``model_to_deck`` for the translation, :class:`NumCalcSolver`
 for the write-run-ingest pipeline built on top of it.
@@ -12,13 +12,13 @@ import json
 import tempfile
 from pathlib import Path
 
-from pynumcalc import (
+from numcalckit import (
     available_bins, missing_bins, numcalc_pids, plan_jobs, run_jobs,
     solver_warnings,
 )
-from pynumcalc.deck import BC as DeckBC
-from pynumcalc.deck import Curve, Deck, Source, _contiguous_ranges
-from pynumcalc.meshfiles import (
+from numcalckit.deck import BC as DeckBC
+from numcalckit.deck import Curve, Deck, Source, _contiguous_ranges
+from numcalckit.meshfiles import (
     write_eval_grid_elements, write_eval_grid_nodes, write_object_mesh,
 )
 
@@ -212,9 +212,9 @@ class NumCalcSolver:
                 literally: this is *the* set to compute, not a wish
                 intersected with what is already present. A caller that
                 wants a resume passes the missing bins (the CLI does).
-            jobs: max concurrent NumCalc processes (see ``pynumcalc.plan_jobs``).
+            jobs: max concurrent NumCalc processes (see ``numcalckit.plan_jobs``).
             options: extra NumCalc argv flags for every job, as built by
-                ``pynumcalc.solver_flags`` (``-nitermax``, ``-check_normals``,
+                ``numcalckit.solver_flags`` (``-nitermax``, ``-check_normals``,
                 ``-adapt_fmmlength``). NumCalc-specific and deliberately not
                 part of the solver-neutral ``Solver`` protocol — a backend
                 that is not NumCalc has nothing to do with these.

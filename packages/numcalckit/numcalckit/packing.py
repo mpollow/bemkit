@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pynumcalc.readers import (
+from numcalckit.readers import (
     QUANTITIES,
     _read_numcalc_data,
     _read_numcalc_velocity_data,

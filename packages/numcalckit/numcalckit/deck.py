@@ -499,7 +499,7 @@ class _DeckParser:
 def parse_bc_line(tokens, where=""):
     """Parse one tokenised ``ELEM lo TO hi KIND re curve imag curve`` line.
 
-    Shared with the lenient section scanner in :mod:`pynumcalc.readers`, so
+    Shared with the lenient section scanner in :mod:`numcalckit.readers`, so
     the element ranges that determine ``A_vib`` are extracted by exactly the
     same code that reads a full deck.
 

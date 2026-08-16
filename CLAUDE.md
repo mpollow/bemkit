@@ -9,8 +9,8 @@ A monorepo of **two distributions**. Each installs on its own.
 
 ```
 packages/
-├── pynumcalc/          the NumCalc contract, numpy only
-│   └── pynumcalc/      #   deck.py      — Deck: NC.inp as one object, read/write
+├── numcalckit/          the NumCalc contract, numpy only
+│   └── numcalckit/      #   deck.py      — Deck: NC.inp as one object, read/write
 │                       #   meshfiles.py — ObjectMesh/EvalGrid writers (arrays in)
 │                       #   readers.py   — be.out parsers, load_bins
 │                       #   packing.py   — be.out/ <-> be.npz
@@ -41,7 +41,7 @@ above it unit-testable without a mesh file or a solver binary.
 Install for development — one command, both editable packages:
 
 ```bash
-pip install -e packages/pynumcalc -e packages/bemkit
+pip install -e packages/numcalckit -e packages/bemkit
 pytest                     # runs both suites (testpaths in pyproject.toml)
 ```
 
@@ -60,7 +60,7 @@ needs `bempp-cl`, installed separately — it is imported lazily inside
   other, but never `view/`, and never pyvista/matplotlib.
 - `view/`, `cli/` may import anything, but `cli/__init__.py` only imports
   `view` lazily inside functions, so `bem --help` never pays for pyvista.
-- `pynumcalc` imports nothing from `bemkit` and needs only numpy — checked on
+- `numcalckit` imports nothing from `bemkit` and needs only numpy — checked on
   both the library and its own test suite, which is what keeps it installable
   on its own.
 
@@ -250,25 +250,25 @@ right for a quick comparison, wrong for a model too big to hold in RAM.
 
 `NumCalcSolver` (`name = "numcalc"`) is the write-run-ingest pipeline over
 `model_to_deck` (the sole place NumCalc-isms live: `bemkit.model` above knows
-nothing of decks or element ranges, `pynumcalc` below knows nothing of
+nothing of decks or element ranges, `numcalckit` below knows nothing of
 models). `.export(model, workdir)` writes `ObjectMesh/`, `EvalGrid/`, `NC.inp`
 and `eval_offsets.json` without solving — used on its own by `bem STUDY
 estimate-ram` and by the 3D viewers, which need a bundle to draw but not a
 finished run. `.solve(...)` additionally takes `options=` (NumCalc argv flags
-— see `pynumcalc.solver_flags`, and the CLI section below), and raises
+— see `numcalckit.solver_flags`, and the CLI section below), and raises
 `RuntimeError` naming the failed jobs' logs, or `ValueError` when every field
 point was dropped by validation.
 
 **Solver knobs are not yet exposed on `Model`.** `bem_type`, `isolver`
 (`ISOLVER`), `cluster_edge_length` (`ClusEdgL0`), `preconditioner`
-(`IPRECOND`) and `min_expansion_terms` live on `pynumcalc.deck.Deck` with
+(`IPRECOND`) and `min_expansion_terms` live on `numcalckit.deck.Deck` with
 NumCalc's own defaults and `Deck.validate`'s guard against the two
 combinations NumCalc accepts and silently downgrades (`isolver=4` with an FMM
 `bem_type`; `preconditioner` alongside `isolver=4`) — but nothing on the
 `Model` → `NumCalcSolver` path sets them, and there is no successor to the old
 `[nc]` escape hatch. Tuning one today means calling
 `bemkit.solvers.numcalc.model_to_deck(model, n_eval_nodes=..., n_eval_elements=...)`
-directly, setting the field, and driving `Deck.write`/`pynumcalc.run_jobs`
+directly, setting the field, and driving `Deck.write`/`numcalckit.run_jobs`
 by hand rather than through `NumCalcSolver.solve`.
 
 `BemppSolver` (`name = "bempp"`) is a second, in-process backend
@@ -427,7 +427,7 @@ prepared_bundles`) — there being no separate export step means "inspect before
 solving" does not mean "solve first".
 
 **Resume is the default.** `solve` computes only the bins absent from
-`be.out/`/`be.npz` (`pynumcalc.status.missing_bins`), so an interrupted run
+`be.out/`/`be.npz` (`numcalckit.status.missing_bins`), so an interrupted run
 continues and a complete one is a no-op; `--force` discards everything first
 (needed after `model.py` changes the mesh or the band — bin presence alone
 says nothing about which model produced them). A resume also **refuses** if
@@ -460,12 +460,12 @@ at `rtol=1e-5` (kept on any mismatch); `--keep-original` opts out.
 solve) at the top bin by default, where FMM memory peaks; it slightly
 under-estimates (FMM matrices only, not mesh/result arrays).
 
-Bin presence ≠ convergence: `pynumcalc.status.solver_warnings` scans
+Bin presence ≠ convergence: `numcalckit.status.solver_warnings` scans
 `NC*.out` for NumCalc's two non-convergence strings and both `status`/`solve`
 surface them — usually a defective mesh, fixed by re-meshing rather than
 raising `--nitermax`.
 
-`convergence` is the quantity behind that bit. `pynumcalc.status.convergence`
+`convergence` is the quantity behind that bit. `numcalckit.status.convergence`
 reads the summary line NumCalc writes once per step (`CGS solver: number of
 iterations = N, relative error = E`, `NC_CommonFunctions.cpp:1222`) into
 `BinRecord`s — iterations, final residual, the per-step assemble/solve/post
@@ -489,7 +489,7 @@ tolerance line, and seconds split into assemble/solve/post. Variants are an
 **envelope** — min-max band, median, thin grey traces — not one colour each: a
 study routinely has more variants than any categorical palette has slots, so
 only outliers and non-converged bins are coloured and named. `--no-plot` prints
-the summary table alone and needs nothing but `pynumcalc`.
+the summary table alone and needs nothing but `numcalckit`.
 
 ## Unit Conventions
 
@@ -506,7 +506,7 @@ the summary table alone and needs nothing but `pynumcalc`.
 
 ## NC.inp Format
 
-Emitted by `Deck.write` (`pynumcalc/deck.py`); there is no template file.
+Emitted by `Deck.write` (`numcalckit/deck.py`); there is no template file.
 Physical group IDs: `RIGID=1` (zero velocity, default), `VIBRATING=2`
 (specified velocity). STEP colours: Blue (0,0,255) = rigid, Red (255,0,0) =
 vibrating (read in `bemkit/geometry/generate.py`).

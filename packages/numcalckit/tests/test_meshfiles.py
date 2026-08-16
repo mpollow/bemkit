@@ -1,18 +1,18 @@
-"""Tests for pynumcalc.meshfiles — write→read verification.
+"""Tests for numcalckit.meshfiles — write→read verification.
 
 These writers take arrays, never mesh-file paths: that is what keeps
-pynumcalc free of meshio and of bemkit's mm/m convention.
+numcalckit free of meshio and of bemkit's mm/m convention.
 """
 
 import numpy as np
 import pytest
 
-from pynumcalc.meshfiles import (
+from numcalckit.meshfiles import (
     write_eval_grid_elements,
     write_eval_grid_nodes,
     write_object_mesh,
 )
-from pynumcalc.readers import read_eval_grid_nodes
+from numcalckit.readers import read_eval_grid_nodes
 
 
 def _count(path):
@@ -69,7 +69,7 @@ class TestWriteObjectMesh:
         n_nodes, n_elements = write_object_mesh(verts, tris, tmp_path)
         assert (n_nodes, n_elements) == (4, 2)
 
-        from pynumcalc.readers import (
+        from numcalckit.readers import (
             read_object_mesh_elements, read_object_mesh_nodes,
         )
         np.testing.assert_allclose(read_object_mesh_nodes(tmp_path), verts)

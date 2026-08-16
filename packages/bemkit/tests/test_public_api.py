@@ -28,7 +28,7 @@ def test_public_api_surface():
         # study / solve / results
         "load_study", "Solver", "Status", "NumCalcSolver", "BemppSolver",
         "Results", "Store", "MemoryStore", "NpzStore",
-        # job control, straight through from pynumcalc
+        # job control, straight through from numcalckit
         "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",
         "available_bins", "missing_bins", "is_complete",
         # analytic reference (lazy — needs scipy)
@@ -84,7 +84,7 @@ def test_demoted_plumbing_stays_off_the_root():
 @pytest.mark.parametrize("heavy", ["matplotlib", "pyvista", "meshio", "gmsh",
                                    "scipy", "bempp_cl"])
 def test_core_import_stays_light(heavy):
-    """`import bemkit` must pull in nothing but numpy and pynumcalc.
+    """`import bemkit` must pull in nothing but numpy and numcalckit.
 
     Every heavy dependency — meshio, gmsh, scipy, and since the bemviz fold
     the display stack too — lives behind a lazy import inside the one function

@@ -1,4 +1,4 @@
-"""Fixtures for the pynumcalc suite (copied from bemkit's: pure numpy)."""
+"""Fixtures for the numcalckit suite (copied from bemkit's: pure numpy)."""
 
 import json
 import numpy as np

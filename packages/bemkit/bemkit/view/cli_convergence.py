@@ -1,7 +1,7 @@
 """`bem STUDY convergence` — per-bin solver quality, as a table and a figure.
 
 Thin on purpose: argument parsing, a text summary that needs nothing but
-pynumcalc, and a call into :mod:`bemkit.view.convergence` for the drawing.
+numcalckit, and a call into :mod:`bemkit.view.convergence` for the drawing.
 """
 
 
@@ -48,7 +48,7 @@ def _summarise(name, records):
 def cmd_convergence(study_dir, args):
     import sys
 
-    from pynumcalc.status import convergence
+    from numcalckit.status import convergence
     from bemkit.cli._commands import load, select
     from bemkit.study import workdir
 
@@ -93,7 +93,7 @@ def cmd_convergence(study_dir, args):
         matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from pynumcalc.status import NITER_MAX_DEFAULT
+    from numcalckit.status import NITER_MAX_DEFAULT
     from bemkit.view.convergence import plot_convergence
 
     fig = plot_convergence(

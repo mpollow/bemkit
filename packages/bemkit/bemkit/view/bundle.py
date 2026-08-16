@@ -5,7 +5,7 @@ does not carry: the boundary mesh, the evaluation-point coordinates, and the
 boundary conditions that produced the numbers. ``Results`` is store-backed and
 solver-neutral — a ``MemoryStore``-backed one from ``solve(workdir=None)`` has
 no files at all — so the geometry is read back out of the run bundle
-(``STUDY/runs/<solver>/<variant>/``) through :mod:`pynumcalc`'s readers, which
+(``STUDY/runs/<solver>/<variant>/``) through :mod:`numcalckit`'s readers, which
 is exactly what NumCalc was given.
 
 Reading NC.inp rather than the Model for the boundary conditions is
@@ -52,7 +52,7 @@ def prepared_bundles(study_dir, prefixes, *, require_results=False):
 
     Exits (SystemExit) when nothing is left to show.
     """
-    from pynumcalc.status import numcalc_pids
+    from numcalckit.status import numcalc_pids
 
     models = load(study_dir)
     try:
@@ -103,7 +103,7 @@ def load(study_dir):
 
 def has_results(wd):
     """True when ``wd`` holds anything a viewer could colour by."""
-    from pynumcalc.packing import has_results as _raw
+    from numcalckit.packing import has_results as _raw
     return (wd / "results.npz").exists() or _raw(wd)
 
 
@@ -158,7 +158,7 @@ def computed_bins(results, quantities=("pEvalGrid", "pBoundary")):
     """0-based frequency indices that actually hold numbers.
 
     A partial run (`bem STUDY solve --preview 6`) leaves the other bins as
-    NaN — ``pynumcalc.load_bins`` fills them that way precisely so a missing
+    NaN — ``numcalckit.load_bins`` fills them that way precisely so a missing
     bin is distinguishable from one that solved to zero. A viewer must never
     offer them: NaN reaches the colour mapper as "below the range" and paints
     a confident, wrong colour.
@@ -206,7 +206,7 @@ class Bundle:
     """
 
     def __init__(self, wd, model, *, norm="raw", mirror=True):
-        from pynumcalc.readers import (
+        from numcalckit.readers import (
             read_eval_grid_nodes, read_nc_inp_boundary_conditions,
             read_nc_inp_symmetry, read_object_mesh_elements,
             read_object_mesh_nodes,

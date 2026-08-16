@@ -141,7 +141,7 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
     file or a missing BOUNDARY section means "nothing driven", not an error.
 
     The individual ``ELEM`` lines are handed to
-    :func:`pynumcalc.deck.parse_bc_line`, so the ranges are extracted by
+    :func:`numcalckit.deck.parse_bc_line`, so the ranges are extracted by
     the same code that reads a complete deck.
 
     Two subtleties, both of which silently distort ``A_vib`` if ignored:
@@ -165,7 +165,7 @@ def read_nc_inp_boundary_conditions(nc_inp_file: str | Path) -> dict:
         array of element indices (0-indexed).
         E.g., {"vibrating": array([100, 101, 102, 200, 201, ...])}
     """
-    from pynumcalc.deck import parse_bc_line
+    from numcalckit.deck import parse_bc_line
 
     vibrating_elements = set()
     try:

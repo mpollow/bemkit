@@ -348,7 +348,7 @@ def cmd_status(study_dir, args):
 
 def show_status(study_dir):
     """Default command: per-variant export/solve state + next-step hint."""
-    from pynumcalc.status import (
+    from numcalckit.status import (
         available_bins, current_step, numcalc_pids, solver_warnings)
 
     models = load(study_dir)
@@ -424,8 +424,8 @@ def _print_stale(study_dir, solver_name, names):
 
 
 def cmd_solve(study_dir, args):
-    from pynumcalc.runner import solver_flags
-    from pynumcalc.status import available_bins
+    from numcalckit.runner import solver_flags
+    from numcalckit.status import available_bins
 
     models = load(study_dir)
     _reject_force_with_selection(args)
@@ -502,13 +502,13 @@ def _busy(study_dir, names):
     exactly ``runs/numcalc/<variant>`` when the root is the study's runs/
     directory — so the new layout needs no new scanner.
     """
-    from pynumcalc.status import running_variants
+    from numcalckit.status import running_variants
     return running_variants(Path(study_dir) / RUNS_DIR, names)
 
 
 def _solve_foreground(study_dir, models, plan, digests, args, options):
-    from pynumcalc.packing import clear_pack
-    from pynumcalc.status import solver_warnings
+    from numcalckit.packing import clear_pack
+    from numcalckit.status import solver_warnings
 
     if args.restart:
         busy = _busy(study_dir, list(plan))
@@ -523,7 +523,7 @@ def _solve_foreground(study_dir, models, plan, digests, args, options):
 
     solver = solver_for()
     # One variant at a time: a Solver solves one Model, so -j bounds the
-    # processes *within* a variant (the bin fan-out in pynumcalc.plan_jobs).
+    # processes *within* a variant (the bin fan-out in numcalckit.plan_jobs).
     # Peak memory -- the thing -j exists to bound -- is bounded either way;
     # what is lost against the old stage machine is running several small
     # variants side by side.
@@ -678,8 +678,8 @@ def _detach_solve(study_dir, args, plan):
 
 
 def cmd_pack(study_dir, args):
-    from pynumcalc.packing import has_results, pack_variant
-    from pynumcalc.status import numcalc_pids
+    from numcalckit.packing import has_results, pack_variant
+    from numcalckit.status import numcalc_pids
 
     models = load(study_dir)
     names = select(models, args.variant)
@@ -723,7 +723,7 @@ def cmd_estimate_ram(study_dir, args):
     the very solve this estimate exists to size — backwards. Exporting is
     cheap, deterministic, and writes nothing NumCalc's results depend on.
     """
-    from pynumcalc.status import numcalc_pids
+    from numcalckit.status import numcalc_pids
 
     if shutil.which("NumCalc") is None:
         sys.exit("NumCalc not found on PATH — install Mesh2HRTF's NumCalc "
@@ -785,7 +785,7 @@ def cmd_ps(study_dir, args):
     this reads the answer straight off a /proc scan.
     """
     from bemkit.study import load_study
-    from pynumcalc.status import available_bins, scan_numcalc
+    from numcalckit.status import available_bins, scan_numcalc
 
     jobs = scan_numcalc()
     if not jobs:

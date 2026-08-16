@@ -9,7 +9,7 @@ several processes and merging is a no-op.
 ``LocalRunner`` is the only implemented backend. Remote backends (SSH,
 scheduler, cloud batch) implement the same ``Runner`` interface: transfer
 the bundle, start NumCalc, report process state, bring results back. Bin
-completion is *not* tracked here — ``pynumcalc.status`` derives it from
+completion is *not* tracked here — ``numcalckit.status`` derives it from
 ``be.out/`` itself.
 """
 
@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from pynumcalc.status import missing_bins
+from numcalckit.status import missing_bins
 
 
 @dataclass(frozen=True)

@@ -1,13 +1,13 @@
 # The monorepo root is not a package. Each of packages/* is its own
-# distribution and installs on its own — pynumcalc without bemkit. For a full
+# distribution and installs on its own — numcalckit without bemkit. For a full
 # development environment, one command:
 #
-#     pip install -e packages/pynumcalc -e packages/bemkit
+#     pip install -e packages/numcalckit -e packages/bemkit
 #
 # This file exists only so `pytest` from the root runs both suites.
 
 [tool.pytest.ini_options]
 testpaths = [
-    "packages/pynumcalc/tests",
+    "packages/numcalckit/tests",
     "packages/bemkit/tests",
 ]

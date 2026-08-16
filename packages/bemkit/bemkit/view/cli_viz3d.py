@@ -127,7 +127,7 @@ def _load_bc_elements(nc_dir):
     the solver was actually given, so a stale bundle looks stale instead of
     silently showing the model.py you have now.
     """
-    from pynumcalc.readers import read_nc_inp_boundary_conditions
+    from numcalckit.readers import read_nc_inp_boundary_conditions
 
     nc_inp_file = nc_dir / "NC.inp"
     if nc_inp_file.exists():
@@ -139,7 +139,7 @@ def cmd_geometry(study_dir, args):
     from bemkit.cli import require
     require("pyvista", "view")
 
-    from pynumcalc.readers import (
+    from numcalckit.readers import (
         read_object_mesh_nodes, read_object_mesh_elements, read_eval_grid_nodes,
         read_nc_inp_symmetry,
     )

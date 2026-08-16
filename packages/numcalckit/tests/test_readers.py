@@ -1,10 +1,10 @@
-"""Tests for pynumcalc.readers — all reader functions with synthetic files."""
+"""Tests for numcalckit.readers — all reader functions with synthetic files."""
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from pynumcalc.readers import (
+from numcalckit.readers import (
     read_eval_grid_nodes,
     read_object_mesh_nodes,
     read_object_mesh_elements,

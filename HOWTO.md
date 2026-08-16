@@ -20,7 +20,7 @@ There is no config grammar. `model.py` calls plain Python functions from
 
 ```bash
 # Install both packages + optional deps
-pip install -e packages/pynumcalc -e "packages/bemkit[all]"
+pip install -e packages/numcalckit -e "packages/bemkit[all]"
 #   ...or a subset: bemkit[meshing] for gmsh, bemkit[view] for the 3D viewers,
 #   bemkit[analytic] for scipy (the sphcap analytic reference)
 #   Without installing: use `python -m bemkit.cli ...` instead of `bem ...`
@@ -525,7 +525,7 @@ on you before the first solve.
 NumCalc's own solver knobs — `bem_type` (TBEM/SLFMBEM/DMLFMBEM),
 `isolver` (iterative vs. direct), `cluster_edge_length` (FMM bounding box),
 `preconditioner` (incomplete-LU depth), `min_expansion_terms` — live on
-`pynumcalc.deck.Deck` with NumCalc's own defaults, and `Deck.validate` still
+`numcalckit.deck.Deck` with NumCalc's own defaults, and `Deck.validate` still
 rejects the two combinations NumCalc accepts and silently downgrades
 (`isolver=4` with an FMM `bem_type`; `preconditioner` alongside `isolver=4`).
 But nothing on the `Model` → `NumCalcSolver` path sets them yet — there is no
@@ -535,7 +535,7 @@ means calling the translation yourself instead of `NumCalcSolver.solve`:
 ```python
 from bemkit.solvers.numcalc import model_to_deck
 from bemkit.solvers import fieldpoints
-from pynumcalc.meshfiles import (
+from numcalckit.meshfiles import (
     write_object_mesh, write_eval_grid_nodes, write_eval_grid_elements,
 )
 
@@ -550,7 +550,7 @@ n_eval_elements = write_eval_grid_elements(len(points), workdir)
 deck = model_to_deck(model, n_eval_nodes=len(points), n_eval_elements=n_eval_elements)
 deck.cluster_edge_length = 0.05      # any Deck field
 deck.write(workdir / "NC.inp")
-# then run NumCalc yourself, e.g. `pynumcalc.run_jobs`, or `cd workdir && NumCalc`
+# then run NumCalc yourself, e.g. `numcalckit.run_jobs`, or `cd workdir && NumCalc`
 ```
 
 Reach for this only when a run actually misbehaves:

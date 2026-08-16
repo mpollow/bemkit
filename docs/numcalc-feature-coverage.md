@@ -35,7 +35,7 @@ against bemkit's current 10 631. What did not scale was the **threading cost**:
 the tests and `HOWTO.md`. That is now fixed — `bemkit/numcalc/` is a deck module
 with no inward imports (§4, built in §5.1), so a new setting is one field plus
 one line each in `write()`/`read()`, and the layer stays extractable as a
-standalone `pynumcalc` if it ever earns its own distribution.
+standalone `numcalckit` if it ever earns its own distribution.
 
 ---
 
@@ -376,7 +376,7 @@ reconsidering).
 
 ---
 
-## 4. Architecture: does a standalone `pynumcalc` make sense?
+## 4. Architecture: does a standalone `numcalckit` make sense?
 
 The question behind this document: if bemkit grows to cover every NumCalc
 setting, on top of meshing, analysis, visualization, a CLI and a web exporter,
@@ -444,7 +444,7 @@ Four things this buys:
    100% without a TOML key per NumCalc field. This is what makes "support
    everything" compatible with "keep the config legible".
 2. **The extraction seam, for free.** A module with no inward imports becomes
-   `pynumcalc` via `git mv` plus a compatibility shim, on the day it is wanted.
+   `numcalckit` via `git mv` plus a compatibility shim, on the day it is wanted.
 3. **Immediate value, not deferred.** `Deck.read()` collapses today's two ad-hoc
    NC.inp re-parsers — `read_nc_inp_boundary_conditions` (`sim/readers.py:135`)
    and `read_nc_inp_symmetry` (`:195`) — into one tested reader. The variant
@@ -476,7 +476,7 @@ the extraction option is quietly lost.
 ### 4.5 The extraction trigger
 
 Naming the trigger is what makes deferral honest rather than indefinite. Extract
-`pynumcalc` as its own distribution when **either**:
+`numcalckit` as its own distribution when **either**:
 
 - a second consumer needs decks without bemkit's meshing and analysis stack, **or**
 - the deck library is offered upstream or published — for which there is a real
@@ -497,7 +497,7 @@ library:
   default and, as the paper puts it, "will produce *some* results, and it is up to
   the user to check the validity". That is the gap where bemkit adds value the
   solver does not — and it needs the meshing layer, so it could never live in
-  `pynumcalc` anyway.
+  `numcalckit` anyway.
 
 ---
 
@@ -509,7 +509,7 @@ is kept as the historical record of what shipped and why. The restructure
 documented in `docs/superpowers/specs/2026-08-12-fresh-structure-design.md`
 deleted that config grammar entirely and replaced it with a Python
 `model.py` over `bemkit.model.Model`; `bemkit/numcalc/` became
-`bemkit/solvers/numcalc.py` + `pynumcalc`. Every *capability* landed here
+`bemkit/solvers/numcalc.py` + `numcalckit`. Every *capability* landed here
 (CURVES, solver knobs, non-uniform frequencies, mesh diagnostics, CLI flags)
 carried forward to the new architecture — see `CLAUDE.md` for where each one
 lives now — except the four solver knobs (§5.3) and mirror-plane symmetry

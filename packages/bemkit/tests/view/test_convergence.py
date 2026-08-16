@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 
 import pytest
 
-from pynumcalc.status import BinRecord
+from numcalckit.status import BinRecord
 from bemkit.view.convergence import CRITICAL, plot_convergence
 
 

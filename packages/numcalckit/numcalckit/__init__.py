@@ -13,7 +13,7 @@ publishing this layer as a standalone package (see
 
 Typical use — write a deck, run it, read the results back::
 
-    from pynumcalc import Deck, BC, Job, LocalRunner, load_bins
+    from numcalckit import Deck, BC, Job, LocalRunner, load_bins
 
     deck = Deck(title="sphere", frequencies=np.array([250.0, 500.0]),
                 n_total_nodes=..., n_total_elements=...,
@@ -25,25 +25,25 @@ Typical use — write a deck, run it, read the results back::
 The names below are this layer's public surface; everything else is internal.
 """
 
-from pynumcalc.deck import (
+from numcalckit.deck import (
     BC, BC_KINDS, Curve, Deck, Source, parse_bc_line,
 )
-from pynumcalc.meshfiles import (
+from numcalckit.meshfiles import (
     write_eval_grid_elements, write_eval_grid_nodes, write_object_mesh,
 )
-from pynumcalc.readers import (
+from numcalckit.readers import (
     QUANTITIES, list_bins, load_bins, read_eval_grid_nodes,
     read_nc_inp_boundary_conditions, read_nc_inp_symmetry,
     read_object_mesh_elements, read_object_mesh_nodes,
 )
-from pynumcalc.packing import (
+from numcalckit.packing import (
     clear_pack, has_results, is_packed, pack_variant, unpack_variant,
 )
-from pynumcalc.status import (
+from numcalckit.status import (
     CGS_TOLERANCE, NITER_MAX_DEFAULT, BinRecord, available_bins, convergence,
     is_complete, missing_bins, numcalc_pids, scan_numcalc, solver_warnings,
 )
-from pynumcalc.runner import (
+from numcalckit.runner import (
     Job, LocalRunner, Runner, plan_jobs, run_jobs,
 )
 

@@ -70,7 +70,7 @@ def ghost_geometry(nodes, elements, symmetry):
         nodes: (N, 3) vertex coordinates of the meshed surface
         elements: (M, 3) triangle connectivity
         symmetry: ``{"planes": [...], "coordinates": [...]}`` as returned by
-            ``pynumcalc.readers.read_nc_inp_symmetry``, or None
+            ``numcalckit.readers.read_nc_inp_symmetry``, or None
 
     Returns:
         A ``GhostGeometry``, or None when there is nothing to mirror — the

@@ -191,9 +191,9 @@ class Results:
         every load.
 
         Missing bins (a partial run) come back as NaN, distinct from a bin
-        that solved to an actual zero — see ``pynumcalc.load_bins``.
+        that solved to an actual zero — see ``numcalckit.load_bins``.
         """
-        from pynumcalc import load_bins
+        from numcalckit import load_bins
 
         workdir = Path(workdir)
         frequencies = np.asarray(frequencies, dtype=float)

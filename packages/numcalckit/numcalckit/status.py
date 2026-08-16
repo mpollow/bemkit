@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pynumcalc.readers import complete_bins
+from numcalckit.readers import complete_bins
 
 
 def available_bins(nc_dir):

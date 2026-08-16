@@ -328,9 +328,9 @@ def test_force_recomputes_everything_and_clears_be_out(study, monkeypatch):
 
 
 def _pretend_running(monkeypatch, wd, pids=(4321,)):
-    """Make pynumcalc's /proc scan report `wd` busy, through the real
+    """Make numcalckit's /proc scan report `wd` busy, through the real
     running_variants -- patching _busy would test the patch."""
-    import pynumcalc.status as status
+    import numcalckit.status as status
     monkeypatch.setattr(status, "numcalc_pids",
                         lambda d: list(pids) if Path(d) == wd else [])
 
@@ -363,7 +363,7 @@ def test_restart_kills_and_then_proceeds(study, monkeypatch, capsys):
     killed = []
     calls = {"n": 0}
 
-    import pynumcalc.status as status
+    import numcalckit.status as status
 
     def pids(d):
         # Busy on the pre-flight and the first _solve_foreground look, idle
@@ -678,7 +678,7 @@ def test_an_unmatched_variant_names_what_exists(sphcap):
 
 
 def test_ps_with_nothing_running(monkeypatch, capsys):
-    import pynumcalc.status as status
+    import numcalckit.status as status
     monkeypatch.setattr(status, "scan_numcalc", lambda: {})
     main([".", "ps"])
     assert capsys.readouterr().out == "No NumCalc processes running.\n"
@@ -687,7 +687,7 @@ def test_ps_with_nothing_running(monkeypatch, capsys):
 def test_ps_reads_the_total_from_the_study(study, monkeypatch, capsys):
     """The done/total column's total comes from model.py, one level up from
     the layout `bem` used to walk (runs/<solver>/<variant>)."""
-    import pynumcalc.status as status
+    import numcalckit.status as status
     wd = _commands.workdir(study, "default")
     fake_bins(wd, [1, 2])
     monkeypatch.setattr(status, "scan_numcalc", lambda: {wd: [111, 222]})
@@ -701,7 +701,7 @@ def test_ps_reads_the_total_from_the_study(study, monkeypatch, capsys):
 
 def test_ps_falls_back_to_a_bare_count_for_an_unreadable_study(
         study, monkeypatch, capsys):
-    import pynumcalc.status as status
+    import numcalckit.status as status
     wd = _commands.workdir(study, "default")
     fake_bins(wd, [1, 2])
     (study / "model.py").write_text("raise RuntimeError('broken study')\n")
@@ -713,7 +713,7 @@ def test_ps_falls_back_to_a_bare_count_for_an_unreadable_study(
 
 def test_ps_shows_the_raw_path_for_a_hand_launched_run(tmp_path, monkeypatch,
                                                        capsys):
-    import pynumcalc.status as status
+    import numcalckit.status as status
     odd = tmp_path / "somewhere" / "else"
     fake_bins(odd, [1])
     monkeypatch.setattr(status, "scan_numcalc", lambda: {odd: [7]})
@@ -816,5 +816,5 @@ def test_estimate_ram_exports_the_bundle_itself(sphcap, capsys):
     assert "bin 64 (16000 Hz)" in out
     # Clustering only: no bin was solved (NumCalc still makes the be.out/
     # shell, so the claim has to be about its contents).
-    from pynumcalc.status import available_bins
+    from numcalckit.status import available_bins
     assert available_bins(sphcap / "runs" / "numcalc" / "coarse") == []

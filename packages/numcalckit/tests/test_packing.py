@@ -1,17 +1,17 @@
-"""Tests for pynumcalc.packing — be.out -> be.npz."""
+"""Tests for numcalckit.packing — be.out -> be.npz."""
 
 import numpy as np
 import pytest
 
-from pynumcalc.packing import (
+from numcalckit.packing import (
     clear_pack,
     has_results,
     is_packed,
     pack_variant,
     unpack_variant,
 )
-from pynumcalc.readers import load_bins
-from pynumcalc.status import available_bins
+from numcalckit.readers import load_bins
+from numcalckit.status import available_bins
 
 
 @pytest.fixture()
@@ -61,12 +61,12 @@ class TestPackVariant:
             np.testing.assert_array_equal(nz["bin_indices"], [1])
             assert np.all(np.isnan(nz["pEvalGrid"][:, 1]))
             assert not np.any(np.isnan(nz["pBoundary"][:, 1]))
-        from pynumcalc.status import missing_bins
+        from numcalckit.status import missing_bins
         assert 2 in missing_bins(numcalc_dir, nf=2)
 
     def test_round_trip_values(self, numcalc_dir):
         """Values written to be.npz match raw ASCII reads within complex64 precision."""
-        from pynumcalc.readers import _read_numcalc_data, _read_numcalc_velocity_data
+        from numcalckit.readers import _read_numcalc_data, _read_numcalc_velocity_data
 
         ascii_pE_b1 = _read_numcalc_data(numcalc_dir / "be.out" / "be.1" / "pEvalGrid")
         ascii_vE_b2 = _read_numcalc_velocity_data(numcalc_dir / "be.out" / "be.2" / "vEvalGrid")
@@ -117,8 +117,8 @@ class TestPackVariant:
 
     def test_verify_round_trip_catches_corruption(self, numcalc_dir):
         """The pre-delete gate must reject a be.out/ that diverges from be.npz."""
-        from pynumcalc.packing import _verify_round_trip, _write_ascii_quantity
-        from pynumcalc.readers import _read_numcalc_data, list_bins
+        from numcalckit.packing import _verify_round_trip, _write_ascii_quantity
+        from numcalckit.readers import _read_numcalc_data, list_bins
 
         pack_variant(numcalc_dir, verbose=False)  # keeps be.out/
         be_out = numcalc_dir / "be.out"
@@ -139,7 +139,7 @@ class TestPackedReadsMatchAscii:
     This is the contract the whole packing feature rests on: be.npz shadows
     be.out/ everywhere, so a reader that disagrees between the two silently
     changes results the moment someone runs ``bem pack``. The parity used to
-    be asserted through bemkit's ``SimulationData``, which made a pynumcalc
+    be asserted through bemkit's ``SimulationData``, which made a numcalckit
     test depend on bemkit — the one direction the split forbids. ``load_bins``
     *is* the reader ``SimulationData`` was calling, so asserting on it tests
     the same behaviour one layer closer, and with no upward import.

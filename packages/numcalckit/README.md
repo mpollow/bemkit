@@ -1,4 +1,4 @@
-# pynumcalc
+# numcalckit
 
 The [NumCalc](https://github.com/Any2HRTF/Mesh2HRTF) solver contract as a Python
 package: read and write `NC.inp` input decks, read `be.out/` results, and run and
@@ -9,7 +9,7 @@ meshes, config files, or any particular modelling workflow. Those live in
 [bemkit](../bemkit).
 
 ```python
-from pynumcalc import Deck, BC, Job, run_jobs, load_bins
+from numcalckit import Deck, BC, Job, run_jobs, load_bins
 
 deck = Deck(title="sphere", frequencies=np.array([250.0, 500.0]),
             n_total_nodes=..., n_total_elements=...,

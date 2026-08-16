@@ -1,4 +1,4 @@
-"""Tests for pynumcalc.deck — the NC.inp document model.
+"""Tests for numcalckit.deck — the NC.inp document model.
 
 The load-bearing test here is the round trip: ``Deck.read(deck.write(p)) == deck``
 over a corpus covering every section. That single property is what keeps
@@ -8,7 +8,7 @@ over a corpus covering every section. That single property is what keeps
 import numpy as np
 import pytest
 
-from pynumcalc.deck import BC, Curve, Deck, Source, _contiguous_ranges
+from numcalckit.deck import BC, Curve, Deck, Source, _contiguous_ranges
 
 
 class TestContiguousRanges:

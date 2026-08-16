@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from pynumcalc.runner import (
+from numcalckit.runner import (
     Job, LocalRunner, missing_ranges, plan_jobs, run_jobs,
 )
 
@@ -256,23 +256,23 @@ class TestSolverFlags:
     CLI never forwards a raw string — solver_flags builds the list."""
 
     def test_empty_by_default(self):
-        from pynumcalc.runner import solver_flags
+        from numcalckit.runner import solver_flags
         assert solver_flags() == ()
 
     def test_builds_each_flag(self):
-        from pynumcalc.runner import solver_flags
+        from numcalckit.runner import solver_flags
         assert solver_flags(nitermax=500) == ("-nitermax", "500")
         assert solver_flags(check_normals=True) == ("-check_normals",)
         assert solver_flags(adapt_fmmlength=True) == ("-adapt_fmmlength",)
 
     @pytest.mark.parametrize("bad", [0, -5, 1.5, True, "many"])
     def test_rejects_bad_nitermax(self, bad):
-        from pynumcalc.runner import solver_flags
+        from numcalckit.runner import solver_flags
         with pytest.raises(ValueError, match="positive integer"):
             solver_flags(nitermax=bad)
 
     def test_options_ride_along_on_every_planned_job(self, tmp_path):
-        from pynumcalc.runner import plan_jobs
+        from numcalckit.runner import plan_jobs
         (tmp_path / "a").mkdir()
         jobs = plan_jobs([("a", tmp_path / "a")], 8,
                          options=("-nitermax", "500"))

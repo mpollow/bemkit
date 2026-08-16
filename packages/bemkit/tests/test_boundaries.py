@@ -13,8 +13,8 @@ The spine runs bottom-up and imports one way only::
 * ``cli/`` may use heavy layers, but only inside functions, so ``bem --help``
   does not pay for pyvista.
 
-One boundary is enforced by packaging as well as by these tests: ``pynumcalc``
-(packages/pynumcalc) imports nothing from bemkit and needs only numpy.
+One boundary is enforced by packaging as well as by these tests: ``numcalckit``
+(packages/numcalckit) imports nothing from bemkit and needs only numpy.
 ``bemkit/view/`` used to be a third distribution (``bemviz``) and is now a
 layer inside this one, so its isolation is enforced only here — the display
 stack is a ``bemkit[view]`` extra, and the rules below are what keep it
@@ -27,7 +27,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parents[1] / "bemkit"
 #: packages/bemkit/tests -> packages/bemkit -> packages -> repo root
 REPO = Path(__file__).resolve().parents[3]
-PYNUMCALC = REPO / "packages" / "pynumcalc" / "pynumcalc"
+PYNUMCALC = REPO / "packages" / "numcalckit" / "numcalckit"
 
 VIZ_LIBS = ("pyvista", "matplotlib")
 #: bemkit layers that must stay free of a display stack. Everything that
@@ -109,10 +109,10 @@ def test_glue_imports_heavy_layers_only_lazily():
 
 
 def test_numcalc_never_imports_bemkit():
-    """pynumcalc is the NumCalc format and process layer: it knows the NC.inp
+    """numcalckit is the NumCalc format and process layer: it knows the NC.inp
     grammar, be.out and the solver binary, and nothing about models, meshes or
     variants. It is a separate distribution, and this keeps it one — bemkit
-    may import pynumcalc, never the reverse.
+    may import numcalckit, never the reverse.
     """
     bad = []
     for f in sorted(PYNUMCALC.rglob("*.py")):
@@ -120,11 +120,11 @@ def test_numcalc_never_imports_bemkit():
             if mod == "bemkit" or mod.startswith("bemkit."):
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], (
-        "pynumcalc must not import from bemkit:\n  " + "\n  ".join(bad))
+        "numcalckit must not import from bemkit:\n  " + "\n  ".join(bad))
 
 
 def test_numcalc_tests_never_import_bemkit():
-    """The rule covers the suite too. A pynumcalc test that reaches for a
+    """The rule covers the suite too. A numcalckit test that reaches for a
     bemkit reader is testing the wrong layer, and it silently makes the
     distribution un-installable on its own."""
     tests = PYNUMCALC.parent / "tests"
@@ -134,7 +134,7 @@ def test_numcalc_tests_never_import_bemkit():
             if mod == "bemkit" or mod.startswith("bemkit."):
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], (
-        "the pynumcalc suite must not import from bemkit:\n  "
+        "the numcalckit suite must not import from bemkit:\n  "
         + "\n  ".join(bad))
 
 
@@ -148,7 +148,7 @@ def test_numcalc_uses_only_stdlib_and_numpy():
             if mod.split(".")[0] in banned:
                 bad.append(f"{f.name}:{lineno} imports {mod}")
     assert bad == [], (
-        "pynumcalc may only use stdlib and numpy:\n  " + "\n  ".join(bad))
+        "numcalckit may only use stdlib and numpy:\n  " + "\n  ".join(bad))
 
 
 def test_model_layer_imports_nothing_of_ours():
@@ -178,7 +178,7 @@ def test_model_layer_needs_only_numpy():
     ``tests/test_public_api.py`` pins from the other side by asserting
     ``import bemkit.model`` leaves scipy out of ``sys.modules``.
     """
-    banned = ("meshio", "gmsh", "scipy", "matplotlib", "pyvista", "pynumcalc")
+    banned = ("meshio", "gmsh", "scipy", "matplotlib", "pyvista", "numcalckit")
     bad = []
     for f in sorted((PKG / "model").rglob("*.py")):
         allowed = ("scipy",) if f.name == "analytic.py" else ()

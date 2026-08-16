@@ -11,7 +11,7 @@ STUDY export-web`, currently being re-wired onto the new spine).
 
 ## Install
 
-    pip install -e packages/pynumcalc -e "packages/bemkit[all]"
+    pip install -e packages/numcalckit -e "packages/bemkit[all]"
     #   ...or pick extras: bemkit[view] for the 3D viewers, bemkit[meshing]
     #   for gmsh, bemkit[analytic] for the sphcap closed-form reference
 

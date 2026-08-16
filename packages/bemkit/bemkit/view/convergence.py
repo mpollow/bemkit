@@ -6,7 +6,7 @@ reached, and what that cost in wall-clock seconds.
 
 The data is what NumCalc prints once per frequency step; there is no
 per-iteration residual trace in its logs, so the x-axis here is frequency and
-never iteration number. :func:`pynumcalc.status.convergence` does the reading;
+never iteration number. :func:`numcalckit.status.convergence` does the reading;
 this module is only the drawing.
 
 The layout is an **envelope**, not one colour per variant: a study routinely has
@@ -18,7 +18,7 @@ whole point, since an outlier is the bin worth looking at.
 
 import numpy as np
 
-from pynumcalc.status import CGS_TOLERANCE, NITER_MAX_DEFAULT
+from numcalckit.status import CGS_TOLERANCE, NITER_MAX_DEFAULT
 
 #: Type scale. matplotlib's defaults are sized for a small figure; on a
 #: 13-inch canvas they swamp the data, which is the one thing the reader is
@@ -158,7 +158,7 @@ def plot_convergence(records_by_variant, *, title=None,
 
     Args:
         records_by_variant: ``{variant: [BinRecord, ...]}`` from
-            :func:`pynumcalc.status.convergence`. Variants with no records are
+            :func:`numcalckit.status.convergence`. Variants with no records are
             dropped — a run whose logs were deleted has nothing to say here,
             and an empty row would read as a solve that took zero iterations.
         title: figure suptitle.
