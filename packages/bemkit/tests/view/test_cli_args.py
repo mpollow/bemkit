@@ -28,6 +28,7 @@ def _parse(argv):
 
 @pytest.mark.parametrize("argv", [["x", "geometry", "--help"],
                                   ["x", "results", "--help"],
+                                  ["x", "convergence", "--help"],
                                   ["x", "export-web", "--help"]])
 def test_help_exits_zero_through_the_real_cli(argv):
     """--help must work for every view subcommand, including export-web's,
@@ -60,7 +61,8 @@ def test_geometry_still_accepts_the_superseded_show_edges_flag():
     assert _parse(["geometry", "--show-edges"]).no_edges is False
 
 
-@pytest.mark.parametrize("command", ["geometry", "results", "export-web"])
+@pytest.mark.parametrize("command",
+                         ["geometry", "results", "convergence", "export-web"])
 def test_variant_flag_accumulates_across_repeats_and_spaces(command):
     """bemkit's VariantAction, exercised through the view parsers.
 
@@ -112,6 +114,40 @@ class TestResultsRefusesBeforeItOpensAWindow:
         with pytest.raises(SystemExit) as e:
             cmd_results(tmp_path, _parse(["results"]))
         assert "solve" in str(e.value)
+
+
+class TestConvergenceReadsOnly:
+    """It reports on a run; it must never alter one."""
+
+    MODEL = ("from bemkit.model import Mesh, Model\n"
+             "import numpy as np\n"
+             "def build():\n"
+             "    v = np.array([[0.,0,0],[1,0,0],[0,1,0],[0,0,1]])\n"
+             "    t = np.array([[0,1,2],[0,1,3],[1,2,3],[0,2,3]])\n"
+             "    return Model(Mesh(v, t), [100.0])\n")
+
+    def test_a_study_with_no_logs_says_where_they_went(self, tmp_path):
+        """Logs are gitignored and `solve --force` deletes them, so their
+        absence is ordinary and needs an explanation, not a traceback."""
+        from bemkit.view.cli_convergence import cmd_convergence
+        (tmp_path / "model.py").write_text(self.MODEL)
+        with pytest.raises(SystemExit) as e:
+            cmd_convergence(tmp_path, _parse(["convergence"]))
+        assert "No NC*.out logs" in str(e.value)
+
+    def test_reading_logs_does_not_export_a_bundle(self, tmp_path):
+        """`prepared_bundles` would write an NC.inp for a missing bundle.
+        Reporting on a run must not create one."""
+        from bemkit.view.cli_convergence import cmd_convergence
+        (tmp_path / "model.py").write_text(self.MODEL)
+        wd = tmp_path / "runs" / "numcalc" / "default"
+        wd.mkdir(parents=True)
+        (wd / "NC1-1.out").write_text(
+            "Step 1, Frequency = 100 Hz\n"
+            "CGS solver: number of iterations = 7, relative error = 1e-11\n")
+        cmd_convergence(tmp_path, _parse(["convergence", "--no-plot"]))
+        assert not (wd / "NC.inp").exists()
+        assert not (wd / "ObjectMesh").exists()
 
 
 class TestExportWebStillRefusesCleanly:

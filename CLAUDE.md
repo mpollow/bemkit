@@ -15,14 +15,15 @@ packages/
 │                       #   readers.py   — be.out parsers, load_bins
 │                       #   packing.py   — be.out/ <-> be.npz
 │                       #   runner.py    — Job/Runner/plan_jobs/solver_flags
-│                       #   status.py    — bins, solver warnings, /proc scan
+│                       #   status.py    — bins, convergence, warnings, /proc scan
 └── bemkit/             modelling + solving + results + 3D inspection
     └── bemkit/         #   model/     — Mesh, Model, selectors, conditions, sources,
                         #                field generators (numpy only, no I/O)
                         #   geometry/  — load_mesh, gmsh generation, mmg, quality  [gmsh]
                         #   solvers/   — Solver protocol, NumCalcSolver, BemppSolver
                         #   results/   — Results, stores, acc normalization
-                        #   view/      — BEMScene / ResultsViewer (3D), web export  [view]
+                        #   view/      — BEMScene / ResultsViewer (3D),
+                        #                convergence plots, web export  [view]
                         #   cli/       — the `bem` entry point
                         #   study.py   — model.py / params.toml / runs/ layout
 ```
@@ -401,6 +402,10 @@ bem models/sphcap estimate-ram --all-bins
 bem models/sphcap pack                  # be.out/ -> be.npz (~4x shrink), be.out/ removed
 bem models/sphcap pack --keep-original
 
+bem models/sphcap convergence           # solver quality per bin [view extra]
+bem models/sphcap convergence --no-plot     # the summary table alone, no matplotlib
+bem models/sphcap convergence --save q.png
+
 bem ps                                  # every running NumCalc, any study (ignores STUDY_DIR)
 
 # --variant filters by prefix, repeatable, goes AFTER the subcommand:
@@ -459,6 +464,32 @@ Bin presence ≠ convergence: `pynumcalc.status.solver_warnings` scans
 `NC*.out` for NumCalc's two non-convergence strings and both `status`/`solve`
 surface them — usually a defective mesh, fixed by re-meshing rather than
 raising `--nitermax`.
+
+`convergence` is the quantity behind that bit. `pynumcalc.status.convergence`
+reads the summary line NumCalc writes once per step (`CGS solver: number of
+iterations = N, relative error = E`, `NC_CommonFunctions.cpp:1222`) into
+`BinRecord`s — iterations, final residual, the per-step assemble/solve/post
+seconds, and any warning, per bin. Two constants come from the same source and
+are what `.converged` and the plot's reference lines are measured against:
+`CGS_TOLERANCE = 1e-9` (`ErroIterSols`, `:83`) and `NITER_MAX_DEFAULT = 1500`
+(`niter_max`, `:84`) — note the solver stops at **1e-9**, not the 1e-6 the
+comment at `deck.py:243` implies. There is **no per-iteration residual trace**
+in NumCalc's logs, so a residual-vs-iteration curve is not available; frequency
+is the only x-axis these plots can have.
+
+Resumes leave overlapping logs in one variant directory (bins 1-45, then 34-45,
+then 47-64…), so records are merged newest-first, and **a newer record without
+a solve never displaces an older one that has one** — otherwise a run still in
+flight, or killed after printing its step header, would blank out the bin the
+results on disk actually came from.
+
+`bem STUDY convergence` (`bemkit.view.convergence`, [view extra]) draws three
+panels over one log-frequency axis: iterations, final residual against the
+tolerance line, and seconds split into assemble/solve/post. Variants are an
+**envelope** — min-max band, median, thin grey traces — not one colour each: a
+study routinely has more variants than any categorical palette has slots, so
+only outliers and non-converged bins are coloured and named. `--no-plot` prints
+the summary table alone and needs nothing but `pynumcalc`.
 
 ## Unit Conventions
 
@@ -554,16 +585,19 @@ nmax)` → raw pressure array. It is the reference `models/sphcap` and the
 
 ## Visualization: `bemkit.view`
 
-3D inspection only (the `view` extra: pyvista + matplotlib, lazy-imported).
+Inspection only (the `view` extra: pyvista + matplotlib, lazy-imported).
 `BEMScene` renders 3D scenes, `ResultsViewer` drives the interactive `bem
-STUDY results` viewer on top of it, `bemkit.view.web.export_web` writes an
-auralizer bundle for the separate `bemkit-auralizer` framework — but
-**`export-web` currently refuses**: it was written against the config.toml
-stack and has not been ported to the `model.py` spine, so it names the piece
-that is missing rather than failing somewhere inside. The 2D plotting family
-(`bem MODEL plot`: freq/ir/polar/isobaric/…) was removed on 2026-08-12 —
-recover it from git history (`git show 2535eba:packages/bemviz/bemviz/viz/freq.py`)
-if it is wanted back.
+STUDY results` viewer on top of it, `convergence.plot_convergence` draws the
+solver-health figure (see `bem STUDY convergence`, above),
+`bemkit.view.web.export_web` writes an auralizer bundle for the separate
+`bemkit-auralizer` framework — but **`export-web` currently refuses**: it was
+written against the config.toml stack and has not been ported to the `model.py`
+spine, so it names the piece that is missing rather than failing somewhere
+inside. The 2D plotting family for *results* (`bem MODEL plot`:
+freq/ir/polar/isobaric/…) was removed on 2026-08-12 — recover it from git
+history (`git show 2535eba:packages/bemviz/bemviz/viz/freq.py`) if it is wanted
+back. `convergence` is not its return: it plots the solver's own logs, not
+pressure, and takes plain `BinRecord` lists rather than a `Results`.
 
 `bemkit.view` used to be the separate `bemviz` distribution; it is now a layer
 inside `bemkit`, registered directly by `bemkit.cli.main` (not through the

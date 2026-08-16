@@ -9,7 +9,8 @@ and ``tests/test_boundaries.py`` enforces it.
 drives the interactive `bem STUDY results` viewer on top of it, and
 ``export_web`` writes an auralizer bundle.
 
-Adds the `geometry`, `results` and `export-web` subcommands to the `bem` CLI.
+Adds the `geometry`, `results`, `convergence` and `export-web` subcommands to
+the `bem` CLI.
 Registration is a direct, lazily-imported call from ``bemkit.cli`` (see
 ``main``), not an entry point: this used to be the separate ``bemviz``
 distribution, and the ``bemkit.cli`` entry-point group it went through is now
@@ -19,8 +20,11 @@ only what the private ``bemlab`` package uses.
 has not been ported to the model.py spine, so it says which piece is missing
 rather than failing somewhere inside.
 
-The 2D plotting family (`bem MODEL plot`: freq/ir/polar/isobaric/...) was
-removed on 2026-08-12; recover it from git history if it is wanted back.
+The 2D plotting family for *results* (`bem MODEL plot`: freq/ir/polar/
+isobaric/...) was removed on 2026-08-12; recover it from git history if it is
+wanted back. ``convergence`` is not a return of that family — it plots solver
+health from the NC*.out logs, not pressure, and is the picture behind the
+warning counts `bem STUDY status` prints.
 """
 
 from bemkit.view._style import cmap_for_quantity  # noqa: F401
@@ -36,6 +40,7 @@ def __getattr__(name):
 
 def register_cli(sub):
     """Add the view subcommands to the `bem` CLI."""
-    from bemkit.view import cli_viz3d, cli_web
+    from bemkit.view import cli_convergence, cli_viz3d, cli_web
     cli_viz3d.register(sub)
+    cli_convergence.register(sub)
     cli_web.register(sub)

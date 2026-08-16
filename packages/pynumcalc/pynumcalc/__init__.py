@@ -40,8 +40,8 @@ from pynumcalc.packing import (
     clear_pack, has_results, is_packed, pack_variant, unpack_variant,
 )
 from pynumcalc.status import (
-    available_bins, is_complete, missing_bins, numcalc_pids, scan_numcalc,
-    solver_warnings,
+    CGS_TOLERANCE, NITER_MAX_DEFAULT, BinRecord, available_bins, convergence,
+    is_complete, missing_bins, numcalc_pids, scan_numcalc, solver_warnings,
 )
 from pynumcalc.runner import (
     Job, LocalRunner, Runner, plan_jobs, run_jobs,
@@ -61,6 +61,7 @@ __all__ = [
     # status
     "available_bins", "missing_bins", "is_complete", "solver_warnings",
     "numcalc_pids", "scan_numcalc",
+    "convergence", "BinRecord", "CGS_TOLERANCE", "NITER_MAX_DEFAULT",
     # running
     "Job", "Runner", "LocalRunner", "plan_jobs", "run_jobs",
 ]
