@@ -6,3 +6,10 @@ from bemkit.geometry.io import (
     read_mesh_physical_groups, element_areas, mirror_mesh,
 )
 from bemkit.geometry.load import SCALE_BY_SUFFIX, load_mesh
+from bemkit.geometry.generate import (
+    mesh_from_step, mesh_from_surface, mesh_sphere_cap,
+)
+from bemkit.geometry.sizing import (
+    distance_field, edge_field, geodesic_field, patch_edge_curves,
+    uniform_field,
+)

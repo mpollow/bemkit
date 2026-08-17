@@ -42,6 +42,90 @@ def distance_field(lc_min, lc_max, dist_min, dist_max):
                  "dist_min": dist_min, "dist_max": dist_max})
 
 
+def patch_edge_curves(gmsh, sources):
+    """The curves where the surfaces ``sources`` meet surfaces outside them.
+
+    Not the same thing as ``getBoundary(sources)``, and the difference is what
+    makes a rim-refined mesh come out right. A surface of revolution's boundary
+    also contains its **seam** (the meridian where the parametrisation wraps)
+    and, at a pole, a **degenerate** zero-length curve. Both are artefacts of
+    how the surface is described, not features of the shape, and refining
+    towards them would put a fine meridian stripe and a fine spot at the pole
+    into a mesh that was asked for a fine rim.
+
+    Keeping only curves adjacent to at least one surface *not* in ``sources``
+    drops both: a seam and a pole curve each bound their own surface and
+    nothing else. ``combined=True`` already cancels seams that appear twice;
+    this also covers the ones that do not.
+
+    Requires a synchronized model, since it reads topology through
+    ``gmsh.model``.
+    """
+    sources = {int(s) for s in sources}
+    boundary = gmsh.model.getBoundary(
+        [(2, s) for s in sources], oriented=False, combined=True)
+    shared = []
+    for _, tag in boundary:
+        tag = abs(int(tag))
+        faces, _ = gmsh.model.getAdjacencies(1, tag)
+        if any(int(f) not in sources for f in faces):
+            shared.append(tag)
+    return shared
+
+
+def edge_field(lc_min, lc_max, dist_min, dist_max, *, curves=None,
+               sampling=200):
+    """Distance from *curves* rather than faces → gmsh Distance+Threshold.
+
+    The other builders measure from the driven surface, which refines the whole
+    patch. This one measures from its **edge**, so the refinement is a band
+    around a one-dimensional feature: the rim of a vibrating cap (where the
+    velocity boundary condition jumps and the faceted rim under-represents the
+    true circle), or a sharp geometric edge.
+
+    ``curves=None`` means the curves where ``sources`` *meets the rest of the
+    model* — see :func:`patch_edge_curves` for why that is narrower than
+    "the boundary of the sources". Pass ``curves=[tag, ...]`` for a feature
+    that is not a patch boundary.
+
+    ``sampling`` is how many points gmsh puts along each curve when it
+    evaluates the distance. Its default of 20 leaves a visibly lumpy field on a
+    curve of any length, so this defaults high instead.
+    """
+    def apply(gmsh, sources):
+        tags = ([abs(int(t)) for t in curves] if curves is not None
+                else patch_edge_curves(gmsh, sources))
+        if not tags:
+            raise RuntimeError(
+                "edge_field: no curves to measure from — the sources "
+                f"{list(sources)} do not border any other surface. Pass "
+                "curves=[...] explicitly.")
+        d = gmsh.model.mesh.field.add("Distance")
+        gmsh.model.mesh.field.setNumbers(d, "CurvesList", tags)
+        gmsh.model.mesh.field.setNumber(d, "Sampling", sampling)
+        t = gmsh.model.mesh.field.add("Threshold")
+        gmsh.model.mesh.field.setNumber(t, "IField", d)
+        gmsh.model.mesh.field.setNumber(t, "LcMin", lc_min)
+        gmsh.model.mesh.field.setNumber(t, "LcMax", lc_max)
+        gmsh.model.mesh.field.setNumber(t, "DistMin", dist_min)
+        gmsh.model.mesh.field.setNumber(t, "DistMax", dist_max)
+        gmsh.model.mesh.field.setAsBackgroundMesh(t)
+        # Unlike the face-distance builders, this one has to switch boundary
+        # size extension off. gmsh seeds a surface from its bounding curves and
+        # spreads that size inwards -- and here those curves are the very ones
+        # the field measures from, so lc_min gets carried across the whole
+        # surface and the band stops being a band. Measured on a 30 degree cap:
+        # a (1.33, 5.31) ramp left the far side at 3.5 mm instead of 5.3 and
+        # more than doubled the element count. `configure` still runs after
+        # this and can put it back.
+        gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+        gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    return _tag(apply, "edge",
+                {"lc_min": lc_min, "lc_max": lc_max,
+                 "dist_min": dist_min, "dist_max": dist_max,
+                 "curves": curves, "sampling": sampling})
+
+
 def geodesic_field(lc_min, lc_max, dist_min, dist_max):
     """Over-the-surface distance from `sources` via a two-pass pilot mesh.
 
