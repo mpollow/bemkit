@@ -13,6 +13,8 @@ sphere ``p(r) = -j·rho0·c0·h0(kr) / h0'(ka)`` — which also fixes the
 normalization convention (a unit *velocity* boundary condition) end to end.
 """
 
+import re
+
 import numpy as np
 import pytest
 
@@ -125,3 +127,40 @@ def test_a_partial_cap_is_louder_on_axis_than_behind():
     """A 20° cap is a baffled patch: the front lobe dominates the back."""
     p = _p([[0, 0, 1.0], [0, 0, -1.0]], angle_deg=20.0, nmax=40)
     assert np.all(np.abs(p[0]) > np.abs(p[1]))
+
+
+class TestTruncationOrder:
+    """``nmax`` has a ceiling as well as a floor, which is not obvious.
+
+    ``y_n(x) ~ -(2n-1)!!/x^(n+1)`` overflows to infinity for n well past x, and
+    ``1j * inf`` is ``nan + inf j`` — so asking for a *higher* order does not
+    buy accuracy past that point, it returns NaN. It used to do so silently.
+    """
+
+    POINTS = np.array([[0, 0, 0.3], [0.3, 0, 0], [0, 0, 1.0]])
+    BAND = np.array([250.0, 4000.0, 16000.0])
+
+    def test_the_default_order_is_converged(self):
+        """Chosen from k*r0, and it has to agree with a hand-picked order that
+        is known to work — 80 is what tests/solvers/test_cross_validation.py
+        passes."""
+        auto = _p(self.POINTS, angle_deg=30.0, nmax=None, freqs=self.BAND)
+        pinned = _p(self.POINTS, angle_deg=30.0, nmax=80, freqs=self.BAND)
+        np.testing.assert_allclose(auto, pinned, rtol=1e-9)
+
+    def test_the_default_order_is_finite(self):
+        p = _p(self.POINTS, angle_deg=30.0, nmax=None, freqs=self.BAND)
+        assert np.all(np.isfinite(p))
+
+    def test_an_order_that_would_return_nan_raises_instead(self):
+        with pytest.raises(ValueError, match="not representable"):
+            _p(self.POINTS, angle_deg=30.0, nmax=200, freqs=self.BAND)
+
+    def test_the_refusal_names_an_order_that_works(self):
+        """An error that only says no is a worse reference than one that says
+        what to pass instead — so the order it suggests has to be usable."""
+        with pytest.raises(ValueError) as excinfo:
+            _p(self.POINTS, angle_deg=30.0, nmax=200, freqs=self.BAND)
+        suggested = int(re.search(r"have (\d+) chosen", str(excinfo.value))[1])
+        assert np.all(np.isfinite(
+            _p(self.POINTS, angle_deg=30.0, nmax=suggested, freqs=self.BAND)))
