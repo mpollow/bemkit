@@ -192,6 +192,17 @@ no CLI verb for this — a study's own script (or a one-off line in `model.py`)
 calls it, typically once, ahead of `build()` reading the `.msh` back with
 `load_mesh`.
 
+`mesh_sphere_cap(output_file, sizing, *, radius_mm=50.0, angle_deg=30.0,
+configure=None)` is the third generator and the only parametric one: a rigid
+sphere with a vibrating polar cap, built from two revolved arcs (not a boolean
+cut — the cap edge is then a *shared* curve of the two faces, which is what
+`edge_field` measures from) and grouped `vibrating`/`rigid`. It exists because
+`bemkit.model.analytic.sphcap_pressure` gives that shape an exact answer, so
+sweeping its *discretisation* is a verification rather than a comparison of two
+guesses — `models/sphcap_meshing`. It checks its own output before returning:
+areas against the closed forms, plus watertightness, outward normals and
+vertices on the sphere read back from the written file.
+
 `sizing` builders (`bemkit.geometry.sizing`) install a background size field:
 
 - `uniform_field(h)` — constant element size.
@@ -209,6 +220,21 @@ calls it, typically once, ahead of `build()` reading the `.msh` back with
   non-watertight model) are sized at `lc_max` with a loud warning. Do not
   suppress `Mesh.MeshSizeExtendFromBoundary`/`MeshSizeFromPoints` in this
   pass: measured on `models/sphcap`, doing so overshoots `lc_max` by ~50%.
+- `edge_field(lc_min, lc_max, dist_min, dist_max, *, curves=None,
+  sampling=200)` — distance from *curves* rather than faces, so the refinement
+  is a band around a one-dimensional feature: the rim of a driven cap (where
+  the velocity BC jumps and the faceted rim under-states the true circle), or a
+  sharp geometric edge. `curves=None` resolves to `patch_edge_curves(gmsh,
+  sources)` — the curves where the driven faces meet *other* faces, which is
+  narrower than `getBoundary` and deliberately so: a surface of revolution's
+  boundary also holds its seam and a degenerate curve at each pole, and
+  measuring from those puts a fine meridian stripe and a fine pole into a mesh
+  that asked for a fine rim. Unlike the other builders this one **does** set
+  `Mesh.MeshSizeExtendFromBoundary`/`MeshSizeFromPoints` to 0, because gmsh
+  would otherwise spread `lc_min` from those very curves across the whole
+  surface — measured on a 30° cap, a (1.33, 5.31) ramp left the far side at
+  3.5 mm instead of 5.3 and more than doubled the element count. `configure`
+  still runs afterwards and can put it back.
 
 `bemkit.geometry.mmg.curvature_sizes(mesh, hmin, hmax)` / `write_sol(path,
 sizes)` — per-vertex isotropic sizing from face-normal curvature, for `mmgs`
@@ -223,7 +249,16 @@ underlies both watertightness and orientation. Severities: `error` (the result
 will be wrong), `warning` (likely degraded accuracy), `ok` (checked and fine).
 Driven via `bem STUDY check` (below).
 
-Two checks are worth knowing about. **Orientation** answers a question
+**`elements_per_wavelength` misjudges a graded mesh**, and knowingly: it
+measures the globally longest edge, so a mesh that puts its coarse elements
+where the field is weak fails on the strength of its cheapest region. Measured
+in `models/sphcap_meshing`, it rejects the two meshes that are the *most*
+accurate per element in the whole study (1.2 el/λ reported; 3× fewer elements
+than the uniform mesh of equal accuracy). It is right about every uniform mesh
+and has no way to know which group is driven — a per-group version would fix
+it, and does not exist yet.
+
+Two other checks are worth knowing about. **Orientation** answers a question
 NumCalc's own `-check_normals` does not: that flag only verifies normals are
 *consistent*, so a uniformly inverted mesh passes it — `check_mesh` adds the
 signed-volume (divergence theorem) test for *outward*, which the paper calls
@@ -281,7 +316,18 @@ anything outside a deliberately small subset: **exterior** problems only,
 no frequency dependence), **no incident sources**. Formulation: direct
 (non-regularised) exterior Neumann BIE, Galerkin, piecewise-constant on both
 traces — irregular frequencies exist (lowest for a sphere of radius `a` is
-`ka = π`) and are avoided by staying below them, not regularised away.
+`ka = π`) and are avoided by staying below them, not regularised away. **This
+is where the two backends differ**: NumCalc does *not* have that limitation, so
+a cross-validation band has to stay inside bempp's, not NumCalc's.
+
+**NumCalc is Burton-Miller.** `NC_EquationSystem.cpp:85` sets the coupling
+constant `zBta3 = i·τ/k` for an exterior problem and `0` for an interior one,
+which is the combined-formulation coupling — so exterior sweeps do not have to
+dodge the interior Dirichlet eigenvalues. That is measured, not merely read:
+`models/sphcap_meshing` sweeps a 50 mm sphere over ka = 0.23 … 14.8, crossing
+dozens of them, and `compare_analytic.py`'s spike check finds no isolated error
+peak on any of its nine meshes.
+
 **Time convention is measured, not assumed**: bempp's kernel is an outgoing
 wave under `e^{-iωt}`, the opposite of NumCalc's `time_factor=-1.0` default,
 so `BemppSolver` conjugates its result for `time_factor=-1.0` and leaves it
@@ -368,6 +414,20 @@ CWD using only relative paths. Solver-in-the-path is what makes cross-
 validation ordinary: `NumCalcSolver` and `BemppSolver` write side by side
 without colliding. `match_variants(names, prefixes)` implements the CLI's
 `--variant` prefix filter, repeatable and space-separated.
+
+### The studies in `models/`
+
+- `sphcap` — a 20° cap on a 50 mm sphere, three meshes from a committed STEP.
+  **A fixture, not a research study**: `tests/solvers/test_cross_validation.py`
+  pins its cap angle and its measured cap-area deficit, `tests/cli/test_check.py`
+  pins `coarse`'s exact node and element counts, and `tests/geometry/test_load.py`
+  reads `mesh/coarse.msh`. Change it and four test files move with it.
+- `sphcap_meshing` — the same shape at 30°, nine meshes, asking which *meshing
+  strategy* buys accuracy against the closed form. Parametric geometry
+  (`mesh_sphere_cap`), no STEP. `README.md` there carries the measured result.
+- `plate` — geodesic vs euclidean sizing, the one geometry where the two
+  genuinely disagree (`sphcap_meshing` is the convex control where they must not).
+- `hutubs21_glassesearbuds` — the real HRTF workload.
 
 ## Usage: the `bem` CLI
 
@@ -590,7 +650,13 @@ the surface (Hint 3) — `bem STUDY check` verifies this against every
 needs the `analytic` extra) computes exact pressure for axisymmetric spherical
 cap vibration via spherical-harmonic expansion:
 `sphcap_pressure(eval_points, frequencies, c0, rho0, angle_deg, radius_mm,
-nmax)` → raw pressure array. It is the reference `models/sphcap` and the
+nmax=None)` → raw pressure array. **`nmax` has a ceiling, not just a floor**:
+`y_n(x) ~ -(2n-1)!!/x^(n+1)` overflows for `n` well past `x`, and `1j * inf` is
+`nan + inf j`, so asking for a higher order past that point does not buy
+accuracy — it returns NaN, and used to do so silently. `nmax=None` (the
+default) picks `ceil(k_max · r0) + 20`, measured converged to 1e-12 against a
+hand-picked 80 over 250 Hz–16 kHz; an explicit `nmax` that would overflow now
+raises and names one that works. It is the reference `models/sphcap` and the
 `BemppSolver` cross-validation test are both checked against.
 
 ## Visualization: `bemkit.view`
