@@ -53,6 +53,13 @@ CORPUS = {
     "solver_knobs": _minimal(bem_type=0, isolver=4, min_expansion_terms=7,
                              cluster_edge_length=0.05, preconditioner=-2,
                              is_internal=1),
+    # A bundle with no EvalGrid at all: the NODES/ELEMENTS sections name one
+    # file each. NumCalc reads node files in a `while(i < numNodes_)` loop
+    # (NC_Input.cpp:371), so it stops after the object mesh and the next line
+    # it reads must be the ELEMENTS keyword -- listing an EvalGrid file that
+    # is never consumed makes it hard-error with "Key word ELEMENTS expected!"
+    "boundary_only": _minimal(node_files=("ObjectMesh/Nodes.txt",),
+                              element_files=("ObjectMesh/Elements.txt",)),
 }
 
 

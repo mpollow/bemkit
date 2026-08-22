@@ -117,6 +117,15 @@ class Deck:
     # -- mesh --
     n_total_nodes: int = 0
     n_total_elements: int = 0
+    #: Mesh files named by the NODES/ELEMENTS sections, in read order.
+    #:
+    #: Two by default, one per file when there is no EvalGrid. The count is
+    #: load-bearing: NumCalc reads node files in a ``while(i < numNodes_)``
+    #: loop (``NC_Input.cpp:371``) and stops as soon as it has
+    #: ``n_total_nodes`` of them, so a listed-but-uncounted EvalGrid line is
+    #: never consumed and is then read where the ELEMENTS keyword is
+    #: expected -- "Key word ELEMENTS expected!", and the run dies. A
+    #: boundary-only bundle must therefore name the object mesh alone.
     node_files: tuple = ("ObjectMesh/Nodes.txt", "EvalGrid/Nodes.txt")
     element_files: tuple = ("ObjectMesh/Elements.txt", "EvalGrid/Elements.txt")
 
@@ -397,11 +406,9 @@ class Deck:
             kw = cur.take()
             head = kw[0].upper()
             if head == "NODES":
-                deck.node_files = tuple(" ".join(cur.take())
-                                        for _ in range(2))
+                deck.node_files = cur.read_files()
             elif head == "ELEMENTS":
-                deck.element_files = tuple(" ".join(cur.take())
-                                           for _ in range(2))
+                deck.element_files = cur.read_files()
             elif head == "SYMMETRY":
                 deck.symmetry_planes = [int(v) for v in cur.take()]
                 deck.symmetry_coordinates = [float(v) for v in cur.take()]
@@ -468,6 +475,18 @@ class _DeckParser:
             if row[0].upper() == "RETU":
                 return out
             out.append(parse_bc_line(row, where=f"{self.path}: "))
+
+    def read_files(self):
+        """Read mesh-file names until the next section keyword.
+
+        The count is not fixed at two. A boundary-only bundle has no
+        EvalGrid, and then NODES/ELEMENTS name one file each -- see
+        ``Deck.node_files``.
+        """
+        out = []
+        while (row := self.peek()) is not None and row[0].upper() not in _KEYWORDS:
+            out.append(" ".join(self.take()))
+        return tuple(out)
 
     def read_sources(self):
         """Read 8-term source rows until the next section keyword."""

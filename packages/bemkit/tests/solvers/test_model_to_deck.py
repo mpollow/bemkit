@@ -155,3 +155,29 @@ def test_time_factor_is_set_explicitly_not_left_to_the_deck_default():
     m = Model(MESH, FREQS, Medium(), bcs=[BC(Group("vibrating"), Velocity(1.0))],
               time_factor=1.0)
     assert model_to_deck(m, n_eval_nodes=1, n_eval_elements=1).time_factor == 1.0
+
+
+class TestBoundaryOnly:
+    """No field points at all -- the deck must not name an EvalGrid.
+
+    NumCalc supports this (`NC_Addresses.cpp:202` and
+    `NC_PostProcessing.cpp:122` both guard on
+    ``numNodesOfEvaluationMesh_ > 0``), and it is what a surface-pressure
+    study wants: the boundary solution is the answer, and the eval grid is
+    pure cost.
+    """
+
+    def test_file_lists_name_the_object_mesh_alone(self):
+        deck = model_to_deck(_model(), n_eval_nodes=0, n_eval_elements=0)
+        assert deck.node_files == ("ObjectMesh/Nodes.txt",)
+        assert deck.element_files == ("ObjectMesh/Elements.txt",)
+
+    def test_totals_are_the_object_mesh_alone(self):
+        deck = model_to_deck(_model(), n_eval_nodes=0, n_eval_elements=0)
+        assert deck.n_total_nodes == MESH.n_nodes
+        assert deck.n_total_elements == MESH.n_elements
+
+    def test_an_eval_grid_still_gets_both_files(self):
+        deck = model_to_deck(_model(), n_eval_nodes=3, n_eval_elements=1)
+        assert len(deck.node_files) == 2
+        assert deck.n_total_nodes == MESH.n_nodes + 3

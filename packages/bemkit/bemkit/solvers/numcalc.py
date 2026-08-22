@@ -144,6 +144,13 @@ def model_to_deck(model, *, n_eval_nodes, n_eval_elements, header=None,
             itself (the solver derives it from which mesh files it reads) —
             so the caller, who has already written (or sized) the EvalGrid,
             supplies these rather than the Deck deriving them.
+
+            **Zero means boundary-only**, and then the NODES/ELEMENTS
+            sections name the object mesh alone. That is not cosmetic:
+            NumCalc stops reading node files once it has ``n_total_nodes``
+            of them (``NC_Input.cpp:371``), so an ``EvalGrid/Nodes.txt``
+            line it never consumes is read where ELEMENTS is expected and
+            the run dies with "Key word ELEMENTS expected!".
         header: optional list of leading ``##`` comment lines for
             provenance. Defaults to none.
         title: free-text deck title (a comment in NC.inp, no semantic
@@ -155,6 +162,11 @@ def model_to_deck(model, *, n_eval_nodes, n_eval_elements, header=None,
     """
     boundary, curves = _boundary_lines(model)
     plane_waves, point_sources = _sources(model)
+
+    files = {}
+    if n_eval_nodes == 0:
+        files = dict(node_files=("ObjectMesh/Nodes.txt",),
+                     element_files=("ObjectMesh/Elements.txt",))
 
     deck = Deck(
         title=title,
@@ -170,6 +182,7 @@ def model_to_deck(model, *, n_eval_nodes, n_eval_elements, header=None,
         point_sources=point_sources,
         curves=curves,
         header=list(header) if header else [],
+        **files,
     )
     deck.validate()
     return deck
@@ -220,8 +233,9 @@ class NumCalcSolver:
                 that is not NumCalc has nothing to do with these.
 
         Raises:
-            ValueError: every field point was dropped by validation (or the
-                model has none to begin with).
+            ValueError: every field point of a model that has some was
+                dropped by validation. A model with no field sets at all is
+                boundary-only and solves fine — see :meth:`export`.
             RuntimeError: NumCalc exited non-zero for one or more jobs.
         """
         if workdir is not None:
@@ -245,33 +259,48 @@ class NumCalcSolver:
         estimate-ram`` needs a bundle to point NumCalc's clustering pass at,
         and has no business solving anything to get one.
 
+        A model with no field sets writes **no EvalGrid at all** and a deck
+        naming only the object mesh. The boundary solution is still written
+        in full, which is the whole point: a scattering study that wants the
+        surface pressure pays nothing for field points it will not read.
+
         Returns:
             ``{set name: (k,) int array}`` — the field-point offsets that
-            survived validation, as :class:`Results` needs them.
+            survived validation, as :class:`Results` needs them. Empty for a
+            boundary-only model.
         """
         workdir = Path(workdir)
         workdir.mkdir(parents=True, exist_ok=True)
 
         raw_points, _ = fieldpoints.combine(model.fields)
-        if len(raw_points) == 0:
-            raise ValueError(
-                "model has no field points to evaluate -- NumCalc needs at "
-                "least one EvalGrid point (boundary-only results are not "
-                "yet supported by this solver)")
 
-        mask = fieldpoints.validate(raw_points, model.mesh,
-                                    exterior=model.exterior)
-        points, offsets = fieldpoints.combine(model.fields, mask)
-        if len(points) == 0:
-            raise ValueError(
-                f"all {len(raw_points)} field point(s) were dropped by "
-                f"validation (on the wrong side of the surface, or too "
-                f"close to it) -- check the field-point sets against the "
-                f"mesh and Model.exterior")
+        # No field sets at all is a boundary-only model, and a legitimate one:
+        # the surface pressure IS the answer for a scattering study, and the
+        # eval grid is pure cost. NumCalc supports it -- it guards both the
+        # eval-grid clustering (`NC_Addresses.cpp:202`) and every
+        # p/vEvalGrid write (`NC_PostProcessing.cpp:122`) on
+        # `numNodesOfEvaluationMesh_ > 0`.
+        #
+        # A model that HAS field sets and loses every one of them to
+        # validation is the opposite case -- someone asked for points and got
+        # none -- so that still raises, below.
+        points, offsets = (), {}
+        if len(raw_points):
+            mask = fieldpoints.validate(raw_points, model.mesh,
+                                        exterior=model.exterior)
+            points, offsets = fieldpoints.combine(model.fields, mask)
+            if len(points) == 0:
+                raise ValueError(
+                    f"all {len(raw_points)} field point(s) were dropped by "
+                    f"validation (on the wrong side of the surface, or too "
+                    f"close to it) -- check the field-point sets against the "
+                    f"mesh and Model.exterior")
 
         write_object_mesh(model.mesh.vertices, model.mesh.triangles, workdir)
-        write_eval_grid_nodes(points, workdir)
-        n_eval_elements = write_eval_grid_elements(len(points), workdir)
+        n_eval_elements = 0
+        if len(points):
+            write_eval_grid_nodes(points, workdir)
+            n_eval_elements = write_eval_grid_elements(len(points), workdir)
 
         deck = model_to_deck(model, n_eval_nodes=len(points),
                              n_eval_elements=n_eval_elements)
