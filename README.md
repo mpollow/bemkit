@@ -50,4 +50,5 @@ See CONTRIBUTING.md — sign-off (DCO) required.
 
 ## License
 
-GPL-3.0-only. See LICENSE.
+Copyright (c) 2026 Martin Pollow. GPL-3.0-only. See LICENSE.
+For the origin of this code and its git history, see PROVENANCE.md.

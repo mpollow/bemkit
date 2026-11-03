@@ -46,3 +46,12 @@ models/*/pinna_*.png
 models/*/build*.log
 models/*/fit_report.txt
 models/*/mesh/fit_report_cache.json
+
+# Only these studies are public. Research studies live in the private sibling
+# repo ~/projects/bemkit-studies, as do specs and plans, so neither can be
+# committed here by accident.
+models/*
+!models/sphcap/
+!models/sphcap_meshing/
+!models/plate/
+docs/superpowers/

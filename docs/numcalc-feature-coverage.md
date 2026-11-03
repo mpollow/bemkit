@@ -506,7 +506,7 @@ library:
 **Superseded 2026-08-12.** The tier roadmap below describes the config.toml
 era (`ModelConfig`, `bemkit/numcalc/`, `write_nc_inp`/`deck_from_config`) and
 is kept as the historical record of what shipped and why. The restructure
-documented in `docs/superpowers/specs/2026-08-12-fresh-structure-design.md`
+documented in a design spec of 2026-08-12 (kept privately)
 deleted that config grammar entirely and replaced it with a Python
 `model.py` over `bemkit.model.Model`; `bemkit/numcalc/` became
 `bemkit/solvers/numcalc.py` + `numcalckit`. Every *capability* landed here

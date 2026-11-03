@@ -427,7 +427,12 @@ without colliding. `match_variants(names, prefixes)` implements the CLI's
   (`mesh_sphere_cap`), no STEP. `README.md` there carries the measured result.
 - `plate` — geodesic vs euclidean sizing, the one geometry where the two
   genuinely disagree (`sphcap_meshing` is the convex control where they must not).
-- `hutubs21_glassesearbuds` — the real HRTF workload.
+
+Those three are the only studies in this repo, and `.gitignore` allows no others
+under `models/`. The research studies (`hutubs21_glassesearbuds`, the real HRTF
+workload, and others) moved to the private sibling repo `~/projects/bemkit-studies`
+on 2026-11-03, along with `docs/superpowers/`. Commit messages and code comments
+here that mention them are provenance notes; the paths do not exist in this repo.
 
 ## Usage: the `bem` CLI
 
@@ -543,7 +548,7 @@ A second checkout on this machine, `projects_EXT/mesh2hrtf-git-sf/…/Source/`,
 still carries an older `int niter_max = 1500` — a line that is *commented out*
 in the real tree and superseded by `niter_max_ = 250`. Taking the 1500
 overstates the headroom by 6x and makes a run that nearly truncated look safe.
-250 is low enough to bite: `models/hutubs21_glassesearbuds` passes
+250 is low enough to bite: the private `hutubs21_glassesearbuds` study passes
 `--nitermax 4000` as a correctness requirement, because at the default eight
 glasses bins stopped at residuals of 3.8e-6 to 9.4e-4.
 
